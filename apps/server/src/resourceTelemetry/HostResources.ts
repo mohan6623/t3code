@@ -1,5 +1,6 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect has no free-space query.
 import * as NodeFSP from "node:fs/promises";
+import type { StatsFs } from "node:fs";
 import * as NodeOS from "node:os";
 import type { HostResourcesSnapshot } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -176,8 +177,17 @@ const make = Effect.fn("makeHostResources")(function* (diskPath: string) {
         memoryMax - (memoryCurrent - reclaimable),
       );
     }
-    // Fork: bavail, not bfree, so space reserved for root does not read as free.
-    const stats = yield* Effect.promise(() => NodeFSP.statfs(diskPath).catch(() => null));
+    // Fork: bavail, not bfree, so space reserved for root does not read as free. The state
+    // dir can sit on a roomy mount while `/` fills up, so report whichever is fuller.
+    const stats = (yield* Effect.promise(() =>
+      Promise.all([...new Set([diskPath, "/"])].map((path) => NodeFSP.statfs(path).catch(() => null))),
+    )).reduce<StatsFs | null>(
+      (fullest, next) =>
+        next && next.blocks > 0 && (!fullest || next.bavail / next.blocks < fullest.bavail / fullest.blocks)
+          ? next
+          : fullest,
+      null,
+    );
     const disk = stats
       ? {
           diskTotalBytes: stats.blocks * stats.bsize,

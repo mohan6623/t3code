@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import type * as NodeFSP from "node:fs/promises";
 import type * as NodeOS from "node:os";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
@@ -32,9 +33,25 @@ vi.mock("node:os", async (importOriginal) => {
     },
   };
 });
-const setup = (busy = 0) => {
+// Filesystems by path as [total, available] GiB; other paths hit the real statfs.
+const disks = vi.hoisted(() => new Map<string, readonly [number, number]>());
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFSP>();
+  return {
+    ...actual,
+    statfs: async (path: string) => {
+      const disk = disks.get(path);
+      return disk
+        ? { bsize: 1024 ** 3, blocks: disk[0], bavail: disk[1] }
+        : actual.statfs(path);
+    },
+  };
+});
+const setup = (busy = 0, mounts: Record<string, readonly [number, number]> = {}) => {
   host.busy = busy;
   host.reads = 0;
+  disks.clear();
+  for (const [path, disk] of Object.entries(mounts)) disks.set(path, disk);
 };
 
 const GiB = 1024 ** 3;
@@ -51,9 +68,9 @@ const unlimitedCgroup = {
 };
 
 // Each path serves its values in order and repeats the last one.
-const linuxHost = (files: Record<string, ReadonlyArray<string>>) => {
+const linuxHost = (files: Record<string, ReadonlyArray<string>>, diskPath = "/") => {
   const reads = new Map<string, number>();
-  return HostResources.layerAt("/").pipe(
+  return HostResources.layerAt(diskPath).pipe(
     Layer.provide(
       Layer.mergeAll(
         FileSystem.layerNoop({
@@ -132,6 +149,16 @@ describe("HostResources.layer", () => {
         }),
       ),
     ),
+  );
+
+  it.effect("reports the root filesystem when it is fuller than the state dir's", () =>
+    Effect.gen(function* () {
+      setup(0, { "/data": [100, 20], "/": [50, 0] });
+      const snapshot = yield* read;
+
+      assert.strictEqual(snapshot.diskTotalBytes, 50 * GiB);
+      assert.strictEqual(snapshot.diskAvailableBytes, 0);
+    }).pipe(Effect.provide(linuxHost(unlimitedCgroup, "/data"))),
   );
 
   it.effect("counts a busy host against an idle, quota-limited server cgroup", () =>

@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { msg, T, useGT, useMessages } from "gt-react";
-import { type ReactNode, useSyncExternalStore } from "react";
+import { type ReactNode, useState, useSyncExternalStore } from "react";
 
 import type { MessageResolver } from "~/i18n/messages";
 import { cn } from "~/lib/utils";
@@ -9,6 +9,7 @@ import { environmentUpdateStatesAtom } from "~/state/server";
 import { useServerUpdate } from "../ServerUpdateAction";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { useSidebar } from "../ui/sidebar";
 import {
   describeUpdateCapsule,
   formatUpdateElapsed,
@@ -81,6 +82,12 @@ export function SidebarUpdateCapsule({
   readonly onRestart?: () => Promise<void>;
 }) {
   const machines = useUpdateRunMachineViews(run);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const sidebar = useSidebar();
+  // Fork: the trigger slides off-screen when a peeking sidebar hides; don't strand its card.
+  if (popoverOpen && !(sidebar.isMobile ? sidebar.openMobile : sidebar.open || sidebar.peeking)) {
+    setPopoverOpen(false);
+  }
   const hasActiveMachine = machines.some(
     ({ status }) => status !== "done" && status !== "failed" && status !== "waiting",
   );
@@ -106,7 +113,7 @@ export function SidebarUpdateCapsule({
   };
 
   return (
-    <Popover>
+    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
       <div
         className={cn(
           "relative ml-auto flex h-8 w-8 shrink-0 items-center justify-end rounded-full bg-sidebar-control-surface text-sidebar-foreground transition-[width] duration-200 ease-out motion-reduce:transition-none",

@@ -1,6 +1,8 @@
 import { OrchestratorMcpFailure, type ServerSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
+import * as HostResourceHistory from "../../../resourceTelemetry/HostResourceHistory.ts";
+import * as HostResources from "../../../resourceTelemetry/HostResources.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -40,7 +42,50 @@ const access = Effect.gen(function* () {
     });
   return { ...context, descriptor, settings: yield* Settings.ServerSettingsService };
 });
+const percentOf = (fraction: number | null) =>
+  fraction === null ? null : Math.round(Math.min(1, Math.max(0, fraction)) * 100);
+const gb = (bytes: number) => Math.round((bytes / 1024 ** 3) * 10) / 10;
+
+const busiest = Effect.fn("EnvironmentResources.busiest")(function* (windowMs: number) {
+  const history = yield* HostResourceHistory.HostResourceHistory;
+  const point = (yield* history.read({ windowMs, points: 1 })).points[0];
+  return {
+    cpuPercent: percentOf(point?.cpu ?? null),
+    memoryPercent: percentOf(point?.memory ?? null),
+    diskPercent: percentOf(point?.disk ?? null),
+  };
+});
+
 export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
+  t3_environment_resources: McpToolAccess.reads(() =>
+    Effect.gen(function* () {
+      const { descriptor } = yield* access;
+      const host = yield* (yield* HostResources.HostResources).read;
+      const { diskTotalBytes, diskAvailableBytes } = host;
+      const hasDisk = diskTotalBytes !== undefined && diskAvailableBytes !== undefined;
+      return {
+        label: descriptor.label,
+        cpuCount: host.cpuCount,
+        memoryTotalGb: gb(host.totalMemoryBytes),
+        memoryFreeGb: gb(host.availableMemoryBytes),
+        diskTotalGb: hasDisk ? gb(diskTotalBytes) : null,
+        diskFreeGb: hasDisk ? gb(diskAvailableBytes) : null,
+        now: {
+          cpuPercent: percentOf(host.cpuUtilization),
+          memoryPercent:
+            host.totalMemoryBytes > 0
+              ? percentOf(1 - host.availableMemoryBytes / host.totalMemoryBytes)
+              : null,
+          diskPercent:
+            hasDisk && diskTotalBytes > 0
+              ? percentOf(1 - diskAvailableBytes / diskTotalBytes)
+              : null,
+        },
+        busiestLast30Minutes: yield* busiest(30 * 60_000),
+        busiestLast24Hours: yield* busiest(24 * 60 * 60_000),
+      };
+    }),
+  ),
   t3_environment_read: McpToolAccess.reads(() =>
     Effect.gen(function* () {
       const { descriptor, settings } = yield* access;

@@ -1105,6 +1105,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "environment-resources": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Checked machine resources {count} time} other {Checked machine resources {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to check machine resources {count} time} other {Tried to check machine resources {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "environment-update": {
       const count = selected.length;
       label = done

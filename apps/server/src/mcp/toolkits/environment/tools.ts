@@ -12,6 +12,8 @@ import { Tool, Toolkit } from "effect/ai";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as HostResourceHistory from "../../../resourceTelemetry/HostResourceHistory.ts";
+import * as HostResources from "../../../resourceTelemetry/HostResources.ts";
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -67,4 +69,39 @@ const EnvironmentPreferencesTool = Tool.make("t3_environment_preferences_update"
   }),
   success: Schema.Struct(PreferenceFields),
 }).annotate(Tool.Destructive, true);
-export const EnvironmentToolkit = Toolkit.make(EnvironmentReadTool, EnvironmentPreferencesTool);
+// Fork: lets agents check a machine's load, here or linked, before choosing where to run work.
+const UsedPercent = Schema.NullOr(Schema.Int);
+const ResourceReading = Schema.Struct({
+  cpuPercent: UsedPercent,
+  memoryPercent: UsedPercent,
+  diskPercent: UsedPercent,
+});
+const EnvironmentResourcesTool = Tool.make("t3_environment_resources", {
+  ...shared,
+  dependencies: [
+    ...shared.dependencies,
+    HostResources.HostResources,
+    HostResourceHistory.HostResourceHistory,
+  ],
+  description:
+    "Read a machine's CPU, memory and disk use: now, and the busiest minute of the last 30 min and 24 h. Pass a linked `environmentId` to check another machine, such as before choosing where to run work.",
+  parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
+  success: Schema.Struct({
+    label: Schema.String,
+    cpuCount: Schema.Int,
+    memoryTotalGb: Schema.Number,
+    memoryFreeGb: Schema.Number,
+    diskTotalGb: Schema.NullOr(Schema.Number),
+    diskFreeGb: Schema.NullOr(Schema.Number),
+    now: ResourceReading,
+    busiestLast30Minutes: ResourceReading,
+    busiestLast24Hours: ResourceReading,
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+export const EnvironmentToolkit = Toolkit.make(
+  EnvironmentReadTool,
+  EnvironmentPreferencesTool,
+  EnvironmentResourcesTool,
+);

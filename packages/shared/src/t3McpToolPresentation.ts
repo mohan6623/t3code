@@ -51,6 +51,7 @@ export type T3McpToolSummaryAction =
   | "project-delete"
   | "project-clone"
   | "environment-read"
+  | "environment-resources"
   | "environment-links"
   | "environment-link"
   | "environment-unlink"
@@ -402,6 +403,10 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_environment_read: tool(
     ["Read", "Reading", "Read", "environment preferences"],
     "environment-read",
+  ),
+  t3_environment_resources: tool(
+    ["Check", "Checking", "Checked", "machine resources"],
+    "environment-resources",
   ),
   t3_environment_links: tool(
     ["List", "Listing", "Listed", "linked environments"],

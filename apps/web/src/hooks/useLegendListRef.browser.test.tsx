@@ -54,6 +54,36 @@ it("keeps rows at their layout height when they re-render while an ancestor is s
   });
 });
 
+// Fork: guards the patch that defers size corrections until the browser's scroll ends.
+it("lets a smooth scroll travel its full distance while rows above it are measured", async () => {
+  const listRef = createRef<LegendListRef | null>();
+  const items = Array.from({ length: 80 }, (_, index) => `Row ${index}`);
+  // Rows are three times their estimate, so each one measured above the viewport needs a correction.
+  await using screen = await render(
+    <LegendList
+      ref={listRef}
+      data={items}
+      keyExtractor={(item) => item}
+      estimatedItemSize={40}
+      initialScrollAtEnd
+      maintainVisibleContentPosition={{ data: true, size: true }}
+      renderItem={({ item }) => <div style={{ height: 120 }}>{item}</div>}
+      style={{ height: 300, width: 300 }}
+    />,
+  );
+  await expect.element(screen.getByText("Row 79")).toBeVisible();
+  const scroller = listRef.current!.getScrollableNode() as HTMLElement;
+  const distanceFromEnd = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+  const before = distanceFromEnd();
+  const ended = new Promise((resolve) =>
+    scroller.addEventListener("scrollend", resolve, { once: true }),
+  );
+  scroller.scrollBy({ top: -1200, behavior: "smooth" });
+  await ended;
+  // Every row between the viewport and the end is measured by now, so this is the visual travel.
+  await vi.waitFor(() => expect(distanceFromEnd() - before).toBeCloseTo(1200, 0));
+});
+
 it("refreshes list edges after content shrinks without scrolling and after the list reopens", async () => {
   const listRef = createRef<LegendListRef | null>();
   const items = Array.from({ length: 20 }, (_, index) => `Row ${index}`);

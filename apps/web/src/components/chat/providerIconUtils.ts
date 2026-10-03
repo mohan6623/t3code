@@ -24,12 +24,23 @@ function stripLeadingQualifier(value: string, qualifier: string | null | undefin
   return value.replace(pattern, "").trim() || value;
 }
 
+/**
+ * Drops the "Claude" brand from Claude family names on every provider, so
+ * "Claude Opus 5.5" and Cursor's "Claude 4.5 Sonnet" read "Opus 5.5" and
+ * "Sonnet 4.5".
+ */
+export function shortenClaudeModelName(name: string): string {
+  return name
+    .replace(/^Claude\s+(\d[\d.]*)\s+(Opus|Sonnet|Haiku|Fable)\b/iu, "$2 $1")
+    .replace(/^Claude\s+(?=(?:Opus|Sonnet|Haiku|Fable)\b)/iu, "");
+}
+
 export function getDisplayModelName(
   model: ModelEsque,
   options?: { preferShortName?: boolean },
 ): string {
   const name = options?.preferShortName && model.shortName ? model.shortName : model.name;
-  return stripLeadingQualifier(name, model.subProvider);
+  return shortenClaudeModelName(stripLeadingQualifier(name, model.subProvider));
 }
 
 export function getTriggerDisplayModelName(model: ModelEsque): string {

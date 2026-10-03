@@ -6,7 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { fileBasename } from "@t3tools/client-runtime/markdown-links";
 import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
-import { getTriggerDisplayModelName } from "./providerIconUtils";
+import { getTriggerDisplayModelName, shortenClaudeModelName } from "./providerIconUtils";
 import type { ReactNode } from "react";
 import {
   BotIcon,
@@ -45,7 +45,7 @@ export function SubagentTooltipContent(props: {
   const modelLabel = providerModel
     ? getTriggerDisplayModelName(providerModel)
     : model
-      ? formatModelSlugName(model)
+      ? shortenClaudeModelName(formatModelSlugName(model))
       : "Not reported";
   const currentWorkspace = props.parentThread?.worktreePath ?? props.parentProject?.workspaceRoot;
   const childWorkspace = props.childThread?.worktreePath ?? props.childProject?.workspaceRoot;

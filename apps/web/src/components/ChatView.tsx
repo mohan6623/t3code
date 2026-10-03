@@ -416,7 +416,7 @@ import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { MessagesTimeline, type MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
-import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
+import { getTriggerDisplayModelName, shortenClaudeModelName } from "./chat/providerIconUtils";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import {
   overlayComposerIsResting,
@@ -4083,7 +4083,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const providerSubagentModelLabel = providerSubagentCatalogModel
     ? getTriggerDisplayModelName(providerSubagentCatalogModel)
-    : formatModelSlugName(activeThread?.modelSelection.model ?? "");
+    : shortenClaudeModelName(formatModelSlugName(activeThread?.modelSelection.model ?? ""));
   const providerSubagentEffortLabel =
     activeThread === undefined
       ? null

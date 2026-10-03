@@ -5090,8 +5090,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Keep collapsed controls inside the input when workspace context is hidden.
   // Model and mode controls always live in the strip below the composer when
   // one is mounted; the composer itself only grows and shrinks around the prompt.
+  const controlsInStrip = restingControlsHost !== null;
   const composerControlsCollapsed =
-    isComposerResting || isComposerCollapsedMobile || restingControlsHost !== null;
+    isComposerResting || isComposerCollapsedMobile || controlsInStrip;
+  // With the controls in the strip, resting only clamps the prompt to one
+  // line; everything else keeps its expanded position so nothing jumps.
+  const restingReflows = isComposerResting && !controlsInStrip;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
@@ -6834,7 +6838,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 "pt-3.5 sm:pt-4",
                 isComposerApprovalState && "pb-3 sm:pb-4",
                 isComposerCollapsedMobile && "hidden",
-                isComposerResting && "py-2 sm:py-2",
+                restingReflows && "py-2 sm:py-2",
               )}
             >
               {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
@@ -7244,8 +7248,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <div
                 className={cn(
                   "relative",
-                  isComposerResting && "flex min-w-0 items-center gap-1",
-                  isComposerResting &&
+                  restingReflows && "flex min-w-0 items-center gap-1",
+                  restingReflows &&
                     ((settings.contextWindowMeterEnabled && activeContextWindow) ||
                     reserveContextWindowMeter
                       ? "pr-28"
@@ -7317,16 +7321,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     buildContextClipboardFragment={buildContextClipboardFragment}
                     importContextFragment={importContextFragment}
                     skills={selectedProviderSkills}
-                    containerClassName={cn(isComposerResting && "min-w-0 flex-1")}
+                    containerClassName={cn(restingReflows && "min-w-0 flex-1")}
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
-                      isComposerResting &&
+                      restingReflows &&
                         "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                       isComposerApprovalState && "min-h-10",
-                      composerControlsCollapsed && !isComposerResting && "pe-28",
+                      controlsInStrip && "min-h-[calc(1lh+0.5rem)] pe-28",
+                      controlsInStrip &&
+                        isComposerResting &&
+                        "max-h-[calc(1lh+0.5rem)] overflow-hidden",
                     )}
                     placeholderClassName={cn(
-                      isComposerResting &&
+                      restingReflows &&
                         "flex items-center overflow-hidden whitespace-nowrap leading-8",
                     )}
                     onChange={onPromptChange}
@@ -7363,7 +7370,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                   />
                 </ComposerContextActionsContext>
-                {isComposerResting ? collapsedComposerImagePreviews : null}
+                {restingReflows ? collapsedComposerImagePreviews : null}
                 {showMobilePendingAnswerActions ? (
                   <div
                     data-chat-composer-mobile-pending-actions="true"
@@ -7410,13 +7417,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   pendingUserInputs.length > 0 && "pt-2",
                   isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                   showMobilePendingAnswerActions && "hidden sm:flex",
-                  isComposerResting &&
+                  restingReflows &&
                     "absolute right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
-                  isComposerResting &&
+                  restingReflows &&
                     (showInlineRestingControls ? "bottom-[calc(2rem+1px)]" : "bottom-px"),
-                  composerControlsCollapsed &&
-                    !isComposerResting &&
-                    "pointer-events-none -mt-11 justify-end *:pointer-events-auto",
+                  controlsInStrip && "pointer-events-none -mt-11 justify-end *:pointer-events-auto",
                 )}
               >
                 <div
@@ -7478,7 +7483,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     </>
                   ) : null}
                   <ComposerFooterPrimaryActions
-                    compact={isComposerResting || isComposerPrimaryActionsCompact}
+                    compact={restingReflows || isComposerPrimaryActionsCompact}
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }

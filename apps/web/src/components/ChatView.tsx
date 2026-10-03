@@ -4094,7 +4094,7 @@ export default function ChatView(props: ChatViewProps) {
         );
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
-    persistInActiveThreads: settings.persistComposerContextStrip,
+    persistInActiveThreads: true,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
@@ -4102,7 +4102,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
-    persistInActiveThreads: settings.persistComposerContextStrip,
+    persistInActiveThreads: true,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
@@ -11063,7 +11063,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
-                                showGitControls={isGitRepo}
+                                showGitControls={isGitRepo && isDraftHeroState}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChange}
                                 startFromOrigin={startFromOrigin}
@@ -11103,6 +11103,7 @@ export default function ChatView(props: ChatViewProps) {
                                       activeThread?.modelSelection.model ??
                                       activeProjectDefaultModelSelection?.model
                                     }
+                                    lastRun={activeLatestRun}
                                   />
                                 }
                               />

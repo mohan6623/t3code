@@ -11,7 +11,7 @@ import {
   providersWithLimits,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, TimerIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -70,6 +70,38 @@ function relevantWindows(
   const poolId = isCursorOwnModel(modelSlug) ? "autoPercentUsed" : "apiPercentUsed";
   const pool = limits.windows.filter((window) => window.id === poolId);
   return pool.length > 0 ? pool : limits.windows;
+}
+
+/**
+ * Prompt-cache lifetime in minutes, by provider. Claude subscriptions get a
+ * 1-hour cache; Codex keeps roughly 10 idle minutes; Cursor uses the
+ * upstream default of 5 minutes for most models. Estimates, not reported.
+ */
+function cacheTtlMinutes(provider: ServerProvider, modelSlug: string | undefined): number | null {
+  switch (provider.driver) {
+    case "claudeAgent":
+      return 60;
+    case "codex":
+      return 10;
+    case "cursor":
+      return isCursorOwnModel(modelSlug) ? null : 5;
+    default:
+      return null;
+  }
+}
+
+/** Whole minutes until the cache from the last turn goes cold; full while a turn runs. */
+function cacheMinutesLeft(
+  provider: ServerProvider,
+  modelSlug: string | undefined,
+  lastRun: { readonly completedAt: string | null } | null | undefined,
+  now: number,
+): number | null {
+  const ttl = cacheTtlMinutes(provider, modelSlug);
+  if (ttl === null || !lastRun) return null;
+  if (lastRun.completedAt === null) return ttl;
+  const elapsed = (now - Date.parse(lastRun.completedAt)) / MINUTE;
+  return Number.isFinite(elapsed) ? Math.max(0, Math.ceil(ttl - elapsed)) : null;
 }
 
 function providerName(provider: ServerProvider): string {
@@ -197,7 +229,12 @@ function OtherAccount({
 }) {
   const [open, setOpen] = useState(false);
   const color = barColor(provider.driver);
-  const tightest = Math.max(0, ...limits.windows.map((window) => window.usedPercent));
+  const tightestWindow = limits.windows.reduce<ServerProviderUsageWindow | null>(
+    (a, b) => (a === null || b.usedPercent > a.usedPercent ? b : a),
+    null,
+  );
+  const tightest = tightestWindow?.usedPercent ?? 0;
+  const reset = tightestWindow ? resetsIn(tightestWindow, now) : null;
   return (
     <div className="rounded-lg border bg-muted/30">
       <button
@@ -213,6 +250,9 @@ function OtherAccount({
         <Bar percent={tightest} color={color} className="ms-auto w-12 shrink-0" />
         <span className="w-9 shrink-0 text-end text-muted-foreground tabular-nums">
           {clampPercent(tightest)}%
+        </span>
+        <span className="w-12 shrink-0 text-end text-muted-foreground/70 tabular-nums">
+          {reset ?? ""}
         </span>
         <ChevronDownIcon
           className={cn("size-3.5 shrink-0 text-muted-foreground", open && "rotate-180")}
@@ -245,11 +285,14 @@ export function ComposerUsageStrip({
   providers,
   environmentId,
   modelSlug,
+  lastRun,
 }: {
   readonly provider: ServerProvider | null;
   readonly providers: readonly ServerProvider[];
   readonly environmentId: EnvironmentId;
   readonly modelSlug?: string | undefined;
+  /** The thread's latest run; null before the first turn. */
+  readonly lastRun?: { readonly completedAt: string | null } | null | undefined;
 }) {
   const now = useMinuteClock();
   const [refreshing, setRefreshing] = useState(false);
@@ -273,12 +316,7 @@ export function ComposerUsageStrip({
 
   const color = barColor(provider.driver);
   const tightest = windows.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
-  const summary = windows
-    .map((window) => {
-      const reset = resetsIn(window, now);
-      return `${clampPercent(window.usedPercent)}%${reset ? ` ${reset}` : ""}`;
-    })
-    .join(" · ");
+  const cacheMinutes = cacheMinutesLeft(provider, modelSlug, lastRun, now);
   const others = providersWithLimits(providers).filter(
     (other) => other.instanceId !== provider.instanceId && usableLimits(other) !== null,
   );
@@ -316,7 +354,14 @@ export function ComposerUsageStrip({
         <ProviderIcon provider={provider} />
         <span className="max-w-24 truncate">{providerName(provider)}</span>
         <Bar percent={tightest.usedPercent} color={color} className="w-10 shrink-0" />
-        <span className="truncate">{summary}</span>
+        {cacheMinutes !== null ? (
+          <span
+            className={cn("flex shrink-0 items-center gap-0.5", cacheMinutes === 0 && "opacity-50")}
+          >
+            <TimerIcon className="size-3" aria-hidden />
+            {cacheMinutes}m
+          </span>
+        ) : null}
       </PopoverTrigger>
       <PopoverPopup side="top" align="end" width="md" padding="compact">
         <div className="flex max-h-[min(70vh,36rem)] flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -326,7 +371,14 @@ export function ComposerUsageStrip({
               <span className="text-sm font-semibold text-foreground">
                 {driverLabel(provider)} usage
               </span>
-              <span className="text-xs text-muted-foreground">Updated {checkedAgo} ago</span>
+              <span className="text-xs text-muted-foreground">
+                Updated {checkedAgo} ago
+                {cacheMinutes !== null
+                  ? cacheMinutes > 0
+                    ? ` · Cache ~${cacheMinutes}m left`
+                    : " · Cache expired"
+                  : ""}
+              </span>
               <span className="truncate text-xs text-muted-foreground">
                 {providerName(provider)}
                 {provider.auth.label ? ` · ${provider.auth.label}` : ""}

@@ -35,6 +35,7 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
+import { ComposerUsageStrip } from "./chat/ComposerUsageStrip";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import { Minimize2Icon } from "lucide-react";
@@ -11093,6 +11094,17 @@ export default function ChatView(props: ChatViewProps) {
                                 availableEnvironments={logicalProjectEnvironments}
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
+                                trailingContent={
+                                  <ComposerUsageStrip
+                                    provider={activeProviderStatus}
+                                    providers={providerStatuses as ServerProvider[]}
+                                    environmentId={environmentId}
+                                    modelSlug={
+                                      activeThread?.modelSelection.model ??
+                                      activeProjectDefaultModelSelection?.model
+                                    }
+                                  />
+                                }
                               />
                             </div>
                           )}

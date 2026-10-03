@@ -420,6 +420,7 @@ function useComposerRestingTransition(
   onOverlayHeightChange: (height: number) => void,
   animationsActive: boolean,
   animationDurationMs: number,
+  staticContent = false,
 ) {
   const elementRef = useRef<HTMLDivElement>(null);
   const isCollapsedRef = useRef(isCollapsed);
@@ -469,9 +470,10 @@ function useComposerRestingTransition(
     element?.style.removeProperty("overflow");
     element?.style.removeProperty("clip-path");
     element?.style.removeProperty("overflow-clip-margin");
-    element
-      ?.querySelector<HTMLElement>('[data-chat-composer-surface="true"]')
-      ?.style.removeProperty("height");
+    const surface = element?.querySelector<HTMLElement>('[data-chat-composer-surface="true"]');
+    for (const property of ["height", "display", "flex-direction", "justify-content"]) {
+      surface?.style.removeProperty(property);
+    }
     footer?.style.removeProperty("position");
     footer?.style.removeProperty("top");
     footer?.style.removeProperty("bottom");
@@ -623,6 +625,14 @@ function useComposerRestingTransition(
           element.style.clipPath = `inset(0 0 -${controlsClearance}px 0)`;
         }
         surface.style.height = "100%";
+        if (staticContent) {
+          // Static content keeps its layout in both states; only the height
+          // tweens. Bottom alignment keeps the last line and the actions still
+          // while the lines above are revealed or clipped.
+          surface.style.display = "flex";
+          surface.style.flexDirection = "column";
+          surface.style.justifyContent = "flex-end";
+        }
 
         // Pinning the overlay at the destination height keeps the resize
         // observer quiet for the tween; bottom alignment keeps the animating
@@ -641,7 +651,7 @@ function useComposerRestingTransition(
         // height changes. Its resting absolute layout otherwise spans the old
         // height on collapse, while its expanded flow layout falls below the
         // clipped surface on expansion.
-        if (footer) {
+        if (footer && !staticContent) {
           footer.style.position = "absolute";
           footer.style.top = "auto";
           footer.style.bottom = `${String(footerBottom)}px`;
@@ -730,9 +740,11 @@ function useComposerRestingTransition(
             ),
           );
         };
-        animateContentPosition(prompt, previousPromptTop);
-        animateContentPosition(action, previousActionTop);
-        if (continuousControls) {
+        if (!staticContent) {
+          animateContentPosition(prompt, previousPromptTop);
+          animateContentPosition(action, previousActionTop);
+        }
+        if (continuousControls && !staticContent) {
           const previousControlsTop =
             interruptedControlsTop ??
             (previousContentOffsetsRef.current.controlsFromBottom === null
@@ -747,7 +759,7 @@ function useComposerRestingTransition(
         }
         contentAnimationsRef.current = contentAnimations;
 
-        if (stateChanged) {
+        if (stateChanged && !staticContent) {
           const stateChangeAnimations: Animation[] = [];
 
           // A prompt that gains lines on expansion would otherwise slide up
@@ -881,6 +893,7 @@ function useComposerRestingTransition(
       clearTransitionStyles,
       onOverlayHeightChange,
       restingControlsRef,
+      staticContent,
     ],
   );
 
@@ -5093,9 +5106,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const controlsInStrip = restingControlsHost !== null;
   const composerControlsCollapsed =
     isComposerResting || isComposerCollapsedMobile || controlsInStrip;
-  // With the controls in the strip, resting only clamps the prompt to one
-  // line; everything else keeps its expanded position so nothing jumps.
-  const restingReflows = isComposerResting && !controlsInStrip;
+  // With the controls in the strip, the prompt and actions share the resting
+  // row layout in every state. Resting then only clamps the prompt to its last
+  // line, so nothing moves when the composer rests or wakes.
+  const restingLayout = isComposerResting || controlsInStrip;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
@@ -5188,7 +5202,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onComposerOverlayHeightChange,
     panelAnimationsActive,
     panelAnimationDurationMs,
+    controlsInStrip,
   );
+  // A resting prompt shows its last line, the one the actions sit beside.
+  useLayoutEffect(() => {
+    if (!controlsInStrip || !isComposerResting) return;
+    const editor = composerMainSurfaceRef.current?.querySelector<HTMLElement>(
+      '[data-testid="composer-editor"]',
+    );
+    if (editor) editor.scrollTop = editor.scrollHeight;
+  }, [composerMainSurfaceRef, controlsInStrip, isComposerResting, prompt]);
   const canTrackComposerScrollGesture =
     routeKind === "server" && activeThreadId !== null && !isMobileViewport;
   const canScrollCollapseComposer =
@@ -6838,7 +6861,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 "pt-3.5 sm:pt-4",
                 isComposerApprovalState && "pb-3 sm:pb-4",
                 isComposerCollapsedMobile && "hidden",
-                restingReflows && "py-2 sm:py-2",
+                restingLayout && "py-2 sm:py-2",
               )}
             >
               {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
@@ -7248,8 +7271,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               <div
                 className={cn(
                   "relative",
-                  restingReflows && "flex min-w-0 items-center gap-1",
-                  restingReflows &&
+                  restingLayout && "flex min-w-0 gap-1",
+                  controlsInStrip ? "items-end" : restingLayout && "items-center",
+                  restingLayout &&
                     ((settings.contextWindowMeterEnabled && activeContextWindow) ||
                     reserveContextWindowMeter
                       ? "pr-28"
@@ -7321,20 +7345,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     buildContextClipboardFragment={buildContextClipboardFragment}
                     importContextFragment={importContextFragment}
                     skills={selectedProviderSkills}
-                    containerClassName={cn(restingReflows && "min-w-0 flex-1")}
+                    containerClassName={cn(restingLayout && "min-w-0 flex-1")}
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
-                      restingReflows &&
+                      isComposerResting &&
+                        !controlsInStrip &&
                         "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
+                      // One line fills the 2rem row the actions are centred on.
+                      controlsInStrip && "my-0 min-h-8 py-1 leading-6",
+                      controlsInStrip && isComposerResting && "max-h-8 overflow-hidden",
                       isComposerApprovalState && "min-h-10",
-                      controlsInStrip && "min-h-[calc(1lh+0.5rem)] pe-28",
-                      controlsInStrip &&
-                        isComposerResting &&
-                        "max-h-[calc(1lh+0.5rem)] overflow-hidden",
                     )}
                     placeholderClassName={cn(
-                      restingReflows &&
-                        "flex items-center overflow-hidden whitespace-nowrap leading-8",
+                      restingLayout && "flex items-center overflow-hidden whitespace-nowrap",
+                      isComposerResting && !controlsInStrip && "leading-8",
                     )}
                     onChange={onPromptChange}
                     onVisibleSelectionChange={expandComposerForEditorChange}
@@ -7370,7 +7394,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                   />
                 </ComposerContextActionsContext>
-                {restingReflows ? collapsedComposerImagePreviews : null}
+                {controlsInStrip ? (
+                  // Reserved in both states so the prompt never rewraps.
+                  <div
+                    className={cn(
+                      "flex h-8 shrink-0 items-center",
+                      !isComposerResting && "invisible",
+                    )}
+                  >
+                    {collapsedComposerImagePreviews}
+                  </div>
+                ) : isComposerResting ? (
+                  collapsedComposerImagePreviews
+                ) : null}
                 {showMobilePendingAnswerActions ? (
                   <div
                     data-chat-composer-mobile-pending-actions="true"
@@ -7417,11 +7453,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   pendingUserInputs.length > 0 && "pt-2",
                   isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                   showMobilePendingAnswerActions && "hidden sm:flex",
-                  restingReflows &&
-                    "absolute right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
-                  restingReflows &&
+                  restingLayout && "absolute right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
+                  restingLayout &&
                     (showInlineRestingControls ? "bottom-[calc(2rem+1px)]" : "bottom-px"),
-                  controlsInStrip && "pointer-events-none -mt-11 justify-end *:pointer-events-auto",
                 )}
               >
                 <div
@@ -7483,7 +7517,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     </>
                   ) : null}
                   <ComposerFooterPrimaryActions
-                    compact={restingReflows || isComposerPrimaryActionsCompact}
+                    compact={restingLayout || isComposerPrimaryActionsCompact}
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }

@@ -1582,6 +1582,8 @@ export interface ChatComposerProps {
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
   reportedModelSelection?: ModelSelection | null;
+  /** Usage badge shown at the end of the expanded model line. */
+  usageBadge?: ReactNode;
 
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
@@ -7428,6 +7430,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {composerControlsCollapsed ? null : props.usageBadge}
                   {showComposerAttachAction ? (
                     <>
                       <input

@@ -104,6 +104,19 @@ function cacheMinutesLeft(
   return Number.isFinite(elapsed) ? Math.max(0, Math.ceil(ttl - elapsed)) : null;
 }
 
+/**
+ * The badge names the session and the main weekly window only; per-model
+ * weekly windows (e.g. "Weekly · Fable") stay in the panel.
+ */
+function badgeWindows(
+  windows: readonly ServerProviderUsageWindow[],
+): readonly ServerProviderUsageWindow[] {
+  const session = windows.find((window) => window.kind === "session");
+  const weekly = windows.find((window) => window.kind === "weekly");
+  const picked = [session, weekly].filter((window) => window !== undefined);
+  return picked.length > 0 ? picked : windows.slice(0, 1);
+}
+
 function providerName(provider: ServerProvider): string {
   return provider.displayName?.trim() || getDriverOption(provider.driver)?.label || provider.driver;
 }
@@ -248,11 +261,8 @@ function OtherAccount({
           {providerName(provider)}
         </span>
         <Bar percent={tightest} color={color} className="ms-auto w-12 shrink-0" />
-        <span className="w-9 shrink-0 text-end text-muted-foreground tabular-nums">
-          {clampPercent(tightest)}%
-        </span>
-        <span className="w-12 shrink-0 text-end text-muted-foreground/70 tabular-nums">
-          {reset ?? ""}
+        <span className="shrink-0 text-muted-foreground tabular-nums">
+          {clampPercent(tightest)}%{reset ? ` · ${reset}` : ""}
         </span>
         <ChevronDownIcon
           className={cn("size-3.5 shrink-0 text-muted-foreground", open && "rotate-180")}
@@ -317,6 +327,12 @@ export function ComposerUsageStrip({
   const color = barColor(provider.driver);
   const tightest = windows.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
   const cacheMinutes = cacheMinutesLeft(provider, modelSlug, lastRun, now);
+  const summary = badgeWindows(windows)
+    .map((window) => {
+      const reset = resetsIn(window, now);
+      return `${clampPercent(window.usedPercent)}%${reset ? ` ${reset}` : ""}`;
+    })
+    .join(" · ");
   const others = providersWithLimits(providers).filter(
     (other) => other.instanceId !== provider.instanceId && usableLimits(other) !== null,
   );
@@ -354,6 +370,7 @@ export function ComposerUsageStrip({
         <ProviderIcon provider={provider} />
         <span className="max-w-24 truncate">{providerName(provider)}</span>
         <Bar percent={tightest.usedPercent} color={color} className="w-10 shrink-0" />
+        <span className="truncate">{summary}</span>
         {cacheMinutes !== null ? (
           <span
             className={cn("flex shrink-0 items-center gap-0.5", cacheMinutes === 0 && "opacity-50")}

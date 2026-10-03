@@ -4094,7 +4094,7 @@ export default function ChatView(props: ChatViewProps) {
         );
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
-    persistInActiveThreads: true,
+    persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
@@ -4102,7 +4102,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
-    persistInActiveThreads: true,
+    persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
@@ -4111,6 +4111,17 @@ export default function ChatView(props: ChatViewProps) {
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   const showComposerModelStrip = mountComposerModelStrip && restingComposerControlsVisible;
+  // One badge, placed by composer state: the model line when expanded, the
+  // resting strip when collapsed, the context strip on a new thread.
+  const composerUsageBadge = (
+    <ComposerUsageStrip
+      provider={activeProviderStatus}
+      providers={providerStatuses as ServerProvider[]}
+      environmentId={environmentId}
+      modelSlug={activeThread?.modelSelection.model ?? activeProjectDefaultModelSelection?.model}
+      lastRun={activeLatestRun}
+    />
+  );
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -10966,6 +10977,7 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeContextWindow={activeContextWindow}
+                              usageBadge={isDraftHeroState ? undefined : composerUsageBadge}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
@@ -11054,6 +11066,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={setRestingComposerControlsHost}
                                 className="min-w-0 flex-1"
                               />
+                              {composerUsageBadge}
                             </ComposerSurface.ContextStrip>
                           ) : null}
                           {mountComposerContextStrip && (
@@ -11063,7 +11076,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
-                                showGitControls={isGitRepo && isDraftHeroState}
+                                showGitControls={isGitRepo}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChange}
                                 startFromOrigin={startFromOrigin}
@@ -11095,16 +11108,9 @@ export default function ChatView(props: ChatViewProps) {
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
                                 trailingContent={
-                                  <ComposerUsageStrip
-                                    provider={activeProviderStatus}
-                                    providers={providerStatuses as ServerProvider[]}
-                                    environmentId={environmentId}
-                                    modelSlug={
-                                      activeThread?.modelSelection.model ??
-                                      activeProjectDefaultModelSelection?.model
-                                    }
-                                    lastRun={activeLatestRun}
-                                  />
+                                  isDraftHeroState || restingComposerControlsVisible
+                                    ? composerUsageBadge
+                                    : undefined
                                 }
                               />
                             </div>

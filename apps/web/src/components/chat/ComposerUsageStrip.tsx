@@ -12,11 +12,10 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { ChevronDownIcon, TimerIcon } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { usePanelAnimationSettings } from "../../panelAnimations";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { getDriverOption } from "../settings/providerDriverMeta";
@@ -25,30 +24,6 @@ import { ResetCredits, barColor } from "../usage/UsageLimits";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 const MINUTE = 60_000;
-
-/**
- * Fades its content in once the composer's resize tween has finished, so a
- * badge mounting on the expanded model line does not pop in mid-transition.
- */
-export function DelayedFadeIn({ children }: { readonly children: ReactNode }) {
-  const { active, durationMs } = usePanelAnimationSettings();
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (!active) return;
-    const animation = ref.current?.animate([{ opacity: 0 }, { opacity: 1 }], {
-      duration: durationMs,
-      delay: durationMs,
-      easing: "ease-out",
-      fill: "backwards",
-    });
-    return () => animation?.cancel();
-  }, [active, durationMs]);
-  return (
-    <div ref={ref} className="flex min-w-0 shrink items-center">
-      {children}
-    </div>
-  );
-}
 
 /** Re-renders once a minute so reset countdowns stay current without animating. */
 function useMinuteClock(): number {
@@ -73,6 +48,11 @@ function resetsIn(window: ServerProviderUsageWindow, now: number): string | null
 function usableLimits(provider: ServerProvider): ServerProviderUsageLimits | null {
   const limits = provider.usageLimits;
   return limits && limitsNotice(limits) === null ? limits : null;
+}
+
+/** Whether the badge has anything to show for this provider. */
+export function hasComposerUsageBadge(provider: ServerProvider | null): boolean {
+  return provider !== null && usableLimits(provider) !== null;
 }
 
 /** Cursor bills its own models (Composer, Grok, Auto) from a separate pool. */
@@ -393,9 +373,11 @@ export function ComposerUsageStrip({
         }
       >
         <ProviderIcon provider={provider} />
-        <span className="max-w-24 truncate">{providerName(provider)}</span>
+        <span className="max-w-24 truncate @max-[26rem]/composer-surface:hidden">
+          {providerName(provider)}
+        </span>
         <Bar percent={tightest.usedPercent} color={color} className="w-10 shrink-0" />
-        <span className="truncate">{summary}</span>
+        <span className="truncate @max-[34rem]/composer-surface:hidden">{summary}</span>
         {cacheMinutes !== null ? (
           <span
             className={cn("flex shrink-0 items-center gap-0.5", cacheMinutes === 0 && "opacity-50")}

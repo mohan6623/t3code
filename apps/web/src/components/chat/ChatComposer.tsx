@@ -653,13 +653,10 @@ function useComposerRestingTransition(
         let stripAnimation: Animation | null = null;
         if (modelStrip) {
           const stripHeight = modelStrip.getBoundingClientRect().height;
-          const stripOverlap = -Number.parseFloat(getComputedStyle(modelStrip).marginTop);
+          // The strip stays open in both states, so only its real height tweens.
           const fromHeight =
-            interruptedStripHeight ??
-            (previousCollapsedRef.current
-              ? (previousModelStripHeightRef.current ?? stripHeight)
-              : stripOverlap);
-          const toHeight = nextIsCollapsed ? stripHeight : stripOverlap;
+            interruptedStripHeight ?? previousModelStripHeightRef.current ?? stripHeight;
+          const toHeight = stripHeight;
           modelStrip.style.position = "relative";
           modelStrip.style.top = "auto";
           modelStrip.style.visibility = "visible";
@@ -5173,7 +5170,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const composerMainSurfaceRef = useComposerRestingTransition(
-    composerControlsCollapsed,
+    isComposerResting || isComposerCollapsedMobile,
     isComposerResting,
     restingComposerControlsRef,
     onComposerOverlayHeightChange,
@@ -7318,6 +7315,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       isComposerResting &&
                         "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                       isComposerApprovalState && "min-h-10",
+                      composerControlsCollapsed && !isComposerResting && "pe-28",
                     )}
                     placeholderClassName={cn(
                       isComposerResting &&
@@ -7408,6 +7406,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     "absolute right-px z-10 h-12 w-auto gap-0 py-0 sm:gap-0 sm:py-0",
                   isComposerResting &&
                     (showInlineRestingControls ? "bottom-[calc(2rem+1px)]" : "bottom-px"),
+                  composerControlsCollapsed &&
+                    !isComposerResting &&
+                    "pointer-events-none -mt-11 justify-end *:pointer-events-auto",
                 )}
               >
                 <div
@@ -7416,7 +7417,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   data-chat-composer-footer-controls="true"
                   className={cn(
                     "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-                    isComposerResting && "hidden",
+                    (isComposerResting || composerControlsCollapsed) && "hidden",
                   )}
                 >
                   {composerControlsCollapsed ? null : composerControls}

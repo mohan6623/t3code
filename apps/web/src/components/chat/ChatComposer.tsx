@@ -1582,7 +1582,7 @@ export interface ChatComposerProps {
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
   reportedModelSelection?: ModelSelection | null;
-  /** Usage badge; travels with the model controls between the footer and resting strip. */
+  /** Usage badge shown at the end of the expanded model line. */
   usageBadge?: ReactNode;
 
   // Context window
@@ -5498,11 +5498,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           />
         </div>
       </>
-      {props.usageBadge ? (
-        <div data-composer-usage-badge className="flex min-w-0 shrink items-center">
-          {props.usageBadge}
-        </div>
-      ) : null}
     </>
   );
   const showTasksTab =
@@ -6563,7 +6558,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               aria-hidden={restingControlsVisible ? undefined : true}
               inert={restingControlsVisible ? undefined : true}
               className={cn(
-                "relative flex w-max min-w-0 max-w-full items-center gap-1 font-normal text-muted-foreground/70 [&_button]:text-[13px]!",
+                "relative flex w-max min-w-0 max-w-full items-center gap-1 font-normal text-muted-foreground/70 [&_button]:text-xs!",
                 !restingControlsVisible && "invisible",
               )}
             >
@@ -7435,6 +7430,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {composerControlsCollapsed ? null : props.usageBadge}
                   {showComposerAttachAction ? (
                     <>
                       <input
@@ -7537,7 +7533,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     aria-hidden={restingControlsVisible ? undefined : true}
                     inert={restingControlsVisible ? undefined : true}
                     className={cn(
-                      "relative flex w-max min-w-0 max-w-full items-center gap-1 text-muted-foreground/70 [&_button]:text-[13px]!",
+                      "relative flex w-max min-w-0 max-w-full items-center gap-1 text-muted-foreground/70 [&_button]:text-xs!",
                       !restingControlsVisible && "invisible",
                     )}
                   >

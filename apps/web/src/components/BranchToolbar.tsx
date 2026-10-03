@@ -9,6 +9,7 @@ import {
   ScaleIcon,
 } from "lucide-react";
 import {
+  type ReactNode,
   type Ref,
   memo,
   useImperativeHandle,
@@ -91,6 +92,8 @@ interface BranchToolbarProps {
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
   composerControlsHostRef?: (element: HTMLDivElement | null) => void;
   contextStripVisible?: boolean;
+  /** Shown right after the resting composer controls, e.g. the usage badge. */
+  trailingContent?: ReactNode;
 }
 
 interface MobileRunContextSelectorProps {
@@ -522,6 +525,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   onEnvironmentChange,
   composerControlsHostRef,
   contextStripVisible = true,
+  trailingContent,
 }: BranchToolbarProps) {
   const branchSelectorRef = useRef<BranchToolbarBranchSelectorHandle>(null);
   const threadRef = useMemo(
@@ -735,6 +739,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           className="flex min-w-0 flex-1 items-center justify-start overflow-x-clip overflow-y-visible"
         />
       ) : null}
+      {trailingContent}
 
       {showGitControls ? (
         <BranchToolbarBranchSelector

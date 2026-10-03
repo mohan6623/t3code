@@ -35,7 +35,7 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
-import { ComposerUsageStrip } from "./chat/ComposerUsageStrip";
+import { ComposerUsageStrip, DelayedFadeIn } from "./chat/ComposerUsageStrip";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import { Minimize2Icon } from "lucide-react";
@@ -4111,7 +4111,8 @@ export default function ChatView(props: ChatViewProps) {
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   const showComposerModelStrip = mountComposerModelStrip && restingComposerControlsVisible;
-  // Rendered at the end of the composer's model controls, so it moves with them.
+  // One badge, placed by composer state: the model line when expanded, the
+  // resting strip when collapsed, the context strip on a new thread.
   const composerUsageBadge = (
     <ComposerUsageStrip
       provider={activeProviderStatus}
@@ -10976,7 +10977,11 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeContextWindow={activeContextWindow}
-                              usageBadge={composerUsageBadge}
+                              usageBadge={
+                                isDraftHeroState ? undefined : (
+                                  <DelayedFadeIn>{composerUsageBadge}</DelayedFadeIn>
+                                )
+                              }
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
@@ -11065,6 +11070,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={setRestingComposerControlsHost}
                                 className="min-w-0 flex-1"
                               />
+                              {composerUsageBadge}
                             </ComposerSurface.ContextStrip>
                           ) : null}
                           {mountComposerContextStrip && (
@@ -11105,6 +11111,11 @@ export default function ChatView(props: ChatViewProps) {
                                 availableEnvironments={logicalProjectEnvironments}
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
+                                trailingContent={
+                                  isDraftHeroState || restingComposerControlsVisible
+                                    ? composerUsageBadge
+                                    : undefined
+                                }
                               />
                             </div>
                           )}

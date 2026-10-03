@@ -1582,7 +1582,7 @@ export interface ChatComposerProps {
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
   reportedModelSelection?: ModelSelection | null;
-  /** Usage badge shown at the end of the expanded model line. */
+  /** Usage badge; travels with the model controls between the footer and resting strip. */
   usageBadge?: ReactNode;
 
   // Context window
@@ -5498,6 +5498,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           />
         </div>
       </>
+      {props.usageBadge ? (
+        <div data-composer-usage-badge className="flex min-w-0 shrink items-center">
+          {props.usageBadge}
+        </div>
+      ) : null}
     </>
   );
   const showTasksTab =
@@ -7430,7 +7435,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {composerControlsCollapsed ? null : props.usageBadge}
                   {showComposerAttachAction ? (
                     <>
                       <input

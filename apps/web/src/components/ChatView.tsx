@@ -4111,8 +4111,7 @@ export default function ChatView(props: ChatViewProps) {
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   const showComposerModelStrip = mountComposerModelStrip && restingComposerControlsVisible;
-  // One badge, placed by composer state: the model line when expanded, the
-  // resting strip when collapsed, the context strip on a new thread.
+  // Rendered at the end of the composer's model controls, so it moves with them.
   const composerUsageBadge = (
     <ComposerUsageStrip
       provider={activeProviderStatus}
@@ -10977,7 +10976,7 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeContextWindow={activeContextWindow}
-                              usageBadge={isDraftHeroState ? undefined : composerUsageBadge}
+                              usageBadge={composerUsageBadge}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}
@@ -11066,7 +11065,6 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={setRestingComposerControlsHost}
                                 className="min-w-0 flex-1"
                               />
-                              {composerUsageBadge}
                             </ComposerSurface.ContextStrip>
                           ) : null}
                           {mountComposerContextStrip && (
@@ -11107,11 +11105,6 @@ export default function ChatView(props: ChatViewProps) {
                                 availableEnvironments={logicalProjectEnvironments}
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
-                                trailingContent={
-                                  isDraftHeroState || restingComposerControlsVisible
-                                    ? composerUsageBadge
-                                    : undefined
-                                }
                               />
                             </div>
                           )}

@@ -524,7 +524,12 @@ function useComposerRestingTransition(
         : element.querySelector<HTMLElement>('[data-chat-composer-controls="left"]');
 
       const shell = element.closest<HTMLElement>('[data-slot="composer-shell"]');
-      const modelStrip = shell?.querySelector<HTMLElement>('[data-composer-model-strip="true"]');
+      const stripCandidate = shell?.querySelector<HTMLElement>(
+        '[data-composer-model-strip="true"]',
+      );
+      // A static strip keeps its size in every state; leave it out of the tween.
+      const modelStrip =
+        stripCandidate?.dataset.composerModelStripStatic === "true" ? null : stripCandidate;
       const interruptedStripHeight =
         animationRef.current && modelStrip ? modelStrip.getBoundingClientRect().height : null;
       const interruptedAnimation = animationRef.current;
@@ -653,10 +658,13 @@ function useComposerRestingTransition(
         let stripAnimation: Animation | null = null;
         if (modelStrip) {
           const stripHeight = modelStrip.getBoundingClientRect().height;
-          // The strip stays open in both states, so only its real height tweens.
+          const stripOverlap = -Number.parseFloat(getComputedStyle(modelStrip).marginTop);
           const fromHeight =
-            interruptedStripHeight ?? previousModelStripHeightRef.current ?? stripHeight;
-          const toHeight = stripHeight;
+            interruptedStripHeight ??
+            (previousCollapsedRef.current
+              ? (previousModelStripHeightRef.current ?? stripHeight)
+              : stripOverlap);
+          const toHeight = nextIsCollapsed ? stripHeight : stripOverlap;
           modelStrip.style.position = "relative";
           modelStrip.style.top = "auto";
           modelStrip.style.visibility = "visible";

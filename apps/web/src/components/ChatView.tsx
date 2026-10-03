@@ -11053,6 +11053,7 @@ export default function ChatView(props: ChatViewProps) {
                           {mountComposerModelStrip ? (
                             <ComposerSurface.ContextStrip
                               data-composer-model-strip="true"
+                              data-composer-model-strip-static="true"
                               aria-hidden={showComposerModelStrip ? undefined : true}
                               inert={showComposerModelStrip ? undefined : true}
                               className={cn(

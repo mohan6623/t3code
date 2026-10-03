@@ -50,11 +50,6 @@ function usableLimits(provider: ServerProvider): ServerProviderUsageLimits | nul
   return limits && limitsNotice(limits) === null ? limits : null;
 }
 
-/** Whether the badge has anything to show for this provider. */
-export function hasComposerUsageBadge(provider: ServerProvider | null): boolean {
-  return provider !== null && usableLimits(provider) !== null;
-}
-
 /** Cursor bills its own models (Composer, Grok, Auto) from a separate pool. */
 function isCursorOwnModel(slug: string | undefined): boolean {
   if (!slug) return false;

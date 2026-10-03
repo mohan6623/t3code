@@ -35,7 +35,7 @@ import {
 } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
-import { ComposerUsageStrip, hasComposerUsageBadge } from "./chat/ComposerUsageStrip";
+import { ComposerUsageStrip } from "./chat/ComposerUsageStrip";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import { Minimize2Icon } from "lucide-react";
@@ -4110,12 +4110,9 @@ export default function ChatView(props: ChatViewProps) {
   });
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
-  // The usage badge keeps the resting strip open while the composer is expanded.
-  const composerModelStripPersistent = hasComposerUsageBadge(activeProviderStatus);
-  const showComposerModelStrip =
-    mountComposerModelStrip && (restingComposerControlsVisible || composerModelStripPersistent);
-  // One badge, placed by composer state: the model line when expanded, the
-  // resting strip when collapsed, the context strip on a new thread.
+  // The strip holds the model controls and usage badge in every composer state.
+  const showComposerModelStrip = mountComposerModelStrip;
+  // Sits at the end of whichever strip hosts the model controls.
   const composerUsageBadge = (
     <ComposerUsageStrip
       provider={activeProviderStatus}
@@ -11056,9 +11053,6 @@ export default function ChatView(props: ChatViewProps) {
                           {mountComposerModelStrip ? (
                             <ComposerSurface.ContextStrip
                               data-composer-model-strip="true"
-                              data-composer-model-strip-persistent={
-                                composerModelStripPersistent ? "true" : undefined
-                              }
                               aria-hidden={showComposerModelStrip ? undefined : true}
                               inert={showComposerModelStrip ? undefined : true}
                               className={cn(
@@ -11112,11 +11106,7 @@ export default function ChatView(props: ChatViewProps) {
                                 availableEnvironments={logicalProjectEnvironments}
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
-                                trailingContent={
-                                  isDraftHeroState || restingComposerControlsVisible
-                                    ? composerUsageBadge
-                                    : undefined
-                                }
+                                trailingContent={composerUsageBadge}
                               />
                             </div>
                           )}

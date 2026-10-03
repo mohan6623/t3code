@@ -654,14 +654,12 @@ function useComposerRestingTransition(
         if (modelStrip) {
           const stripHeight = modelStrip.getBoundingClientRect().height;
           const stripOverlap = -Number.parseFloat(getComputedStyle(modelStrip).marginTop);
-          // A persistent strip stays open while expanded, so it never retracts.
-          const stripPersistent = modelStrip.dataset.composerModelStripPersistent === "true";
           const fromHeight =
             interruptedStripHeight ??
-            (previousCollapsedRef.current || stripPersistent
+            (previousCollapsedRef.current
               ? (previousModelStripHeightRef.current ?? stripHeight)
               : stripOverlap);
-          const toHeight = nextIsCollapsed || stripPersistent ? stripHeight : stripOverlap;
+          const toHeight = nextIsCollapsed ? stripHeight : stripOverlap;
           modelStrip.style.position = "relative";
           modelStrip.style.top = "auto";
           modelStrip.style.visibility = "visible";
@@ -5085,7 +5083,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ? standaloneComposerImages.filter((image) => pendingSnapShotIdSet.has(image.id))
     : standaloneComposerImages;
   // Keep collapsed controls inside the input when workspace context is hidden.
-  const composerControlsCollapsed = isComposerResting || isComposerCollapsedMobile;
+  // Model and mode controls always live in the strip below the composer when
+  // one is mounted; the composer itself only grows and shrinks around the prompt.
+  const composerControlsCollapsed =
+    isComposerResting || isComposerCollapsedMobile || restingControlsHost !== null;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
@@ -7414,7 +7415,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   data-chat-composer-controls="left"
                   data-chat-composer-footer-controls="true"
                   className={cn(
-                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:text-[13px]!",
+                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
                     isComposerResting && "hidden",
                   )}
                 >

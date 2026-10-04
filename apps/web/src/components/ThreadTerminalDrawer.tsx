@@ -659,6 +659,17 @@ export function TerminalViewport({
         clearSelectionAction();
         const selectionAction = readSelectionAction();
         const requestId = selectionActionRequestIdRef.current;
+        // Windows Terminal style: a plain right-click copies the selection, or
+        // pastes when nothing is selected. Shift+right-click opens the menu.
+        if (!event.shiftKey) {
+          if (selectionAction) {
+            await copySelection(selectionAction.clipboardText, requestId);
+            terminalRef.current?.clearSelection();
+          } else {
+            await pasteFromClipboard(requestId);
+          }
+          return;
+        }
         let clicked: TerminalContextMenuAction | null;
         try {
           clicked = await localApi.contextMenu.show(

@@ -1,0 +1,81 @@
+name: Fork Desktop Windows
+
+# Builds the fork's Windows installer on GitHub's free runners. The installer
+# keeps the official app id and nightly product name, so it installs over
+# "T3 Code (Nightly)" and keeps the same user data. Its updater reads this
+# fork's releases instead of upstream, so official updates never replace it.
+
+on:
+  push:
+    branches:
+      - "custom/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-desktop-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+
+      - name: Install desktop dependencies
+        run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      # Nightly-shaped versions keep the "(Nightly)" product name. The date and
+      # a run number above upstream's build counter keep each fork build newer
+      # than the official nightly it replaces.
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(node -p "const [a,b,c]=require('./apps/desktop/package.json').version.split('-')[0].split('.').map(Number); [a,b,c+1].join('.')")"
+          version="${base}-nightly.$(date -u +%Y%m%d).$((9000 + GITHUB_RUN_NUMBER))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $version"
+
+      - name: Build desktop artifact
+        shell: bash
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          vp run dist:desktop:artifact \
+            --platform win \
+            --target nsis \
+            --arch x64 \
+            --build-version "${{ steps.version.outputs.version }}" \
+            --output-dir release \
+            --verbose
+
+      - name: Upload installer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: T3-Code-${{ steps.version.outputs.version }}-win-x64
+          path: |
+            release/*.exe
+            release/*.yml
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 14

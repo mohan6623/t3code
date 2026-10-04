@@ -1,6 +1,9 @@
-import type { ProviderInteractionMode } from "@t3tools/contracts";
+import type { ProviderInteractionMode, VcsRepository } from "@t3tools/contracts";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
-import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
+import {
+  buildRuntimeInstructions,
+  buildWorkspaceRepositoriesInstructions,
+} from "@t3tools/provider-core/server/runtimeInstructions";
 
 import {
   T3_CODE_BROWSER_TOOL_INSTRUCTIONS,
@@ -184,6 +187,7 @@ export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
+  readonly repositories?: ReadonlyArray<VcsRepository> | undefined;
 }
 
 export function buildCodexDeveloperInstructions(interactionMode: ProviderInteractionMode): string {
@@ -211,4 +215,12 @@ export function buildCodexAdditionalContext(
     },
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };
+}
+
+/** The repository list alone, for turns that run without the `t3-code` MCP server. */
+export function buildCodexRepositoriesContext(
+  repositories: ReadonlyArray<VcsRepository> | undefined,
+): Record<string, V2TurnStartParams__AdditionalContextEntry> | undefined {
+  const value = buildWorkspaceRepositoriesInstructions(repositories);
+  return value ? { t3_code_repositories: { kind: "application", value } } : undefined;
 }

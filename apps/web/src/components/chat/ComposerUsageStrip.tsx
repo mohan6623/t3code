@@ -375,7 +375,7 @@ export function ComposerUsageStrip({
         </span>
         {/* Thin stacked bars fit inside the text line, so the badge keeps its height.
             Nudged down to sit on the digits, which ride low in the line box. */}
-        <span className="flex w-10 shrink-0 translate-y-1 flex-col gap-0.5">
+        <span className="flex w-10 shrink-0 translate-y-px flex-col gap-0.5">
           {rows.map((window) => (
             <Bar key={window.id} percent={window.usedPercent} color={color} />
           ))}

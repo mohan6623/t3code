@@ -15,8 +15,8 @@ name: Fork Upstream Sync
 
 on:
   schedule:
-    # 21:47 UTC is 03:17 IST, so the update is ready in the morning.
-    - cron: "47 21 * * *"
+    # 00:00 UTC is 05:30 IST.
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -62,7 +62,7 @@ jobs:
             done
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ env.FORK_BRANCH }}
           fetch-depth: 0

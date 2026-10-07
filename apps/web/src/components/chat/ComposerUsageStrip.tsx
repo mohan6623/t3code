@@ -373,8 +373,9 @@ export function ComposerUsageStrip({
         <span className="max-w-24 truncate @max-[26rem]/composer-surface:hidden">
           {providerName(provider)}
         </span>
-        {/* Thin stacked bars fit inside the text line, so the badge keeps its height. */}
-        <span className="flex w-10 shrink-0 flex-col gap-0.5">
+        {/* Thin stacked bars fit inside the text line, so the badge keeps its height.
+            Nudged down to sit on the digits, which ride low in the line box. */}
+        <span className="flex w-10 shrink-0 translate-y-1 flex-col gap-0.5">
           {rows.map((window) => (
             <Bar key={window.id} percent={window.usedPercent} color={color} />
           ))}

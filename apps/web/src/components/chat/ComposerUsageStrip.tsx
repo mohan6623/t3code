@@ -325,14 +325,10 @@ export function ComposerUsageStrip({
   if (windows.length === 0) return null;
 
   const color = barColor(provider.driver);
-  const tightest = windows.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
   const cacheMinutes = cacheMinutesLeft(provider, modelSlug, lastRun, now);
-  const summary = badgeWindows(windows)
-    .map((window) => {
-      const reset = resetsIn(window, now);
-      return `${clampPercent(window.usedPercent)}%${reset ? ` ${reset}` : ""}`;
-    })
-    .join(" · ");
+  // One row per window the plan has: the 5-hour session above the weekly
+  // limit, or a single row for plans with only one of them.
+  const rows = badgeWindows(windows);
   const others = providersWithLimits(providers).filter(
     (other) => other.instanceId !== provider.instanceId && usableLimits(other) !== null,
   );
@@ -363,7 +359,7 @@ export function ComposerUsageStrip({
           <button
             type="button"
             aria-label={`${providerName(provider)} usage limits`}
-            className="flex min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground"
+            className="flex min-h-6 min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground"
           />
         }
       >
@@ -371,8 +367,23 @@ export function ComposerUsageStrip({
         <span className="max-w-24 truncate @max-[26rem]/composer-surface:hidden">
           {providerName(provider)}
         </span>
-        <Bar percent={tightest.usedPercent} color={color} className="w-10 shrink-0" />
-        <span className="truncate @max-[34rem]/composer-surface:hidden">{summary}</span>
+        <span className="flex min-w-0 flex-col text-2xs leading-3">
+          {rows.map((window) => {
+            const reset = resetsIn(window, now);
+            return (
+              <span key={window.id} className="flex items-center gap-1.5">
+                <Bar percent={window.usedPercent} color={color} className="w-10 shrink-0" />
+                {/* Fixed width so both rows' reset times start in one column. */}
+                <span className="w-6 shrink-0 text-end @max-[34rem]/composer-surface:hidden">
+                  {clampPercent(window.usedPercent)}%
+                </span>
+                {reset ? (
+                  <span className="truncate @max-[34rem]/composer-surface:hidden">{reset}</span>
+                ) : null}
+              </span>
+            );
+          })}
+        </span>
         {cacheMinutes !== null ? (
           <span
             className={cn("flex shrink-0 items-center gap-0.5", cacheMinutes === 0 && "opacity-50")}

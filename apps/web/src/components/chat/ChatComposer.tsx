@@ -130,6 +130,7 @@ import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerFocusState } from "./useComposerFocusState";
+import { useComposerActionRow } from "./useComposerActionRow";
 import { useComposerMultilinePrompt } from "./useComposerMultilinePrompt";
 import {
   ComposerTasksBadge,
@@ -5173,6 +5174,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // line, so nothing moves when the composer rests or wakes.
   const restingLayout = isComposerResting || controlsInStrip;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
+  // The width the inline actions take beside the prompt: pr-28, pr-20, or pr-12.
+  const promptActionsWidth =
+    (settings.contextWindowMeterEnabled && activeContextWindow) || reserveContextWindowMeter
+      ? 112
+      : showComposerAttachAction
+        ? 80
+        : 48;
+  const [promptRowElement, setPromptRowElement] = useState<HTMLDivElement | null>(null);
+  const promptUsesActionRow = useComposerActionRow(
+    promptRowElement,
+    promptActionsWidth,
+    controlsInStrip && !isComposerResting,
+  );
   const composerControlsVisibleInStrip =
     composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
   const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
@@ -7338,17 +7352,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
 
               <div
+                ref={setPromptRowElement}
                 className={cn(
                   "relative",
                   restingLayout && "flex min-w-0 gap-1",
                   controlsInStrip ? "items-end" : restingLayout && "items-center",
-                  restingLayout &&
-                    ((settings.contextWindowMeterEnabled && activeContextWindow) ||
-                    reserveContextWindowMeter
-                      ? "pr-28"
-                      : showComposerAttachAction
-                        ? "pr-20"
-                        : "pr-12"),
+                  // A longer prompt uses the full width, and the actions take
+                  // their own row below it instead of a strip down the side.
+                  promptUsesActionRow
+                    ? "pb-10"
+                    : restingLayout &&
+                        (promptActionsWidth === 112
+                          ? "pr-28"
+                          : promptActionsWidth === 80
+                            ? "pr-20"
+                            : "pr-12"),
                 )}
               >
                 {previewFile ? (

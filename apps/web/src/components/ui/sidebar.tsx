@@ -28,6 +28,11 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
+const SIDEBAR_PEEK_OPEN_DELAY_MS = 150;
+const SIDEBAR_PEEK_CLOSE_DELAY_MS = 300;
+// A menu opened from the peeking sidebar renders outside it, so the pointer
+// leaves the sidebar to use it. Keep the sidebar out while one is open.
+const SIDEBAR_PEEK_HOLD_SELECTOR = '[role="menu"], [data-slot="sidebar-container"]:hover';
 
 type SidebarContextProps = {
   state: ResponsiveSidebarState;
@@ -37,6 +42,10 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
+  /** The collapsed sidebar shows over the content while the pointer is near it. */
+  peeking: boolean;
+  schedulePeek: (peek: boolean) => void;
+  holdPeek: () => void;
 };
 
 type SidebarResizableOptions = {
@@ -107,6 +116,36 @@ function SidebarProvider({
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
 
+  // Like Codex and Claude desktop: hovering the trigger or the left window
+  // edge shows the collapsed sidebar over the content, without moving it.
+  const [peekState, setPeekState] = React.useState(false);
+  const peekTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdPeek = React.useCallback(() => {
+    if (peekTimerRef.current !== null) {
+      clearTimeout(peekTimerRef.current);
+      peekTimerRef.current = null;
+    }
+  }, []);
+  const schedulePeek = React.useCallback(
+    (peek: boolean) => {
+      holdPeek();
+      const settle = () => {
+        if (!peek && document.querySelector(SIDEBAR_PEEK_HOLD_SELECTOR)) {
+          peekTimerRef.current = setTimeout(settle, SIDEBAR_PEEK_CLOSE_DELAY_MS);
+          return;
+        }
+        peekTimerRef.current = null;
+        setPeekState(peek);
+      };
+      peekTimerRef.current = setTimeout(
+        settle,
+        peek ? SIDEBAR_PEEK_OPEN_DELAY_MS : SIDEBAR_PEEK_CLOSE_DELAY_MS,
+      );
+    },
+    [holdPeek],
+  );
+  React.useEffect(() => holdPeek, [holdPeek]);
+
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen);
@@ -114,6 +153,9 @@ function SidebarProvider({
   const setOpen = React.useCallback(
     async (value: boolean | ((value: boolean) => boolean)) => {
       const openState = typeof value === "function" ? value(open) : value;
+      // Opening or closing for real ends any peek, including a pending one.
+      holdPeek();
+      setPeekState(false);
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
@@ -128,13 +170,15 @@ function SidebarProvider({
         value: String(openState),
       });
     },
-    [setOpenProp, open],
+    [setOpenProp, open, holdPeek],
   );
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
   }, [isMobile, setOpen]);
+
+  const peeking = !isMobile && !open && peekState;
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -149,8 +193,11 @@ function SidebarProvider({
       setOpenMobile,
       state,
       toggleSidebar,
+      peeking,
+      schedulePeek,
+      holdPeek,
     }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
+    [state, open, setOpen, isMobile, openMobile, toggleSidebar, peeking, schedulePeek, holdPeek],
   );
 
   return (
@@ -194,7 +241,10 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
   resizable?: boolean | SidebarResizableOptions;
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, state, openMobile, setOpenMobile, peeking, schedulePeek, holdPeek } =
+    useSidebar();
+  const canPeek = side === "left" && collapsible === "offcanvas" && state === "collapsed";
+  const showPeek = canPeek && peeking;
   const resolvedResizable = React.useMemo<SidebarResolvedResizableOptions | null>(() => {
     if (isMobile || collapsible === "none" || !resizable) {
       return null;
@@ -275,6 +325,7 @@ function Sidebar({
       <div
         className="group peer hidden text-sidebar-foreground md:block"
         data-collapsible={state === "collapsed" ? collapsible : ""}
+        data-peek={showPeek ? "true" : undefined}
         data-side={side}
         data-slot="sidebar"
         data-state={state}
@@ -293,12 +344,23 @@ function Sidebar({
           )}
           data-slot="sidebar-gap"
         />
+        {canPeek ? (
+          <div
+            aria-hidden="true"
+            className="fixed inset-y-0 left-0 z-40 w-1.5"
+            data-slot="sidebar-peek-edge"
+            onMouseEnter={() => schedulePeek(true)}
+            onMouseLeave={() => schedulePeek(false)}
+          />
+        ) : null}
         <div
           className={cn(
             "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
             "[[data-panel-animations=true]_&]:transition-[left,right,width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
             side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
+              ? showPeek
+                ? "left-0 z-40 shadow-2xl shadow-black/40"
+                : "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
             // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
@@ -307,6 +369,7 @@ function Sidebar({
             className,
           )}
           data-slot="sidebar-container"
+          {...(canPeek ? { onMouseEnter: holdPeek, onMouseLeave: () => schedulePeek(false) } : {})}
           {...props}
         >
           <div
@@ -322,9 +385,16 @@ function Sidebar({
   );
 }
 
-function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar();
+function SidebarTrigger({
+  className,
+  onClick,
+  onMouseEnter,
+  onMouseLeave,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  const { isMobile, open, toggleSidebar, schedulePeek } = useSidebar();
   const isOpen = useSidebarVisibility();
+  const canPeek = !isMobile && !open;
 
   return (
     <Button
@@ -338,6 +408,14 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       onClick={(event) => {
         onClick?.(event);
         toggleSidebar();
+      }}
+      onMouseEnter={(event) => {
+        onMouseEnter?.(event);
+        if (canPeek) schedulePeek(true);
+      }}
+      onMouseLeave={(event) => {
+        onMouseLeave?.(event);
+        if (canPeek) schedulePeek(false);
       }}
       size="icon"
       variant="ghost"

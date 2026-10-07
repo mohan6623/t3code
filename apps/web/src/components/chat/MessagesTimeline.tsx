@@ -1460,6 +1460,9 @@ function timelineMinimapEventTargetsPreview(target: EventTarget): boolean {
   return target instanceof Element && target.closest("[data-minimap-preview]") !== null;
 }
 
+const TIMELINE_MINIMAP_PREVIEW_CLOSE_DELAY_MS = 250;
+const TIMELINE_MINIMAP_RAIL_ZONE_MIN_WIDTH = 24;
+
 function TimelineMinimap({
   hasPersistentGutter,
   hitStripWidth,
@@ -1476,6 +1479,23 @@ function TimelineMinimap({
   onSelect: (item: TimelineMinimapItem) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+  // Close the preview a moment after the pointer leaves the rail and the
+  // preview, so a short trip between the two does not close it.
+  const scheduleClose = useCallback(() => {
+    if (closeTimerRef.current !== null) return;
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setActiveIndex(null);
+    }, TIMELINE_MINIMAP_PREVIEW_CLOSE_DELAY_MS);
+  }, []);
+  useEffect(() => cancelClose, [cancelClose]);
 
   const resolvedActiveIndex =
     activeIndex !== null && activeIndex < items.length ? activeIndex : null;
@@ -1520,10 +1540,18 @@ function TimelineMinimap({
 
   const updateActiveIndexFromPointer = useCallback(
     (event: MouseEvent<HTMLElement>) => {
-      const nextIndex = resolveActiveIndexFromPointer(event);
-      setActiveIndex(nextIndex);
+      // The open preview widens the hit area, but only the rail itself picks a
+      // turn. Elsewhere in that area the pointer is on its way out, so the
+      // preview stays on its turn and then closes.
+      const railZoneWidth = Math.max(hitStripWidth, TIMELINE_MINIMAP_RAIL_ZONE_MIN_WIDTH);
+      if (event.clientX - event.currentTarget.getBoundingClientRect().left > railZoneWidth) {
+        scheduleClose();
+        return;
+      }
+      cancelClose();
+      setActiveIndex(resolveActiveIndexFromPointer(event));
     },
-    [resolveActiveIndexFromPointer],
+    [cancelClose, hitStripWidth, resolveActiveIndexFromPointer, scheduleClose],
   );
 
   const moveActiveIndex = useCallback(
@@ -1608,7 +1636,7 @@ function TimelineMinimap({
                 }
               }
             }}
-            onMouseLeave={() => setActiveIndex(null)}
+            onMouseLeave={scheduleClose}
             onMouseMove={updateActiveIndexFromPointer}
             onMouseDown={(event) => {
               if (timelineMinimapEventTargetsPreview(event.target)) {
@@ -1664,7 +1692,11 @@ function TimelineMinimap({
               <span
                 className="pointer-events-auto absolute left-8 w-80 cursor-text select-text"
                 data-minimap-preview
-                onMouseMove={(event) => event.stopPropagation()}
+                onMouseEnter={cancelClose}
+                onMouseMove={(event) => {
+                  event.stopPropagation();
+                  cancelClose();
+                }}
                 style={{
                   top: `${activeTopPercent}%`,
                   transform: `translateY(${activeTooltipTranslate})`,

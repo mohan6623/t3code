@@ -15,8 +15,8 @@ name: Fork Upstream Sync
 
 on:
   schedule:
-    # 00:00 UTC is 05:30 IST.
-    - cron: "0 0 * * *"
+    # 21:47 UTC is 03:17 IST, so the update is ready in the morning.
+    - cron: "47 21 * * *"
   workflow_dispatch:
 
 permissions:

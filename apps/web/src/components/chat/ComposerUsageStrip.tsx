@@ -12,18 +12,23 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { ChevronDownIcon, TimerIcon } from "lucide-react";
+import * as Schema from "effect/Schema";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Switch } from "../ui/switch";
 import { ResetCredits, barColor } from "../usage/UsageLimits";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 const MINUTE = 60_000;
+/** Badge layout: one text line beside stacked bars, or one row per window. */
+const SPLIT_ROWS_STORAGE_KEY = "t3code:usage-badge-split-rows";
 
 /** Re-renders once a minute so reset countdowns stay current without animating. */
 function useMinuteClock(): number {
@@ -58,18 +63,19 @@ function isCursorOwnModel(slug: string | undefined): boolean {
 }
 
 /**
- * The windows that apply to the selected model. Cursor reports an overall
- * figure plus one pool per billing tier; only the active tier is shown.
+ * The windows to show. Cursor reports an overall figure plus one pool per
+ * billing tier; the two pools are shown, Cursor's own models above API models,
+ * and the overall figure (their sum, not a third quota) is left out.
  */
 function relevantWindows(
   provider: ServerProvider,
   limits: ServerProviderUsageLimits,
-  modelSlug: string | undefined,
 ): readonly ServerProviderUsageWindow[] {
   if (provider.driver !== "cursor") return limits.windows;
-  const poolId = isCursorOwnModel(modelSlug) ? "autoPercentUsed" : "apiPercentUsed";
-  const pool = limits.windows.filter((window) => window.id === poolId);
-  return pool.length > 0 ? pool : limits.windows;
+  const pools = ["autoPercentUsed", "apiPercentUsed"].flatMap((id) =>
+    limits.windows.filter((window) => window.id === id),
+  );
+  return pools.length > 0 ? pools : limits.windows;
 }
 
 /**
@@ -114,7 +120,8 @@ function badgeWindows(
   const session = windows.find((window) => window.kind === "session");
   const weekly = windows.find((window) => window.kind === "weekly");
   const picked = [session, weekly].filter((window) => window !== undefined);
-  return picked.length > 0 ? picked : windows.slice(0, 1);
+  // Plans without session or weekly windows (Cursor's pools) show their first two.
+  return picked.length > 0 ? picked : windows.slice(0, 2);
 }
 
 function providerName(provider: ServerProvider): string {
@@ -306,6 +313,7 @@ export function ComposerUsageStrip({
 }) {
   const now = useMinuteClock();
   const [refreshing, setRefreshing] = useState(false);
+  const [splitRows, setSplitRows] = useLocalStorage(SPLIT_ROWS_STORAGE_KEY, false, Schema.Boolean);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -321,7 +329,7 @@ export function ComposerUsageStrip({
 
   const limits = provider ? usableLimits(provider) : null;
   if (!provider || !limits) return null;
-  const windows = relevantWindows(provider, limits, modelSlug);
+  const windows = relevantWindows(provider, limits);
   if (windows.length === 0) return null;
 
   const color = barColor(provider.driver);
@@ -365,22 +373,61 @@ export function ComposerUsageStrip({
           <button
             type="button"
             aria-label={`${providerName(provider)} usage limits`}
-            className="flex min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground"
+            className={cn(
+              "flex min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground",
+              splitRows ? "min-h-6" : "py-0.5",
+            )}
           />
         }
       >
         <ProviderIcon provider={provider} />
-        <span className="max-w-24 truncate @max-[26rem]/composer-surface:hidden">
+        {/* Beside two rows, lowercase letters make the name look low; lift it to the rows' middle. */}
+        <span
+          className={cn(
+            "max-w-24 truncate @max-[26rem]/composer-surface:hidden",
+            splitRows && "-translate-y-px",
+          )}
+        >
           {providerName(provider)}
         </span>
-        {/* Thin stacked bars fit inside the text line, so the badge keeps its height.
-            Nudged down to sit on the digits, which ride low in the line box. */}
-        <span className="flex w-10 shrink-0 translate-y-px flex-col gap-0.5">
-          {rows.map((window) => (
-            <Bar key={window.id} percent={window.usedPercent} color={color} />
-          ))}
-        </span>
-        <span className="truncate @max-[34rem]/composer-surface:hidden">{summary}</span>
+        {splitRows ? (
+          <span className="flex min-w-0 flex-col text-2xs leading-3">
+            {rows.map((window, index) => {
+              const reset = resetsIn(window, now);
+              return (
+                <span key={window.id} className="flex items-center gap-1.5">
+                  {/* With two rows, each bar leans toward the other so the pair reads as one. */}
+                  <Bar
+                    percent={window.usedPercent}
+                    color={color}
+                    className={cn(
+                      "w-10 shrink-0",
+                      rows.length > 1 && (index === 0 ? "translate-y-px" : "-translate-y-px"),
+                    )}
+                  />
+                  {/* Fixed width so both rows' reset times start in one column. */}
+                  <span className="w-6 shrink-0 text-end @max-[34rem]/composer-surface:hidden">
+                    {clampPercent(window.usedPercent)}%
+                  </span>
+                  {reset ? (
+                    <span className="truncate @max-[34rem]/composer-surface:hidden">{reset}</span>
+                  ) : null}
+                </span>
+              );
+            })}
+          </span>
+        ) : (
+          <>
+            {/* Thin stacked bars fit inside the text line, so the badge keeps its height.
+                Nudged down to sit on the digits, which ride low in the line box. */}
+            <span className="flex w-10 shrink-0 translate-y-px flex-col gap-0.5">
+              {rows.map((window) => (
+                <Bar key={window.id} percent={window.usedPercent} color={color} />
+              ))}
+            </span>
+            <span className="truncate @max-[34rem]/composer-surface:hidden">{summary}</span>
+          </>
+        )}
         {cacheMinutes !== null ? (
           <span
             className={cn("flex shrink-0 items-center gap-0.5", cacheMinutes === 0 && "opacity-50")}
@@ -398,19 +445,14 @@ export function ComposerUsageStrip({
               <span className="text-sm font-semibold text-foreground">
                 {driverLabel(provider)} usage
               </span>
-              <span className="text-xs text-muted-foreground">
-                Updated {checkedAgo} ago
-                {cacheMinutes !== null
-                  ? cacheMinutes > 0
-                    ? ` · Cache ~${cacheMinutes}m left`
-                    : " · Cache expired"
-                  : ""}
-              </span>
               <span className="truncate text-xs text-muted-foreground">
                 {providerName(provider)}
                 {provider.auth.label ? ` · ${provider.auth.label}` : ""}
               </span>
             </div>
+            <span className="mt-1 shrink-0 text-xs text-muted-foreground tabular-nums">
+              {checkedAgo} ago
+            </span>
             <button
               type="button"
               aria-label="Refresh usage limits"
@@ -449,6 +491,10 @@ export function ComposerUsageStrip({
               })}
             </>
           ) : null}
+          <label className="flex cursor-pointer items-center justify-between gap-2 px-0.5 pt-1 text-xs text-muted-foreground">
+            Show each limit on its own row
+            <Switch size="sm" checked={splitRows} onCheckedChange={setSplitRows} />
+          </label>
         </div>
       </PopoverPopup>
     </Popover>

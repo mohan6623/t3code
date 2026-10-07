@@ -177,17 +177,62 @@ describe("Cursor usage limits", () => {
     }),
   );
 
-  it.effect("does not use a stored login for an explicit API key", () =>
+  it.effect("reads an API key's own account instead of the stored login", () =>
     Effect.gen(function* () {
+      const requests: Array<{ url: string; authorization: string | undefined }> = [];
       const limits = yield* withNodeServices(
         readCursorUsageLimits({ apiEndpoint: "" }, { CURSOR_API_KEY: "different-account" }).pipe(
           Effect.provideService(
+            FileSystem.FileSystem,
+            FileSystem.makeNoop({
+              readFileString: () => Effect.die("must not read the stored login"),
+            }),
+          ),
+          Effect.provideService(
             HttpClient.HttpClient,
-            HttpClient.make(() => Effect.die("must not request usage")),
+            HttpClient.make((request) => {
+              requests.push({ url: request.url, authorization: request.headers.authorization });
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  request.url.endsWith("/auth/exchange_user_api_key")
+                    ? Response.json({ accessToken: "key-account-token" })
+                    : Response.json({ planUsage: { totalPercentUsed: 25 } }),
+                ),
+              );
+            }),
           ),
         ),
       );
-      expect(limits.unavailable?.reason).toBe("unsupported");
+      expect(requests).toEqual([
+        {
+          url: "https://api2.cursor.sh/auth/exchange_user_api_key",
+          authorization: "Bearer different-account",
+        },
+        {
+          url: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+          authorization: "Bearer key-account-token",
+        },
+      ]);
+      expect(limits.windows[0]?.usedPercent).toBe(25);
+    }),
+  );
+
+  it.effect("reports a rejected API key as a failed probe", () =>
+    Effect.gen(function* () {
+      const limits = yield* withNodeServices(
+        readCursorUsageLimits({ apiEndpoint: "" }, { CURSOR_API_KEY: "revoked" }).pipe(
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(request, new Response("denied", { status: 401 })),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(limits.unavailable?.reason).toBe("probeFailed");
     }),
   );
 

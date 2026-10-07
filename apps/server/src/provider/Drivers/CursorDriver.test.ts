@@ -8,7 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { vi } from "vite-plus/test";
-import { HttpClient } from "effect/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
@@ -93,9 +93,21 @@ it.layer(layerTest)("CursorDriver", (it) => {
           environment: [{ name: "CURSOR_API_KEY", value: "", sensitive: true }],
           config: CursorDriver.defaultConfig(),
         };
+        // The sign-in key reads its own account's usage through a key exchange.
+        const usageClient = HttpClient.make((request) =>
+          Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              request.url.endsWith("/auth/exchange_user_api_key")
+                ? Response.json({ accessToken: "browser-key-account-token" })
+                : Response.json({ planUsage: { autoPercentUsed: 12, apiPercentUsed: 34 } }),
+            ),
+          ),
+        );
         const openedKeys: Array<string | undefined> = [];
         let closed = 0;
         const instance = yield* CursorDriver.create(input).pipe(
+          Effect.provideService(HttpClient.HttpClient, usageClient),
           Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
             assertComplete: Effect.void,
             open: (request) =>
@@ -130,6 +142,11 @@ it.layer(layerTest)("CursorDriver", (it) => {
           },
           setup: { canAuthenticate: true, canInstall: false },
         });
+        expect(
+          (yield* instance.snapshot.getSnapshot).usageLimits?.windows.map(
+            (window) => window.usedPercent,
+          ),
+        ).toEqual([34, 12]);
         const threadId = ThreadId.make("cursor-browser-thread");
         const modelSelection = { instanceId: input.instanceId, model: "auto" };
         const runtimePolicy = ProviderAdapterV2RuntimePolicy.make({
@@ -146,7 +163,9 @@ it.layer(layerTest)("CursorDriver", (it) => {
         yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
         expect(openedKeys).toEqual(["instance-browser-key"]);
         expect(closed).toBe(0);
-        const recreated = yield* CursorDriver.create(input);
+        const recreated = yield* CursorDriver.create(input).pipe(
+          Effect.provideService(HttpClient.HttpClient, usageClient),
+        );
         expect((yield* recreated.snapshot.refresh).auth.status).toBe("authenticated");
         yield* instance.auth!.logout(Effect.void);
         expect(closed).toBe(1);

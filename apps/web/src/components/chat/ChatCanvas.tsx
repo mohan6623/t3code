@@ -5,11 +5,13 @@ import {
   useRef,
   useState,
   type ComponentProps,
-  type CSSProperties,
 } from "react";
 import { ChatCanvasContext } from "./ChatCanvasContext";
 import { resolveChatCanvasLayout, type ChatCanvasPreview } from "./chatCanvasLayout";
 import type { PreviewMiniPlayerObstacles } from "../preview/previewMiniPlayerLayout";
+
+/** The elements whose rules in index.css read the chat lane variables. */
+const CHAT_LANE_SELECTOR = ".chat-composer-lane, .messages-timeline-scroll, .chat-scroll-to-bottom";
 
 /**
  * Owns the available conversation space. Cards only report where they sit; the
@@ -109,6 +111,24 @@ export function ChatCanvas({
     };
   }, [measurements, preview, detailsCard, reportPreview, clearPreview, reportDetailsCard]);
   const { layout } = context;
+  // The lane variables are registered as non-inherited (index.css) and written
+  // on the elements that read them. On the canvas root, each change restyled
+  // every element in the conversation, once per frame of a panel resize.
+  // No dependency list: the lane elements mount and unmount with our children.
+  useLayoutEffect(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    const lane = {
+      "--chat-timeline-gutter": `${measurements.timelineGutter}px`,
+      "--chat-lane-inset-start": `${layout.chat.insetStart}px`,
+      "--chat-lane-inset-end": `${layout.chat.insetEnd}px`,
+    };
+    for (const target of element.querySelectorAll<HTMLElement>(CHAT_LANE_SELECTOR)) {
+      for (const [name, value] of Object.entries(lane)) {
+        if (target.style.getPropertyValue(name) !== value) target.style.setProperty(name, value);
+      }
+    }
+  });
   return (
     <ChatCanvasContext value={context}>
       <div
@@ -117,13 +137,6 @@ export function ChatCanvas({
         data-chat-canvas
         data-preview-overlaps-chat={layout.overlapsChat || undefined}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col"
-        style={
-          {
-            "--chat-timeline-gutter": `${measurements.timelineGutter}px`,
-            "--chat-lane-inset-start": `${layout.chat.insetStart}px`,
-            "--chat-lane-inset-end": `${layout.chat.insetEnd}px`,
-          } as CSSProperties
-        }
       >
         <div
           ref={widthProbeRef}

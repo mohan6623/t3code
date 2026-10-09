@@ -2267,6 +2267,24 @@ code {
   margin: 0;
 }
 
+/* ChatCanvas writes these on the lane elements themselves. Non-inherited, so
+   a change restyles those elements only, not everything inside them. */
+@property --chat-lane-inset-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --chat-lane-inset-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --chat-timeline-gutter {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 @layer components {
   .chat-composer-lane {
     padding-inline-start: calc(

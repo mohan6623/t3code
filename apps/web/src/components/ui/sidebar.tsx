@@ -494,7 +494,12 @@ function SidebarRail({
             wrapper,
           }) ?? true;
         if (accepted) {
-          wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+          // A change to the variable restyles every element under the
+          // wrapper. Size the two sidebar elements directly while the drag
+          // runs; cleanup writes the variable once.
+          transitionTargets.forEach((element) => {
+            element.style.setProperty("width", `${nextWidth}px`);
+          });
           width = nextWidth;
         }
         return width;
@@ -512,7 +517,9 @@ function SidebarRail({
         options?.onResize?.(finalWidth);
       },
       cleanup() {
+        wrapper.style.setProperty("--sidebar-width", `${width}px`);
         transitionTargets.forEach((element) => {
+          element.style.removeProperty("width");
           element.style.removeProperty("transition-duration");
         });
       },

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
@@ -117,6 +117,9 @@ export function ThreadDetailsCard({
     observer.observe(element);
     return () => observer.disconnect();
   }, [contentElement, density, measurementKey]);
+  // The canvas reports a new layout on every frame of a panel resize. Keep
+  // the content tree, so only this card's frame follows it.
+  const content = useMemo(() => children(density), [children, density]);
   const card = (
     <div
       className={cn(
@@ -128,7 +131,7 @@ export function ThreadDetailsCard({
       data-thread-details-card
     >
       <ScrollArea scrollFade className="min-h-0">
-        <div ref={setContentElement}>{children(density)}</div>
+        <div ref={setContentElement}>{content}</div>
       </ScrollArea>
     </div>
   );

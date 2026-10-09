@@ -6324,7 +6324,15 @@ export default function ChatView(props: ChatViewProps) {
   // State mirror of the follow mode refs. LegendList's maintainScrollAtEnd
   // re-pins on its own (independent of the refs), so the timeline needs a
   // render-visible flag to switch it off once the user scrolls away.
-  const [timelineLiveFollowEnabled, setTimelineLiveFollowEnabled] = useState(true);
+  const [timelineLiveFollowEnabled, setTimelineLiveFollowEnabledState] = useState(true);
+  // Scroll handlers ask for the same value on every wheel and scroll event.
+  // React still runs this component for a repeated value, so drop repeats here.
+  const timelineLiveFollowRequestedRef = useRef(true);
+  const setTimelineLiveFollow = useCallback((enabled: boolean) => {
+    if (timelineLiveFollowRequestedRef.current === enabled) return;
+    timelineLiveFollowRequestedRef.current = enabled;
+    setTimelineLiveFollowEnabledState(enabled);
+  }, []);
   const pendingTimelineAnchorRef = useRef<MessageId | null>(null);
   const positionedTimelineAnchorRef = useRef<MessageId | null>(null);
   const settledTimelineAnchorRef = useRef<MessageId | null>(null);
@@ -6345,7 +6353,7 @@ export default function ChatView(props: ChatViewProps) {
     const wasProgrammaticScrollMode = timelineScrollModeRef.current !== "free-scrolling";
     timelineScrollModeRef.current = "free-scrolling";
     liveFollowUserScrollGenerationRef.current = null;
-    setTimelineLiveFollowEnabled(false);
+    setTimelineLiveFollow(false);
     pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
@@ -6473,7 +6481,7 @@ export default function ChatView(props: ChatViewProps) {
     isAtEndRef.current = true;
     timelineScrollModeRef.current = "following-end";
     liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
+    setTimelineLiveFollow(true);
     pendingTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
@@ -6754,7 +6762,7 @@ export default function ChatView(props: ChatViewProps) {
       }
       timelineScrollModeRef.current = "following-end";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-      setTimelineLiveFollowEnabled(true);
+      setTimelineLiveFollow(true);
       // Reachable only once manual navigation has already broken follow, so
       // the anchored turn framing is over: the user scrolled back to the live
       // edge and expects the stream to stick to it again, exactly like the
@@ -6798,7 +6806,7 @@ export default function ChatView(props: ChatViewProps) {
     liveFollowUserScrollGenerationRef.current = followEnd
       ? anchorUserScrollGenerationRef.current
       : null;
-    setTimelineLiveFollowEnabled(followEnd);
+    setTimelineLiveFollow(followEnd);
     pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
@@ -9705,7 +9713,7 @@ export default function ChatView(props: ChatViewProps) {
       isAtEndRef.current = true;
       timelineScrollModeRef.current = "anchoring-new-turn";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-      setTimelineLiveFollowEnabled(true);
+      setTimelineLiveFollow(true);
       pendingTimelineAnchorRef.current = messageIdForSend;
       activeTimelineAnchorIndexRef.current = null;
       showScrollDebouncer.current.cancel();
@@ -10364,7 +10372,7 @@ export default function ChatView(props: ChatViewProps) {
     isAtEndRef.current = true;
     timelineScrollModeRef.current = "anchoring-new-turn";
     liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
+    setTimelineLiveFollow(true);
     pendingTimelineAnchorRef.current = messageIdForSend;
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();

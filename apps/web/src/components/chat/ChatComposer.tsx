@@ -44,6 +44,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import {
@@ -200,7 +201,11 @@ import {
   shouldUseRestingComposerLayout,
 } from "../composerFooterLayout";
 import { measureRestingComposerControls } from "./restingComposerControlsMeasurement";
-import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
+import {
+  type ComposerCitationCommentRequest,
+  type ComposerPromptEditorHandle,
+  ComposerPromptEditor,
+} from "../ComposerPromptEditor";
 import {
   ComposerContextActionsContext,
   composerContextRecordsFromDraft,
@@ -1142,6 +1147,7 @@ import {
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   hasCompleteProviderWorkspaceSnapshot,
+  hasCurrentProviderWorkspaceSnapshot,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
@@ -1403,6 +1409,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   onCompactContext?: (() => void) | undefined;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
+  compactBeforeSendTokens: number | null;
+  onSendWithFullHistory: () => void;
 }) {
   return (
     <>
@@ -1441,6 +1449,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
+        compactBeforeSendTokens={props.compactBeforeSendTokens}
+        onSendWithFullHistory={props.onSendWithFullHistory}
       />
     </>
   );
@@ -1560,6 +1570,10 @@ export interface ChatComposerProps {
   sendDisabledReason: string | null;
   isPreparingWorktree: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  /** Tokens Enter compacts before sending; null when the next send keeps full history. */
+  resumeCompactionTokens: number | null;
+  /** Runs `send` as a one-off send that keeps full history instead of compacting first. */
+  onSendWithFullHistory: (send: () => void) => void;
   /** Picking /usage-limits from the menu is the action itself; the draft keeps nothing of it. */
   onUsageLimitsCommand?: (() => void) | undefined;
   environmentUnavailable: {
@@ -2213,7 +2227,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
-  const workspaceRefreshKeyRef = useRef<string | null>(null);
+  // The last scan this composer asked for. A request inside the TTL is not
+  // repeated, so a client clock ahead of the server's cannot loop rescans.
+  const workspaceRefreshKeyRef = useRef<{ key: string; requestedAt: number } | null>(null);
   const [workspaceRefreshRetry, setWorkspaceRefreshRetry] = useState<{
     key: string;
     notBefore: number;
@@ -2256,21 +2272,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     if (!gitCwd || !selectedProviderEntry) return;
     const key = `${environmentId}:${selectedProviderEntry.instanceId}:${gitCwd}`;
-    const hasWorkspaceSnapshot = hasCompleteProviderWorkspaceSnapshot(
-      selectedProviderStatus,
-      gitCwd,
-    );
-    if (workspaceRefreshKeyRef.current === key) return;
-    if (hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = key;
+    const now = Date.now();
+    const lastRequest = workspaceRefreshKeyRef.current;
+    if (
+      lastRequest?.key === key &&
+      now - lastRequest.requestedAt < PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS
+    )
+      return;
+    if (hasCurrentProviderWorkspaceSnapshot(selectedProviderStatus, gitCwd, now)) {
       setWorkspaceRefreshRetry(null);
       return;
     }
     const retry = workspaceRefreshRetry;
-    if (retry?.key === key && Date.now() < retry.notBefore) return;
-    workspaceRefreshKeyRef.current = key;
+    if (retry?.key === key && now < retry.notBefore) return;
+    const request = { key, requestedAt: now };
+    workspaceRefreshKeyRef.current = request;
     const retryLater = () => {
-      if (workspaceRefreshKeyRef.current !== key) return;
+      if (workspaceRefreshKeyRef.current !== request) return;
       workspaceRefreshKeyRef.current = null;
       setWorkspaceRefreshRetry({
         key,
@@ -2289,9 +2307,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           ),
           gitCwd,
         );
-      if (!hasWorkspaceSnapshot && workspaceRefreshKeyRef.current === key) {
-        retryLater();
-      }
+      if (!hasWorkspaceSnapshot) retryLater();
     }, retryLater);
   }, [
     environmentId,
@@ -3017,7 +3033,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectSelectionRequired ||
     environmentUnavailable !== null ||
     (!composerSendState.hasSendableContent && !showResumeAction);
-  const collapsedComposerPrimaryActionLabel = showResumeAction ? "Resume thread" : "Send message";
+  const collapsedComposerPrimaryActionLabel = showResumeAction
+    ? "Resume thread"
+    : props.resumeCompactionTokens !== null
+      ? "Open composer to compact and send"
+      : "Send message";
   const showMobilePendingAnswerActions =
     isMobileViewport && !isComposerCollapsedMobile && pendingPrimaryAction !== null;
 
@@ -3835,7 +3855,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         expectedText?: string;
         expandedCursorAfterReplace?: number;
         focusEditorAfterReplace?: boolean;
-        citationComment?: { start: number; sourceAnchor: AssistantCitationSourceAnchor };
+        citationComment?: {
+          start: number;
+          sourceAnchor: AssistantCitationSourceAnchor;
+          insertedSpaces: ComposerCitationCommentRequest["insertedSpaces"];
+        };
       },
     ): boolean => {
       if (
@@ -3865,6 +3889,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           value: next.text,
           citationStart: options.citationComment.start,
           sourceAnchor: options.citationComment.sourceAnchor,
+          insertedSpaces: options.citationComment.insertedSpaces,
         });
       }
       promptRef.current = next.text;
@@ -4264,6 +4289,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       );
     },
     [phase, settings.followUpBehavior, submitComposer],
+  );
+  const { onSendWithFullHistory } = props;
+  const sendWithFullHistory = useCallback(
+    () => onSendWithFullHistory(() => submitComposer()),
+    [onSendWithFullHistory, submitComposer],
   );
   const submitCitationAndSend = useCallback(() => {
     submitComposer(
@@ -6150,6 +6180,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               citationComment: {
                 start: cursor + (needsLeadingSpace ? 1 : 0),
                 sourceAnchor: options.citationCommentAnchor,
+                // An existing space after the cursor is consumed and re-emitted, so it stays.
+                insertedSpaces: { before: needsLeadingSpace, after: rangeEnd === cursor },
               },
               focusEditorAfterReplace: false,
             }
@@ -6913,6 +6945,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   onClick={(event) => {
                     event.stopPropagation();
                     if (showResumeAction) onResume();
+                    // Compacting first is only sent from the labeled button, so expand to show it.
+                    else if (props.resumeCompactionTokens !== null) expandMobileComposer();
                     else submitComposer();
                   }}
                 >
@@ -7649,6 +7683,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                    compactBeforeSendTokens={props.resumeCompactionTokens}
+                    onSendWithFullHistory={sendWithFullHistory}
                     compactDisabled={
                       compactDisabled || noProviderAvailable || isSendBusy || isConnecting
                     }

@@ -1522,7 +1522,7 @@ function timelineMinimapEventTargetsPreview(target: EventTarget): boolean {
   return target instanceof Element && target.closest("[data-minimap-preview]") !== null;
 }
 
-const TIMELINE_MINIMAP_PREVIEW_CLOSE_DELAY_MS = 250;
+const TIMELINE_MINIMAP_PREVIEW_CLOSE_DELAY_MS = 100;
 const TIMELINE_MINIMAP_RAIL_ZONE_MIN_WIDTH = 24;
 
 function TimelineMinimap({

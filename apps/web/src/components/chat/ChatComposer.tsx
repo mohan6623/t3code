@@ -5204,7 +5204,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // line, so nothing moves when the composer rests or wakes.
   const restingLayout = isComposerResting || controlsInStrip;
   const showInlineRestingControls = composerControlsCollapsed && restingControlsHost === null;
-  // The width the inline actions take beside the prompt: pr-28, pr-20, or pr-12.
+  // The width the inline actions take beside the prompt until they are
+  // measured: pr-28, pr-20, or pr-12.
   const promptActionsWidth =
     (settings.contextWindowMeterEnabled && activeContextWindow) || reserveContextWindowMeter
       ? 112
@@ -5212,9 +5213,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ? 80
         : 48;
   const [promptRowElement, setPromptRowElement] = useState<HTMLDivElement | null>(null);
-  const promptUsesActionRow = useComposerActionRow(
-    promptRowElement,
-    promptActionsWidth,
+  const {
+    needsActionRow: promptUsesActionRow,
+    actionsReserve: promptActionsReserve,
+    attachShift: promptAttachShift,
+  } = useComposerActionRow(
+    restingLayout ? promptRowElement : null,
     controlsInStrip && !isComposerResting,
   );
   const composerControlsVisibleInStrip =
@@ -7396,12 +7400,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   promptUsesActionRow
                     ? "pb-10"
                     : restingLayout &&
+                        promptActionsReserve === null &&
                         (promptActionsWidth === 112
                           ? "pr-28"
                           : promptActionsWidth === 80
                             ? "pr-20"
                             : "pr-12"),
                 )}
+                // The send button changes width with its label, so the prompt
+                // keeps clear of the measured actions, not of a fixed width.
+                style={
+                  restingLayout && !promptUsesActionRow && promptActionsReserve !== null
+                    ? { paddingRight: promptActionsReserve }
+                    : undefined
+                }
               >
                 {previewFile ? (
                   <Dialog
@@ -7475,6 +7487,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       // One line fills the 2rem row the actions are centred on.
                       controlsInStrip && "my-0 min-h-8 py-1 leading-6",
                       controlsInStrip && isComposerResting && "max-h-8 overflow-hidden",
+                      // The scrollbar of a long prompt sits at the surface edge.
+                      promptUsesActionRow && "-me-2.5 pe-2.5",
                       isComposerApprovalState && "min-h-10",
                     )}
                     placeholderClassName={cn(
@@ -7518,9 +7532,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 {controlsInStrip ? (
                   // Reserved in both states so the prompt never rewraps.
                   <div
+                    data-chat-composer-preview-reserve="true"
                     className={cn(
                       "flex h-8 shrink-0 items-center",
                       !isComposerResting && "invisible",
+                      // The action row never rests, so it reserves nothing.
+                      promptUsesActionRow && "pointer-events-none absolute",
                     )}
                   >
                     {collapsedComposerImagePreviews}
@@ -7619,23 +7636,35 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           });
                         }}
                       />
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              onPointerDown={(event) => event.preventDefault()}
-                              onClick={() => attachmentInputRef.current?.click()}
-                              aria-label="Attach files"
-                            />
-                          }
-                        >
-                          <PaperclipIcon />
-                        </TooltipTrigger>
-                        <TooltipPopup>Attach files</TooltipPopup>
-                      </Tooltip>
+                      <span
+                        data-chat-composer-attach="true"
+                        // On the action row the attach button slides to the
+                        // start, below the first prompt character.
+                        className="flex transition-transform duration-200 ease-out motion-reduce:transition-none"
+                        style={
+                          promptUsesActionRow
+                            ? { transform: `translateX(-${promptAttachShift}px)` }
+                            : undefined
+                        }
+                      >
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                onPointerDown={(event) => event.preventDefault()}
+                                onClick={() => attachmentInputRef.current?.click()}
+                                aria-label="Attach files"
+                              />
+                            }
+                          >
+                            <PaperclipIcon />
+                          </TooltipTrigger>
+                          <TooltipPopup>Attach files</TooltipPopup>
+                        </Tooltip>
+                      </span>
                     </>
                   ) : null}
                   <ComposerFooterPrimaryActions

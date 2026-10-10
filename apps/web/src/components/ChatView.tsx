@@ -7690,6 +7690,7 @@ export default function ChatView(props: ChatViewProps) {
   // sends never compact first, so the offer hides for them.
   const resumeCompactionTokens =
     activeContextWindow &&
+    settings.compactBeforeSendEnabled &&
     !resumeCompactionPermanentlyDismissed &&
     !nativeResumeCompactionDismissed &&
     !compactDisabled &&

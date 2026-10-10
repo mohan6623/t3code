@@ -612,6 +612,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
         ? ["Collapse composer on scroll"]
         : []),
+      ...(settings.compactBeforeSendEnabled !== DEFAULT_UNIFIED_SETTINGS.compactBeforeSendEnabled
+        ? ["Compact and send"]
+        : []),
       ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
         ? ["Rich text composer"]
         : []),
@@ -680,6 +683,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadDelete,
       settings.confirmThreadUnpin,
       settings.composerCollapseOnScroll,
+      settings.compactBeforeSendEnabled,
       settings.composerRichTextEnabled,
       settings.sendShortcut,
       settings.followUpBehavior,
@@ -802,6 +806,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
+      compactBeforeSendEnabled: DEFAULT_UNIFIED_SETTINGS.compactBeforeSendEnabled,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
@@ -2787,6 +2792,33 @@ export function GeneralSettingsPanel() {
                 updateSettings({ composerCollapseOnScroll: Boolean(checked) })
               }
               aria-label="Collapse composer on scroll"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("compact-before-send")}
+          description="When an old Claude thread has a large context, the send button becomes Compact and send. Turn this off to keep the plain send button and compact by hand with /compact."
+          resetAction={
+            settings.compactBeforeSendEnabled !==
+            DEFAULT_UNIFIED_SETTINGS.compactBeforeSendEnabled ? (
+              <SettingResetButton
+                label="compact and send"
+                onClick={() =>
+                  updateSettings({
+                    compactBeforeSendEnabled: DEFAULT_UNIFIED_SETTINGS.compactBeforeSendEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.compactBeforeSendEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ compactBeforeSendEnabled: Boolean(checked) })
+              }
+              aria-label="Compact and send"
             />
           }
         />

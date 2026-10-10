@@ -407,6 +407,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
   },
   {
+    id: "compact-before-send",
+    title: "Compact and send",
+    to: "/settings/general",
+    searchTerms: ["compact compaction send button context window history resume claude"],
+  },
+  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/general",

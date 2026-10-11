@@ -9,6 +9,7 @@ import {
 import { ChatCanvasContext } from "./ChatCanvasContext";
 import { resolveChatCanvasLayout, type ChatCanvasPreview } from "./chatCanvasLayout";
 import type { PreviewMiniPlayerObstacles } from "../preview/previewMiniPlayerLayout";
+import { observeResize } from "../../lib/observeResize";
 
 /** The elements whose rules in index.css read the chat lane variables. */
 const CHAT_LANE_SELECTOR = ".chat-composer-lane, .messages-timeline-scroll, .chat-scroll-to-bottom";
@@ -19,10 +20,12 @@ const CHAT_LANE_SELECTOR = ".chat-composer-lane, .messages-timeline-scroll, .cha
  */
 export function ChatCanvas({
   composerOverlayElement,
+  detailsCardTopInset = 0,
   children,
   ...props
 }: Omit<ComponentProps<"div">, "className" | "style" | "ref"> & {
   composerOverlayElement: HTMLElement | null;
+  detailsCardTopInset?: number;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
   const widthProbeRef = useRef<HTMLDivElement | null>(null);
@@ -41,7 +44,7 @@ export function ChatCanvas({
   const [measurements, setMeasurements] = useState({
     width: 0,
     height: 0,
-    padding: 20,
+    padding: 48,
     maxChatWidth: 768,
     minChatWidth: 640,
     composerHeight: 0,
@@ -90,12 +93,10 @@ export function ChatCanvas({
       );
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    observer.observe(probe);
-    if (composerOverlayElement) observer.observe(composerOverlayElement);
-    if (timelineElement) observer.observe(timelineElement);
-    return () => observer.disconnect();
+    const observed: Element[] = [element, probe];
+    if (composerOverlayElement) observed.push(composerOverlayElement);
+    if (timelineElement) observed.push(timelineElement);
+    return observeResize(observed, measure);
   }, [composerOverlayElement, timelineElement]);
   const context = useMemo(() => {
     const container = { width: measurements.width, height: measurements.height };
@@ -108,8 +109,17 @@ export function ChatCanvas({
       clearPreview,
       registerTimeline,
       reportDetailsCard,
+      detailsCardTopInset,
     };
-  }, [measurements, preview, detailsCard, reportPreview, clearPreview, reportDetailsCard]);
+  }, [
+    measurements,
+    preview,
+    detailsCard,
+    reportPreview,
+    clearPreview,
+    reportDetailsCard,
+    detailsCardTopInset,
+  ]);
   const { layout } = context;
   // The lane variables are registered as non-inherited (index.css) and written
   // on the elements that read them. On the canvas root, each change restyled
@@ -141,7 +151,7 @@ export function ChatCanvas({
         <div
           ref={widthProbeRef}
           aria-hidden
-          className="pointer-events-none invisible absolute h-0 w-(--chat-content-max-width) min-w-[40rem] box-content ps-3 sm:ps-5"
+          className="pointer-events-none invisible absolute h-0 w-(--chat-content-max-width) min-w-[40rem] box-content ps-3 sm:ps-12"
         />
         {children}
       </div>

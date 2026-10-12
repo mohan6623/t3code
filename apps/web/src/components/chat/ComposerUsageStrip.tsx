@@ -20,7 +20,7 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { getDriverOption } from "../settings/providerDriverMeta";
+import { providerClients } from "../settings/providerDriverMeta";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Switch } from "../ui/switch";
 import { ResetCredits, barColor } from "../usage/UsageLimits";
@@ -125,11 +125,13 @@ function badgeWindows(
 }
 
 function providerName(provider: ServerProvider): string {
-  return provider.displayName?.trim() || getDriverOption(provider.driver)?.label || provider.driver;
+  return (
+    provider.displayName?.trim() || providerClients.get(provider.driver)?.label || provider.driver
+  );
 }
 
 function driverLabel(provider: ServerProvider): string {
-  return getDriverOption(provider.driver)?.label ?? String(provider.driver);
+  return providerClients.get(provider.driver)?.label ?? String(provider.driver);
 }
 
 function ProviderIcon({ provider, className }: { provider: ServerProvider; className?: string }) {

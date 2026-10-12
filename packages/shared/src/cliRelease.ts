@@ -5,7 +5,10 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+// Fork: upstream is "pingdotgg/t3code". Fork builds carry their own version
+// numbers, which upstream has no release for, so the archives come from the
+// fork's releases (attached by .github/workflows/fork-desktop-windows.yml).
+const CLI_RELEASE_REPOSITORY = "mohan6623/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";

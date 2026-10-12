@@ -3,8 +3,9 @@ name: Fork Upstream Sync
 # Once a day, merges the newest official nightly into the fork branch.
 # - A clean merge that typechecks is pushed straight to the branch, which
 #   triggers "Fork Desktop Windows" to build and publish the update.
-# - A conflicting merge is resolved by Claude Code, typechecked, and opened as
-#   a pull request. Merging that PR publishes the update.
+# - A conflicting merge is resolved by Claude Code, typechecked, opened as a
+#   pull request, and merged right away. The pull request stays as the record
+#   of how each conflict was resolved. Its merge publishes the update.
 #
 # Secrets (repository settings):
 # - FORK_SYNC_TOKEN: fine-grained token for this repository only, with
@@ -168,7 +169,7 @@ jobs:
         if: steps.merge.outputs.conflicts == 'false'
         run: git push origin "HEAD:$FORK_BRANCH"
 
-      - name: Open a pull request for the resolved merge
+      - name: Open and merge a pull request for the resolved merge
         if: steps.merge.outputs.conflicts == 'true'
         env:
           GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
@@ -185,7 +186,7 @@ jobs:
           {
             echo "Claude Code resolved the conflicts in this merge of upstream \`$TAG\`. Typecheck passed."
             echo
-            echo "Merging this PR builds and publishes the update."
+            echo "The sync merges this PR by itself, which builds and publishes the update."
             echo
             echo "## Claude's summary"
             echo
@@ -197,3 +198,21 @@ jobs:
             gh pr create --repo "$GITHUB_REPOSITORY" --base "$FORK_BRANCH" --head "$branch" \
               --title "Merge upstream $TAG" --body-file pr-body.md
           fi
+          # GitHub works out mergeability a moment after the push.
+          merged=false
+          for attempt in 1 2 3 4 5 6; do
+            if gh pr merge "$branch" --repo "$GITHUB_REPOSITORY" --merge --delete-branch; then
+              merged=true
+              break
+            fi
+            sleep 20
+          done
+          if [[ "$merged" != "true" ]]; then
+            echo "::error::Could not merge the pull request for $TAG. Merge it by hand."
+            exit 1
+          fi
+          # An older sync PR that was never merged is part of this one.
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$FORK_BRANCH" --json number,headRefName --jq '.[] | select(.headRefName | startswith("sync/")) | .number' |
+            while read -r number; do
+              gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch --comment "Superseded by the merge of upstream $TAG."
+            done

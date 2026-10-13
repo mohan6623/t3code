@@ -63,7 +63,15 @@ const REMOTE_ARCHIVE_CHECKSUMS_SECONDS = 30;
 const REMOTE_ARCHIVE_DOWNLOAD_SECONDS = 240;
 const REMOTE_ARCHIVE_LOCK_WAIT_SECONDS = 360;
 const REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS = 900_000;
-const REMOTE_REUSE_READY_TIMEOUT_MS = 2_000;
+// Fork: upstream allows 2_000. A running server that misses this check is
+// killed and started again, which ends the agent work on it, so a busy server
+// gets more time to answer.
+const REMOTE_REUSE_READY_TIMEOUT_MS = 10_000;
+// Fork: the check of an open tunnel. Upstream allows 2 s in total and 1 s per
+// probe. Through a jump host a probe alone takes 0.6 to 0.8 s, so a short delay
+// on the link looked like a dead tunnel.
+const EXISTING_TUNNEL_READY_TIMEOUT_MS = 10_000;
+const EXISTING_TUNNEL_PROBE_TIMEOUT_MS = 4_000;
 
 export interface RemoteT3RunnerOptions {
   /**
@@ -1618,7 +1626,11 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
         remotePort: entry.remotePort,
       });
       const readinessExit = yield* Effect.exit(
-        waitForHttpReady({ baseUrl: entry.httpBaseUrl, timeoutMs: 2_000 }),
+        waitForHttpReady({
+          baseUrl: entry.httpBaseUrl,
+          timeoutMs: EXISTING_TUNNEL_READY_TIMEOUT_MS,
+          probeTimeoutMs: EXISTING_TUNNEL_PROBE_TIMEOUT_MS,
+        }),
       );
       if (Exit.isSuccess(readinessExit)) {
         yield* Effect.logDebug("ssh.environment.tunnel.reused", {
@@ -1636,6 +1648,11 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
         remotePort: entry.remotePort,
         cause: readinessExit.cause,
       });
+      // Fork: a tunnel that stopped answering does not mean the remote server
+      // is down. Forget the entry first, so closing it drops only the local
+      // tunnel. The launch below reuses the remote server when it answers and
+      // restarts it when it does not.
+      tunnels.delete(key);
       yield* closeTunnelEntry(entry);
     }
 

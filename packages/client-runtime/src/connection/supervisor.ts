@@ -38,7 +38,9 @@ import {
 } from "./routes.ts";
 
 const RETRY_BASE_DELAY_MS = 1_000;
-const RETRY_MAX_DELAY_MS = 300_000;
+// Fork: upstream caps at 300_000. The fork's VMs sleep and wake often, and a
+// woken VM should reconnect within about half a minute, not five.
+const RETRY_MAX_DELAY_MS = 30_000;
 const CONNECTION_ESTABLISHMENT_TIMEOUT = "15 seconds";
 const establishmentTimeout = Duration.fromInputUnsafe(CONNECTION_ESTABLISHMENT_TIMEOUT);
 const CONNECTION_PROBE_TIMEOUT = "15 seconds";
@@ -131,7 +133,7 @@ export interface EnvironmentSupervisorOptions {
 
 /**
  * Delay before the next attempt after `failureCount` consecutive failures
- * (0 for the first retry). The ceiling doubles from 2s up to 5 minutes, and
+ * (0 for the first retry). The ceiling doubles from 2s up to 30 seconds, and
  * the delay is a random point in its upper half: never quicker than half the
  * ceiling, and spread out so clients that lost the same server do not all
  * reconnect in the same second. `random` is in [0, 1).

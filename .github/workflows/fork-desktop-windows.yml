@@ -22,6 +22,16 @@ concurrency:
   group: fork-desktop-windows
   cancel-in-progress: false
 
+# T3 Connect (account sign-in and the relay). The values are public: the
+# official build bakes the same ones into every installer. They are baked in
+# at build time, and a build without them has no account feature. Set as
+# repository variables on the fork.
+env:
+  T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+  T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.CLERK_JWT_TEMPLATE }}
+  T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+  T3CODE_RELAY_URL: ${{ vars.RELAY_URL }}
+
 jobs:
   # Nightly-shaped versions keep the "(Nightly)" product name. The date and
   # a run number above upstream's build counter keep each fork build newer

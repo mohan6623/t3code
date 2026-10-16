@@ -251,7 +251,7 @@ import {
   RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY,
   type ThreadPanelPresentation,
 } from "../rightPanelLayout";
-import { PopoverCreateHandle } from "./ui/popover";
+import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import {
   pullRequestSurface,
   selectActiveRightPanel,
@@ -310,6 +310,7 @@ import {
   ChevronDownIcon,
   DownloadIcon,
   GitBranchIcon,
+  InfoIcon,
   RotateCwIcon,
   TargetIcon,
   WifiOffIcon,
@@ -3123,9 +3124,41 @@ export default function ChatView(props: ChatViewProps) {
         id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
         variant: unavailableConnection.phase === "error" ? "error" : "warning",
         icon: <WifiOffIcon />,
-        title: `${activeEnvironmentUnavailableState.label} is ${environmentReconnecting ? "reconnecting" : "offline"}`,
-        // Fork: the last failure, with the full text in the details pop-up.
-        ...(unavailableConnection.error ? { description: unavailableConnection.error } : {}),
+        // Fork: the last failure sits behind a small info icon beside the title.
+        title: (
+          <span className="inline-flex max-w-full items-center gap-1 align-top">
+            <span className="truncate">
+              {`${activeEnvironmentUnavailableState.label} is ${environmentReconnecting ? "reconnecting" : "offline"}`}
+            </span>
+            {unavailableConnection.error ? (
+              <Popover>
+                <PopoverTrigger
+                  openOnHover
+                  render={
+                    <Button
+                      size="icon-micro"
+                      variant="ghost-muted"
+                      aria-label="Show the connection error"
+                      className="flex-none"
+                    />
+                  }
+                >
+                  <InfoIcon />
+                </PopoverTrigger>
+                <PopoverPopup
+                  aria-label="Connection error"
+                  tooltipStyle
+                  side="top"
+                  align="start"
+                  alignOffset={-6}
+                  className="max-w-[min(30rem,calc(100vw-2rem))] whitespace-normal wrap-anywhere"
+                >
+                  {unavailableConnection.error}
+                </PopoverPopup>
+              </Popover>
+            ) : null}
+          </span>
+        ),
         // Fork: retry now, also while a reconnect is waiting for its next try.
         actions: (
           <>

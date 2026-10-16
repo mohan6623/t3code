@@ -310,6 +310,7 @@ import {
   ChevronDownIcon,
   DownloadIcon,
   GitBranchIcon,
+  RotateCwIcon,
   TargetIcon,
   WifiOffIcon,
 } from "lucide-react";
@@ -2699,8 +2700,12 @@ export default function ChatView(props: ChatViewProps) {
       connection: activeEnvironment.connection,
     };
   }, [activeEnvironment, activeEnvironmentUnavailable, activeEnvironmentUnavailableLabel]);
+  // Fork: spins the retry icon briefly so a click is visibly taken.
+  const [reconnectRequested, setReconnectRequested] = useState(false);
   const handleReconnectActiveEnvironment = useCallback(
     async (environmentId: EnvironmentId) => {
+      setReconnectRequested(true);
+      setTimeout(() => setReconnectRequested(false), 1_200);
       const result = await retryEnvironment(environmentId);
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
@@ -3119,21 +3124,30 @@ export default function ChatView(props: ChatViewProps) {
         variant: unavailableConnection.phase === "error" ? "error" : "warning",
         icon: <WifiOffIcon />,
         title: `${activeEnvironmentUnavailableState.label} is ${environmentReconnecting ? "reconnecting" : "offline"}`,
+        // Fork: the last failure, with the full text in the details pop-up.
+        ...(unavailableConnection.error ? { description: unavailableConnection.error } : {}),
+        // Fork: retry now, also while a reconnect is waiting for its next try.
         actions: (
           <>
-            {!environmentReconnecting ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() =>
-                  void handleReconnectActiveEnvironment(
-                    activeEnvironmentUnavailableState.environmentId,
-                  )
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Retry now"
+                    onClick={() =>
+                      void handleReconnectActiveEnvironment(
+                        activeEnvironmentUnavailableState.environmentId,
+                      )
+                    }
+                  />
                 }
               >
-                Reconnect
-              </Button>
-            ) : null}
+                <RotateCwIcon className={cn(reconnectRequested && "animate-spin")} />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Retry now</TooltipPopup>
+            </Tooltip>
             {disconnectAction}
           </>
         ),
@@ -3226,6 +3240,7 @@ export default function ChatView(props: ChatViewProps) {
     autoBalanceUpdateBanner,
     activeEnvironmentUnavailableState,
     handleReconnectActiveEnvironment,
+    reconnectRequested,
     canDisconnectActiveEnvironment,
     disconnectingEnvironment,
     handleDisconnectActiveEnvironment,

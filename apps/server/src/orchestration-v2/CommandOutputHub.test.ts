@@ -433,6 +433,37 @@ layer("CommandOutputHub", (it) => {
     ),
   );
 
+  it.effect("a background command streams without a row and ends when its provider says", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const hub = yield* CommandOutputHub.CommandOutputHub;
+        const threadId = yield* seedThread;
+        const target = { threadId, itemId: ITEM_ID, background: true } as const;
+        // Its call settled at once, so no running row exists; the key is registered instead.
+        yield* hub.append({ ...target, chunk: "" });
+        const frames = yield* subscribeFrames(threadId);
+        yield* takeFrame(frames);
+        yield* hub.append({ ...target, chunk: "listening on :3000\n" });
+        yield* TestClock.adjust("1 second");
+        assert.deepEqual(yield* takeFrame(frames), {
+          kind: "append",
+          text: "listening on :3000\n",
+          truncated: false,
+          running: true,
+        });
+        yield* hub.append({ ...target, chunk: "", done: true });
+        yield* TestClock.adjust("1 second");
+        assert.deepEqual(yield* takeFrame(frames), {
+          kind: "replace",
+          text: "listening on :3000\n",
+          truncated: false,
+          running: false,
+        });
+        assert.equal(yield* Queue.take(frames), "ended");
+      }),
+    ),
+  );
+
   it.effect("an interrupted command ends the stream with the output it printed", () =>
     Effect.scoped(
       Effect.gen(function* () {

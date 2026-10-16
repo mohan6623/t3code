@@ -61,8 +61,17 @@ interface Subscriber {
 export type CommandOutputTarget = OrchestrationV2SubscribeCommandOutputInput;
 
 export interface CommandOutputHubShape {
-  /** Add raw output for a running command. Called for every provider chunk. */
-  readonly append: (input: CommandOutputTarget & { readonly chunk: string }) => Effect.Effect<void>;
+  /**
+   * Add raw output for a running command. Called for every provider chunk.
+   * Fork: a `background` command has no row to settle it, so `done` ends it.
+   */
+  readonly append: (
+    input: CommandOutputTarget & {
+      readonly chunk: string;
+      readonly background?: boolean | undefined;
+      readonly done?: boolean | undefined;
+    },
+  ) => Effect.Effect<void>;
   /**
    * The command settled. Its tail is kept briefly for a settle that carries no
    * output (an interrupt); otherwise the persisted output is what rows show.
@@ -143,6 +152,8 @@ export const make = Effect.gen(function* () {
   const tails = new Map<string, TerminalOutputState>();
   const finished = new Map<string, TerminalOutputState>();
   const subscribers = new Map<string, Set<Subscriber>>();
+  // Fork: background commands by key, and whether each has ended.
+  const background = new Map<string, { readonly done: boolean }>();
 
   const wakeAll = (key: string, chunk: string) =>
     Effect.forEach(
@@ -161,10 +172,26 @@ export const make = Effect.gen(function* () {
       { discard: true },
     );
 
-  const append: CommandOutputHubShape["append"] = ({ chunk, ...target }) =>
+  const append: CommandOutputHubShape["append"] = ({
+    chunk,
+    background: isBackground,
+    done,
+    ...target
+  }) =>
     Effect.suspend(() => {
-      if (chunk.length === 0) return Effect.void;
       const key = commandKey(target);
+      if (isBackground === true) {
+        setBounded(background, key, { done: done === true }, MAX_FINISHED_COMMANDS);
+        const end = done === true ? finish(target) : Effect.void;
+        if (chunk.length === 0) return end.pipe(Effect.andThen(wakeAll(key, "")));
+        return appendChunk(key, chunk).pipe(Effect.andThen(end));
+      }
+      if (chunk.length === 0) return Effect.void;
+      return appendChunk(key, chunk);
+    });
+
+  const appendChunk = (key: string, chunk: string) =>
+    Effect.suspend(() => {
       const tail = appendTerminalOutput(tails.get(key) ?? EMPTY_TERMINAL_OUTPUT, chunk);
       setBounded(tails, key, tail, MAX_LIVE_COMMANDS, (oldest) => {
         // Its viewers no longer share the hub's state; resync them on the next frame.
@@ -249,15 +276,18 @@ export const make = Effect.gen(function* () {
             ),
             Effect.forkScoped,
           );
-        const item = yield* projections.getTurnItem(target);
-        // Only command rows have output; anything else would hold a subscription open forever.
-        if (item === null || item.type !== "command_execution") {
-          return yield* new OrchestrationV2CommandOutputError({
-            threadId: target.threadId,
-            message: "No such command.",
-          });
+        // Fork: a background command has no row; its provider says when it ends.
+        if (!background.has(key)) {
+          const item = yield* projections.getTurnItem(target);
+          // Only command rows have output; anything else would hold a subscription open forever.
+          if (item === null || item.type !== "command_execution") {
+            return yield* new OrchestrationV2CommandOutputError({
+              threadId: target.threadId,
+              message: "No such command.",
+            });
+          }
+          yield* observe(item);
         }
-        yield* observe(item);
         yield* Queue.offer(wake, undefined);
 
         let lastFrameAt: number | undefined;
@@ -282,6 +312,14 @@ export const make = Effect.gen(function* () {
           throttle = COMMAND_OUTPUT_FRAME_INTERVAL_MS;
           // A finished tail still shows until the settled item arrives.
           const tail = tails.get(key) ?? finished.get(key);
+          if (background.get(key)?.done === true) {
+            return {
+              kind: "replace",
+              text: tail?.text ?? "",
+              truncated: tail?.truncated ?? false,
+              running: false,
+            };
+          }
           if (settled !== undefined) {
             if (settled.output === undefined && tail !== undefined) {
               return {

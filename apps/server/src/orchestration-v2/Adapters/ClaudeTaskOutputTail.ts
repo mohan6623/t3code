@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as OS from "node:os";
 
 /**
  * Live output for a foreground Claude Bash call.
@@ -22,15 +23,18 @@ const MAX_LOCATE_ATTEMPTS = 40;
 /** Bytes read per poll. A faster writer skips ahead: only the tail is shown anyway. */
 const MAX_READ_BYTES = 256 * 1024;
 
-/** Claude Code's per-user temp root, or none where it has no uid (Windows). */
+/**
+ * Claude Code's per-user temp root. Fork: where there is no uid (Windows),
+ * Claude Code writes under `<temp>/claude` with the same layout below it.
+ */
 export function claudeTaskOutputRoot(
   environment: Readonly<Record<string, string | undefined>> | undefined,
   path: Path.Path,
 ): string | undefined {
+  const override = environment?.CLAUDE_CODE_TMPDIR?.trim();
   const uid = process.getuid?.();
-  if (uid === undefined) return undefined;
-  const base = environment?.CLAUDE_CODE_TMPDIR?.trim() || "/tmp";
-  return path.join(base, `claude-${uid}`);
+  if (uid === undefined) return path.join(override || OS.tmpdir(), "claude");
+  return path.join(override || "/tmp", `claude-${uid}`);
 }
 
 const locate = Effect.fn("ClaudeTaskOutputTail.locate")(function* (input: {

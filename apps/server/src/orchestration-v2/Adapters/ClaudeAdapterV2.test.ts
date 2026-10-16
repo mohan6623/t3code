@@ -4838,8 +4838,17 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
         const roster = providerThreadRosterEvents(harness.events).at(-1)?.providerThread
           .pendingBackgroundTasks;
+        // The roster also names the command and where its live output streams.
         assert.deepEqual(roster, [
-          { taskId: longRunning.taskId, kind: "monitor", description: "Monitor 0" },
+          {
+            taskId: longRunning.taskId,
+            kind: "monitor",
+            description: "Monitor 0",
+            command: "sleep 8 && echo MONITOR_DONE",
+            outputThreadId: harness.threadId,
+            outputItemId:
+              "turn-item:provider:claudeAgent:native-item:toolu_monitor_0%3Abackground-output",
+          },
         ]);
       }).pipe(
         Effect.provide(

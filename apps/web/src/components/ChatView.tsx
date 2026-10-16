@@ -589,6 +589,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { Button, InlineButton } from "./ui/button";
+import { BackgroundWorkDetails } from "./chat/BackgroundWorkDetails";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -7316,14 +7317,22 @@ export default function ChatView(props: ChatViewProps) {
               );
             }),
       actions: (
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={!canOperateThread || isStoppingBackgroundWork}
-          onClick={() => void handleStopBackgroundWorkStable()}
-        >
-          {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-        </Button>
+        <>
+          {/* Fork: what each piece of work runs, with live output. */}
+          <BackgroundWorkDetails
+            environmentId={activeThread.environmentId}
+            items={presentation.items}
+            onOpenThread={onOpenRelatedThreadStable}
+          />
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={!canOperateThread || isStoppingBackgroundWork}
+            onClick={() => void handleStopBackgroundWorkStable()}
+          >
+            {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
+          </Button>
+        </>
       ),
     };
   }, [

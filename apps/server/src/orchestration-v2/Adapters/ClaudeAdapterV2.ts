@@ -87,6 +87,7 @@ import {
   type ProviderThreadId,
   type RunId,
   type ThreadId,
+  type TurnItemId,
 } from "@t3tools/contracts";
 
 import * as Cause from "effect/Cause";
@@ -3429,6 +3430,107 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               Effect.asVoid,
             );
           });
+        // Fork: background shell commands by task id: what each runs and the
+        // key its live output streams under. Survives turn settle, because the
+        // command does: its own call settles as soon as it is backgrounded.
+        const backgroundCommands = new Map<
+          string,
+          {
+            readonly nativeThreadId: string;
+            readonly command: string | undefined;
+            readonly threadId: ThreadId;
+            readonly outputItemId: TurnItemId;
+            readonly tail:
+              | { readonly fiber: Fiber.Fiber<void>; readonly stop: Deferred.Deferred<void> }
+              | undefined;
+          }
+        >();
+        const withBackgroundCommand = (
+          task: OrchestrationV2PendingBackgroundTask,
+        ): OrchestrationV2PendingBackgroundTask => {
+          if (task.kind !== "command" && task.kind !== "monitor") return task;
+          const details = backgroundCommands.get(task.taskId);
+          if (details === undefined) return task;
+          return {
+            ...task,
+            ...(details.command === undefined ? {} : { command: details.command }),
+            outputThreadId: details.threadId,
+            outputItemId: details.outputItemId,
+          };
+        };
+        const startBackgroundCommandOutput = Effect.fnUntraced(function* (input: {
+          readonly nativeThreadId: string;
+          readonly taskId: string;
+          readonly sessionId: string;
+          readonly call: ActiveClaudeToolCall;
+        }) {
+          const outputItemId = idAllocator.derive.turnItemFromProviderItem({
+            driver: CLAUDE_PROVIDER,
+            nativeItemId: `${input.call.nativeItemId}:background-output`,
+          });
+          const delta = {
+            type: "command_output.delta",
+            driver: CLAUDE_PROVIDER,
+            threadId: input.call.threadId,
+            itemId: outputItemId,
+            background: true,
+          } as const;
+          // Registers the key, so a viewer opened before the first output finds it.
+          yield* emitProviderEvent({ ...delta, chunk: "" });
+          let tail:
+            | { readonly fiber: Fiber.Fiber<void>; readonly stop: Deferred.Deferred<void> }
+            | undefined;
+          if (taskOutputRoot !== undefined) {
+            const stop = yield* Deferred.make<void>();
+            const fiber = yield* tailClaudeTaskOutput({
+              root: taskOutputRoot,
+              sessionId: input.sessionId,
+              taskId: input.taskId,
+              stop,
+              onChunk: (chunk) => emitProviderEvent({ ...delta, chunk }),
+            }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.forkIn(sessionScope),
+            );
+            tail = { fiber, stop };
+          }
+          backgroundCommands.set(input.taskId, {
+            nativeThreadId: input.nativeThreadId,
+            command: firstStringInputField(input.call.input, ["command"]),
+            threadId: input.call.threadId,
+            outputItemId,
+            tail,
+          });
+        });
+        // Ends the stream after the tail's last read, so viewers keep the final lines.
+        const endBackgroundCommandOutput = (taskId: string) =>
+          Effect.suspend(() => {
+            const details = backgroundCommands.get(taskId);
+            if (details === undefined) return Effect.void;
+            backgroundCommands.delete(taskId);
+            const lastRead =
+              details.tail === undefined
+                ? Effect.void
+                : Deferred.succeed(details.tail.stop, undefined).pipe(
+                    Effect.andThen(Fiber.await(details.tail.fiber)),
+                  );
+            return lastRead.pipe(
+              Effect.andThen(
+                emitProviderEvent({
+                  type: "command_output.delta",
+                  driver: CLAUDE_PROVIDER,
+                  threadId: details.threadId,
+                  itemId: details.outputItemId,
+                  chunk: "",
+                  background: true,
+                  done: true,
+                }),
+              ),
+              Effect.forkIn(sessionScope),
+              Effect.asVoid,
+            );
+          });
         const sdkMessageLock = yield* Semaphore.make(1);
         // Survives turn settle: members mostly finish after the launching
         // turn has ended, and each transition must be emitted exactly once.
@@ -3947,7 +4049,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               } else {
                 updated.set(
                   nativeThreadId,
-                  new Map(tasks.map((task) => [task.taskId, task] as const)),
+                  new Map(tasks.map((task) => [task.taskId, withBackgroundCommand(task)] as const)),
                 );
               }
               return updated;
@@ -3968,7 +4070,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           Effect.gen(function* () {
             yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
               const roster = new Map(rosterForNativeThread(current, nativeThreadId));
-              roster.set(task.taskId, task);
+              roster.set(task.taskId, withBackgroundCommand(task));
               return new Map(current).set(nativeThreadId, roster);
             });
             yield* rememberOpaqueTasks([task]);
@@ -4003,6 +4105,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               return updated;
             });
             yield* endClaudeMonitorTasks((_taskId, task) => task.nativeThreadId === nativeThreadId);
+            for (const [taskId, details] of backgroundCommands) {
+              if (details.nativeThreadId === nativeThreadId) {
+                yield* endBackgroundCommandOutput(taskId);
+              }
+            }
           });
 
         const clearWakeStateForNativeThread = (nativeThreadId: string) =>
@@ -6318,6 +6425,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             rosterChanged = true;
           } else if (message.type === "system" && message.subtype === "task_notification") {
             yield* endClaudeMonitorTasks((taskId) => taskId === message.task_id);
+            yield* endBackgroundCommandOutput(message.task_id);
             const removed = yield* clearPendingBackgroundTask(
               input.nativeThreadId,
               message.task_id,
@@ -6990,6 +7098,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   Effect.forkIn(sessionScope),
                 );
                 taskOutputTails.set(tailedCall.nativeItemId, { fiber, stop });
+              }
+              if (
+                message.is_backgrounded === true &&
+                message.task_type === "local_bash" &&
+                tailedCall !== undefined &&
+                !backgroundCommands.has(message.task_id)
+              ) {
+                yield* startBackgroundCommandOutput({
+                  nativeThreadId: liveQuery.nativeThreadId,
+                  taskId: message.task_id,
+                  sessionId: message.session_id,
+                  call: tailedCall,
+                });
               }
               context.ignoredTaskIds.add(message.task_id);
               yield* applyBackgroundTaskRosterMessage({

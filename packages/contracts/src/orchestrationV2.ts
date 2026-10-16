@@ -811,6 +811,17 @@ const PendingBackgroundTaskFields = {
   description: Schema.optional(TrimmedNonEmptyString),
 };
 
+/**
+ * Fork: what a background shell command runs, and the key its live output
+ * streams under (`orchestration.subscribeCommandOutput`). Its own call settles
+ * at once, so the output has a key of its own rather than the call's row.
+ */
+const BackgroundCommandFields = {
+  command: Schema.optional(Schema.String),
+  outputThreadId: Schema.optional(ThreadId),
+  outputItemId: Schema.optional(TurnItemId),
+};
+
 export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
   [
     Schema.Struct({
@@ -818,8 +829,16 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       kind: Schema.Literal("subagent"),
       childThreadId: Schema.optional(ThreadId),
     }),
-    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("command") }),
-    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("monitor") }),
+    Schema.Struct({
+      ...PendingBackgroundTaskFields,
+      ...BackgroundCommandFields,
+      kind: Schema.Literal("command"),
+    }),
+    Schema.Struct({
+      ...PendingBackgroundTaskFields,
+      ...BackgroundCommandFields,
+      kind: Schema.Literal("monitor"),
+    }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
   (kind) => Schema.Struct({ ...PendingBackgroundTaskFields, kind }),

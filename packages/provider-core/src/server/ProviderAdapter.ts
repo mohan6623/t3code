@@ -130,6 +130,10 @@ export const ProviderAdapterV2Event = Schema.Union([
     threadId: ThreadId,
     itemId: TurnItemId,
     chunk: Schema.String,
+    /** Fork: output of a background command, keyed by its own id; no row settles it. */
+    background: Schema.optional(Schema.Boolean),
+    /** Fork: the background command ended; nothing follows. */
+    done: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("runtime_request.updated"),

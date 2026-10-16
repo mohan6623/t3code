@@ -7553,6 +7553,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             subtype: "task_progress",
             task_id: TASK_ID,
             description: "Reading the last commits",
+            usage: { total_tokens: 12_345, tool_uses: 3, duration_ms: 4_000 },
             uuid: "00000000-0000-4000-8000-000000000956",
             session_id: WAKE_NATIVE_SESSION,
           }),
@@ -7571,6 +7572,16 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 event.subagent.progress === "Reading the last commits",
             ),
           "idle progress",
+        );
+        // The SDK's running totals ride along, so the hover card can count tokens live.
+        const lastSubagentUpdate = harness.events.findLast(
+          (event) => event.type === "subagent.updated",
+        );
+        assert.deepEqual(
+          lastSubagentUpdate?.type === "subagent.updated"
+            ? lastSubagentUpdate.subagent.usage
+            : undefined,
+          { totalTokens: 12_345, toolUses: 3, durationMs: 4_000 },
         );
         const routing = subagentRouting(harness.events, [STRADDLING_BASH, IDLE_BASH]);
         assert.deepEqual(routing.assistantTexts(routing.childThreadId), ["Still auditing."]);

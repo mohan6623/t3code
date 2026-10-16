@@ -73,6 +73,7 @@ import {
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2UserInputQuestion,
   type OrchestrationV2Subagent,
+  type OrchestrationV2SubagentUsage,
   type OrchestrationV2AppThread,
   type OrchestrationV2SubagentWorkflow,
   type OrchestrationV2WorkflowRunHandles,
@@ -2034,6 +2035,29 @@ const CLAUDE_OPAQUE_BACKGROUND_TASK_KINDS: ReadonlyMap<
 
 function isClaudeOpaqueBackgroundTaskType(taskType: string | null | undefined): boolean {
   return typeof taskType === "string" && CLAUDE_OPAQUE_BACKGROUND_TASK_KINDS.has(taskType);
+}
+
+/** Fork: the SDK's task totals, kept so the subagent card can show tokens live. */
+function claudeSubagentUsage(
+  usage:
+    | {
+        readonly total_tokens: number;
+        readonly tool_uses?: number;
+        readonly duration_ms?: number;
+      }
+    | undefined,
+): OrchestrationV2SubagentUsage | undefined {
+  const count = (value: number | undefined) =>
+    value === undefined || !Number.isFinite(value) ? undefined : Math.max(0, Math.round(value));
+  const totalTokens = count(usage?.total_tokens);
+  if (totalTokens === undefined) return undefined;
+  const toolUses = count(usage?.tool_uses);
+  const durationMs = count(usage?.duration_ms);
+  return {
+    totalTokens,
+    ...(toolUses === undefined ? {} : { toolUses }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+  };
 }
 
 function claudePendingBackgroundTask(input: {
@@ -4760,6 +4784,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly effort?: string;
           readonly owner?: ActiveClaudeSubagent;
           readonly progress?: string;
+          /** Fork: the SDK's running totals for this task. */
+          readonly usage?: OrchestrationV2SubagentUsage;
           readonly workflowFrame?: unknown;
           readonly workflowName?: string;
           readonly workflowRunHandles?: OrchestrationV2WorkflowRunHandles;
@@ -4866,6 +4892,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 compileClaudeModelSelection(input.context.input.modelSelection).effort)
               : existingSubagent.effort;
           const model = input.model ?? priorTask?.model ?? null;
+          const usage = input.usage ?? claudeSubagentUsage(input.nativeOutcome?.usage);
           const task = {
             ...(priorTask ?? {
               id: nodeId,
@@ -4910,6 +4937,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : {}),
             ...(input.progress === undefined ? {} : { progress: input.progress }),
             ...(workflowWithThreads === undefined ? {} : { workflow: workflowWithThreads }),
+            ...(usage === undefined ? {} : { usage }),
             ...(input.result === undefined ? {} : { result: input.result }),
             ...(isReopen ? { startedAt: now } : {}),
             completedAt: input.status === "running" ? null : (priorTask?.completedAt ?? now),
@@ -7050,11 +7078,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               message.task_id,
             );
             const carriesWorkflowTelemetry = hasClaudeWorkflowSnapshot(message);
+            const usage = claudeSubagentUsage(message.usage);
             const isWorkflowCoordinator =
               (yield* Ref.get(sessionSubagentsByTaskId)).get(message.task_id)?.task.workflow !==
               undefined;
             if (
-              (carriesWorkflowTelemetry || (progress.length > 0 && !isWorkflowCoordinator)) &&
+              (carriesWorkflowTelemetry ||
+                ((progress.length > 0 || usage !== undefined) && !isWorkflowCoordinator)) &&
               !context.ignoredTaskIds.has(message.task_id) &&
               !isBackgroundTask
             ) {
@@ -7063,6 +7093,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 taskId: message.task_id,
                 ...(message.tool_use_id === undefined ? {} : { toolUseId: message.tool_use_id }),
                 ...(progress.length === 0 ? {} : { progress }),
+                ...(usage === undefined ? {} : { usage }),
                 workflowFrame: message,
                 status: "running",
               });

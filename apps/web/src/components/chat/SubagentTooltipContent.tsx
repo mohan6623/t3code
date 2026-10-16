@@ -12,6 +12,7 @@ import {
   subagentDetailPreview,
 } from "@t3tools/client-runtime/state/subagent-display";
 import { getModelSelectionStringOptionValue, resolveSelectableModel } from "@t3tools/shared/model";
+import { formatTokens } from "@t3tools/shared/usageFormat";
 import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
 import { shortenClaudeModelName } from "./providerIconUtils";
 import type { ReactNode } from "react";
@@ -50,6 +51,11 @@ export function SubagentTooltipContent(props: {
   status: OrchestrationV2TurnItemStatus;
   result?: string | null | undefined;
   progress?: string | null | undefined;
+  /** Fork: tokens the subagent has used so far, updated live while it runs. */
+  usage?:
+    | { readonly totalTokens: number; readonly toolUses?: number | undefined }
+    | null
+    | undefined;
 }) {
   const { modelLabel: reportedModelLabel, workspace: metadata } = resolveSubagentMetadata(props);
   const modelLabel = shortenClaudeModelName(reportedModelLabel);
@@ -168,7 +174,15 @@ export function SubagentTooltipContent(props: {
           <StatusIcon aria-hidden className="size-3 shrink-0" />
           {props.status.replaceAll("_", " ")}
         </span>
-        {props.elapsed}
+        <span className="inline-flex min-w-0 items-center gap-2 tabular-nums">
+          {props.usage ? (
+            <span className="text-muted-foreground">
+              {formatTokens(props.usage.totalTokens)} tokens
+              {props.usage.toolUses ? ` · ${props.usage.toolUses} tools` : ""}
+            </span>
+          ) : null}
+          {props.elapsed}
+        </span>
       </div>
       {metadata.map(({ label, value }) => {
         const Icon = label === "Branch" ? GitBranchIcon : FolderIcon;

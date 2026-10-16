@@ -2,6 +2,7 @@ import { groupBy } from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import type {
   OrchestrationV2Subagent,
+  OrchestrationV2SubagentUsage,
   OrchestrationV2SubagentWorkflow,
   OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
@@ -180,6 +181,7 @@ export function projectedSubagentsToRuntime(
     readonly progress?: string | undefined;
     readonly childThreadId?: string | null | undefined;
     readonly workflow?: OrchestrationV2SubagentWorkflow | undefined;
+    readonly usage?: OrchestrationV2SubagentUsage | undefined;
     readonly result: string | null;
     readonly startedAt: DateTime.Utc | null;
     readonly completedAt: DateTime.Utc | null;
@@ -203,7 +205,20 @@ export function projectedSubagentsToRuntime(
       effort: null,
       status: subagent.status,
       activationCount: 1,
-      usage: workflow === undefined ? null : workflowUsage(workflow),
+      usage:
+        workflow === undefined
+          ? subagent.usage === undefined
+            ? null
+            : {
+                totalTokens: subagent.usage.totalTokens,
+                ...(subagent.usage.toolUses === undefined
+                  ? {}
+                  : { toolUses: subagent.usage.toolUses }),
+                ...(subagent.usage.durationMs === undefined
+                  ? {}
+                  : { durationMs: subagent.usage.durationMs }),
+              }
+          : workflowUsage(workflow),
       progress: subagent.progress ?? null,
       lastToolName: null,
       result: subagent.result,

@@ -678,6 +678,14 @@ export const OrchestrationV2SubagentWorkflow = Schema.Struct({
 });
 export type OrchestrationV2SubagentWorkflow = typeof OrchestrationV2SubagentWorkflow.Type;
 
+/** Fork: a native subagent's running totals, as its provider reports them. */
+export const OrchestrationV2SubagentUsage = Schema.Struct({
+  totalTokens: NonNegativeInt,
+  toolUses: Schema.optional(NonNegativeInt),
+  durationMs: Schema.optional(NonNegativeInt),
+});
+export type OrchestrationV2SubagentUsage = typeof OrchestrationV2SubagentUsage.Type;
+
 export const OrchestrationV2Subagent = Schema.Struct({
   id: NodeId,
   threadId: ThreadId,
@@ -708,6 +716,8 @@ export const OrchestrationV2Subagent = Schema.Struct({
   ]),
   progress: Schema.optional(Schema.String),
   workflow: Schema.optional(OrchestrationV2SubagentWorkflow),
+  /** Fork: live token count for a native subagent (Claude task_progress / task_notification). */
+  usage: Schema.optional(OrchestrationV2SubagentUsage),
   result: Schema.NullOr(Schema.String),
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),

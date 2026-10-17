@@ -119,101 +119,85 @@ function SidebarProvider({
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
   const [mobileSheetMounted, setMobileSheetMounted] = React.useState(false);
-  const setMobileSheetElement = React.useCallback((element: HTMLDivElement | null) => {
+  const setMobileSheetElement = (element: HTMLDivElement | null) => {
     setMobileSheetMounted(element !== null);
-  }, []);
+  };
 
   // Like Codex and Claude desktop: hovering the trigger or the left window
   // edge shows the collapsed sidebar over the content, without moving it.
   const [peekState, setPeekState] = React.useState(false);
   const peekTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdPeek = React.useCallback(() => {
+  const holdPeek = () => {
     if (peekTimerRef.current !== null) {
       clearTimeout(peekTimerRef.current);
       peekTimerRef.current = null;
     }
-  }, []);
-  const schedulePeek = React.useCallback(
-    (peek: boolean) => {
-      holdPeek();
-      const settle = () => {
-        if (!peek && document.querySelector(SIDEBAR_PEEK_HOLD_SELECTOR)) {
-          peekTimerRef.current = setTimeout(settle, SIDEBAR_PEEK_CLOSE_DELAY_MS);
-          return;
-        }
-        peekTimerRef.current = null;
-        setPeekState(peek);
-      };
-      peekTimerRef.current = setTimeout(
-        settle,
-        peek ? SIDEBAR_PEEK_OPEN_DELAY_MS : SIDEBAR_PEEK_CLOSE_DELAY_MS,
-      );
+  };
+  const schedulePeek = (peek: boolean) => {
+    holdPeek();
+    const settle = () => {
+      if (!peek && document.querySelector(SIDEBAR_PEEK_HOLD_SELECTOR)) {
+        peekTimerRef.current = setTimeout(settle, SIDEBAR_PEEK_CLOSE_DELAY_MS);
+        return;
+      }
+      peekTimerRef.current = null;
+      setPeekState(peek);
+    };
+    peekTimerRef.current = setTimeout(
+      settle,
+      peek ? SIDEBAR_PEEK_OPEN_DELAY_MS : SIDEBAR_PEEK_CLOSE_DELAY_MS,
+    );
+  };
+  React.useEffect(
+    () => () => {
+      if (peekTimerRef.current !== null) clearTimeout(peekTimerRef.current);
     },
-    [holdPeek],
+    [],
   );
-  React.useEffect(() => holdPeek, [holdPeek]);
 
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
-  const setOpen = React.useCallback(
-    async (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
-      // Opening or closing for real ends any peek, including a pending one.
-      holdPeek();
-      setPeekState(false);
-      if (setOpenProp) {
-        setOpenProp(openState);
-      } else {
-        _setOpen(openState);
-      }
+  const setOpen = async (value: boolean | ((value: boolean) => boolean)) => {
+    const openState = typeof value === "function" ? value(open) : value;
+    // Opening or closing for real ends any peek, including a pending one.
+    holdPeek();
+    setPeekState(false);
+    if (setOpenProp) {
+      setOpenProp(openState);
+    } else {
+      _setOpen(openState);
+    }
 
-      await cookieStore.set({
-        expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
-        name: SIDEBAR_COOKIE_NAME,
-        path: "/",
-        value: String(openState),
-      });
-    },
-    [setOpenProp, open, holdPeek],
-  );
+    await cookieStore.set({
+      expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
+      name: SIDEBAR_COOKIE_NAME,
+      path: "/",
+      value: String(openState),
+    });
+  };
 
-  const toggleSidebar = React.useCallback(() => {
+  const toggleSidebar = () => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-  }, [isMobile, setOpen]);
+  };
 
   const peeking = !isMobile && !open && peekState;
 
   const state = resolveSidebarState({ isMobile, open, openMobile });
 
-  const contextValue = React.useMemo<SidebarContextProps>(
-    () => ({
-      isMobile,
-      open,
-      openMobile,
-      mobileSheetMounted,
-      setMobileSheetElement,
-      setOpen,
-      setOpenMobile,
-      state,
-      toggleSidebar,
-      peeking,
-      schedulePeek,
-      holdPeek,
-    }),
-    [
-      state,
-      open,
-      setOpen,
-      isMobile,
-      openMobile,
-      mobileSheetMounted,
-      setMobileSheetElement,
-      toggleSidebar,
-      peeking,
-      schedulePeek,
-      holdPeek,
-    ],
-  );
+  const contextValue: SidebarContextProps = {
+    isMobile,
+    open,
+    openMobile,
+    mobileSheetMounted,
+    setMobileSheetElement,
+    setOpen,
+    setOpenMobile,
+    state,
+    toggleSidebar,
+    peeking,
+    schedulePeek,
+    holdPeek,
+  };
 
   return (
     <SidebarContext value={contextValue}>
@@ -242,6 +226,29 @@ function SidebarProvider({
   );
 }
 
+function resolveSidebarResizable({
+  collapsible,
+  isMobile,
+  resizable,
+}: {
+  collapsible: "offcanvas" | "icon" | "none";
+  isMobile: boolean;
+  resizable: boolean | SidebarResizableOptions;
+}): SidebarResolvedResizableOptions | null {
+  if (isMobile || collapsible === "none" || !resizable) {
+    return null;
+  }
+
+  const options = typeof resizable === "boolean" ? {} : resizable;
+  return {
+    maxWidth: options.maxWidth ?? Number.POSITIVE_INFINITY,
+    minWidth: options.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH,
+    storageKey: options.storageKey ?? null,
+    ...(options.onResize ? { onResize: options.onResize } : {}),
+    ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
+  };
+}
+
 function Sidebar({
   side = "left",
   variant = "sidebar",
@@ -268,24 +275,9 @@ function Sidebar({
   } = useSidebar();
   const canPeek = side === "left" && collapsible === "offcanvas" && state === "collapsed";
   const showPeek = canPeek && peeking;
-  const resolvedResizable = React.useMemo<SidebarResolvedResizableOptions | null>(() => {
-    if (isMobile || collapsible === "none" || !resizable) {
-      return null;
-    }
-
-    const options = typeof resizable === "boolean" ? {} : resizable;
-    return {
-      maxWidth: options.maxWidth ?? Number.POSITIVE_INFINITY,
-      minWidth: options.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH,
-      storageKey: options.storageKey ?? null,
-      ...(options.onResize ? { onResize: options.onResize } : {}),
-      ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
-    };
-  }, [collapsible, isMobile, resizable]);
-  const instanceContextValue = React.useMemo<SidebarInstanceContextProps>(
-    () => ({ side, resizable: resolvedResizable }),
-    [resolvedResizable, side],
-  );
+  // The rail's width restore and drag refresh key on this value.
+  const resolvedResizable = resolveSidebarResizable({ collapsible, isMobile, resizable });
+  const instanceContextValue: SidebarInstanceContextProps = { side, resizable: resolvedResizable };
 
   if (collapsible === "none") {
     return (
@@ -548,28 +540,26 @@ function SidebarRail({
       },
     };
   }, String(open));
+  const refreshResize = React.useEffectEvent(() => resize.refresh());
   React.useLayoutEffect(() => {
     latestResizable.current = resolvedResizable;
-    resize.refresh();
+    refreshResize();
   }, [resolvedResizable]);
 
-  const handleClick = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      onClick?.(event);
-      if (event.defaultPrevented) return;
-      if (suppressClickRef.current) {
-        suppressClickRef.current = false;
-        event.preventDefault();
-        return;
-      }
-      if (resolvedResizable && open) {
-        event.preventDefault();
-        return;
-      }
-      toggleSidebar();
-    },
-    [onClick, open, resolvedResizable, toggleSidebar],
-  );
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    onClick?.(event);
+    if (event.defaultPrevented) return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      event.preventDefault();
+      return;
+    }
+    if (resolvedResizable && open) {
+      event.preventDefault();
+      return;
+    }
+    toggleSidebar();
+  };
 
   React.useLayoutEffect(() => {
     if (!resolvedResizable?.storageKey || typeof window === "undefined") return;

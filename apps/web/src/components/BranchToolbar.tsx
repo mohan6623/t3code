@@ -230,31 +230,52 @@ const RunContextSelector = memo(function RunContextSelector({
       </TooltipPopup>
     </Tooltip>
   );
-  const icon = showEnvironmentIndicator ? (
-    // Button's base styles apply `-mx-0.5` to descendant SVGs, which eats 4px
-    // out of whatever gap we set. mx-0! cancels that so gap-0.5 reads as 2px.
-    <span className="inline-flex shrink-0 items-center gap-0.5">
+  // Fork: in the composer strip the machine icon alone stands for the run
+  // context; the folder or worktree shows in its tooltip and its menu.
+  const icon =
+    showEnvironmentIndicator && !isPanel ? (
       <Tooltip>
         <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
           {autoEnvironmentLabel ? (
-            <ScaleIcon
-              className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-              aria-hidden="true"
-            />
+            <ScaleIcon className="size-3 shrink-0 mx-0!" aria-hidden="true" />
           ) : (
             <EnvironmentMachineIcon
               kind={activeEnvironment?.machine ?? "server"}
-              className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+              className="size-3 shrink-0 mx-0!"
             />
           )}
         </TooltipTrigger>
-        <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
+        <TooltipPopup>
+          {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"} · {workspaceLabel}
+        </TooltipPopup>
       </Tooltip>
-      {workspaceIcon}
-    </span>
-  ) : (
-    workspaceIcon
-  );
+    ) : showEnvironmentIndicator ? (
+      // Button's base styles apply `-mx-0.5` to descendant SVGs, which eats 4px
+      // out of whatever gap we set. mx-0! cancels that so gap-0.5 reads as 2px.
+      <span className="inline-flex shrink-0 items-center gap-0.5">
+        <Tooltip>
+          <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+            {autoEnvironmentLabel ? (
+              <ScaleIcon
+                className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+                aria-hidden="true"
+              />
+            ) : (
+              <EnvironmentMachineIcon
+                kind={activeEnvironment?.machine ?? "server"}
+                className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+              />
+            )}
+          </TooltipTrigger>
+          <TooltipPopup>
+            {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}
+          </TooltipPopup>
+        </Tooltip>
+        {workspaceIcon}
+      </span>
+    ) : (
+      workspaceIcon
+    );
   const triggerContent = (
     <>
       {icon}
@@ -815,7 +836,9 @@ export const BranchToolbar = memo(function BranchToolbar({
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}
-          className="min-w-0 flex-initial justify-end @3xl/composer-surface:ml-auto"
+          // Fork: once the strip hides labels, the button is just its icon;
+          // it must keep that width, or its icon slides over the usage badge.
+          className="min-w-0 flex-initial justify-end @3xl/composer-surface:ml-auto [[data-compact]_&]:shrink-0"
           environmentId={environmentId}
           threadId={threadId}
           {...(draftId ? { draftId } : {})}

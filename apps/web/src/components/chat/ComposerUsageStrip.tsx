@@ -376,7 +376,7 @@ export function ComposerUsageStrip({
             type="button"
             aria-label={`${providerName(provider)} usage limits`}
             className={cn(
-              "flex min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground",
+              "flex min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground",
               splitRows ? "min-h-6" : "py-0.5",
             )}
           />
@@ -432,7 +432,10 @@ export function ComposerUsageStrip({
         )}
         {cacheMinutes !== null ? (
           <span
-            className={cn("flex shrink-0 items-center gap-0.5", cacheMinutes === 0 && "opacity-50")}
+            className={cn(
+              "flex shrink-0 items-center gap-0.5 @max-[15rem]/composer-surface:hidden",
+              cacheMinutes === 0 && "opacity-50",
+            )}
           >
             <TimerIcon className="size-3" aria-hidden />
             {cacheMinutes}m

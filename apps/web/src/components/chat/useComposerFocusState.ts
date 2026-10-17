@@ -12,8 +12,6 @@ export function useComposerFocusState() {
     setIsComposerScrollCollapsedState(collapsed);
   }, []);
 
-  // Reaching the end of the timeline lifts a scroll collapse without moving
-  // DOM focus to the editor.
   const restoreAfterTimelineReachedEnd = useCallback(() => {
     setIsComposerScrollCollapsed(false);
   }, [setIsComposerScrollCollapsed]);

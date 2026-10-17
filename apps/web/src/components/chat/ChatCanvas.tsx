@@ -11,13 +11,8 @@ import { resolveChatCanvasLayout, type ChatCanvasPreview } from "./chatCanvasLay
 import type { PreviewMiniPlayerObstacles } from "../preview/previewMiniPlayerLayout";
 import { observeResize } from "../../lib/observeResize";
 
-/** The elements whose rules in index.css read the chat lane variables. */
 const CHAT_LANE_SELECTOR = ".chat-composer-lane, .messages-timeline-scroll, .chat-scroll-to-bottom";
 
-/**
- * Owns the available conversation space. Cards only report where they sit; the
- * canvas decides when chat moves over to make room for them.
- */
 export function ChatCanvas({
   composerOverlayElement,
   detailsCardTopInset = 0,

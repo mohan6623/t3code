@@ -651,6 +651,13 @@ export function upsertProviderTurn(
     ...((next.tokenUsage ?? current?.tokenUsage) === undefined
       ? {}
       : { tokenUsage: next.tokenUsage ?? current?.tokenUsage }),
+    // Fork: a later status update must not drop the turn's output speed.
+    ...((next.turnTokenUsage ?? current?.turnTokenUsage) === undefined
+      ? {}
+      : { turnTokenUsage: next.turnTokenUsage ?? current?.turnTokenUsage }),
+    ...((next.outputGenerationMs ?? current?.outputGenerationMs) === undefined
+      ? {}
+      : { outputGenerationMs: next.outputGenerationMs ?? current?.outputGenerationMs }),
   });
 }
 

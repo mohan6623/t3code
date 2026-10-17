@@ -453,7 +453,11 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
-import { MessagesTimeline, type MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
+import {
+  MessagesTimeline,
+  type MessagesTimelineHistoryControls,
+  type TimelineOutputRate,
+} from "./chat/MessagesTimeline";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName, shortenClaudeModelName } from "./chat/providerIconUtils";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
@@ -1800,6 +1804,18 @@ export default function ChatView(props: ChatViewProps) {
     () => latestProviderTurnTokenUsage(serverProjection?.providerTurns ?? []),
     [serverProjection?.providerTurns],
   );
+  // Fork: output speed per finished turn, shown beside each reply's time.
+  const timelineOutputRates = useMemo(() => {
+    const rates = new Map<string, TimelineOutputRate>();
+    for (const turn of serverProjection?.providerTurns ?? []) {
+      const outputTokens = turn.turnTokenUsage?.outputTokens;
+      const generationMs = turn.outputGenerationMs;
+      // Under a second of writing gives a noisy number, so leave it out.
+      if (outputTokens === undefined || generationMs === undefined || generationMs < 1000) continue;
+      rates.set(turn.id, { outputTokens, generationMs });
+    }
+    return rates;
+  }, [serverProjection?.providerTurns]);
   const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = useMemo<MessagesTimelineHistoryControls | undefined>(() => {
@@ -11063,6 +11079,7 @@ export default function ChatView(props: ChatViewProps) {
                   )?.serverConfig?.providers ?? EMPTY_PROVIDERS
                 }
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
+                outputRates={timelineOutputRates}
                 latestRun={paintOnlyDisplayedTimeline ? null : activeActivityRun}
                 runningRunId={paintOnlyDisplayedTimeline ? null : activeRunningTurnId}
                 turnDiffSummaries={

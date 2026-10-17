@@ -305,6 +305,13 @@ import {
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
 
+/** Fork: a turn's output tokens and the time the model spent writing them. */
+export interface TimelineOutputRate {
+  readonly outputTokens: number;
+  readonly generationMs: number;
+}
+const EMPTY_OUTPUT_RATES: ReadonlyMap<string, TimelineOutputRate> = new Map();
+
 interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
@@ -317,6 +324,7 @@ interface TimelineRowSharedState {
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   providerStatuses: ReadonlyArray<ServerProvider>;
   runs: ReadonlyArray<HandoffTimelineRun>;
+  outputRates: ReadonlyMap<string, TimelineOutputRate>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
@@ -479,6 +487,8 @@ interface MessagesTimelineProps {
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   providerStatuses: ReadonlyArray<ServerProvider>;
   runs: ReadonlyArray<HandoffTimelineRun>;
+  /** Fork: output speed of each finished provider turn, by provider turn id. */
+  outputRates?: ReadonlyMap<string, TimelineOutputRate>;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
@@ -575,6 +585,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   skills = EMPTY_TIMELINE_SKILLS,
   providerStatuses,
   runs: runsProp,
+  outputRates = EMPTY_OUTPUT_RATES,
   anchorMessageId,
   onAnchorReady,
   onAnchorSizeChanged,
@@ -1287,6 +1298,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       skills,
       providerStatuses,
       runs,
+      outputRates,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
       onRunShellCommand,
@@ -1325,6 +1337,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       skills,
       providerStatuses,
       runs,
+      outputRates,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
       onRunShellCommand,
@@ -2915,6 +2928,8 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  const providerTurnId = projectedItem?.item.providerTurnId;
+  const outputRate = providerTurnId == null ? undefined : ctx.outputRates.get(providerTurnId);
 
   return (
     <div
@@ -2949,7 +2964,24 @@ function AssistantMessageMeta({
           </TooltipPopup>
         </Tooltip>
       )}
+      {!message.streaming && outputRate ? <AssistantOutputRate rate={outputRate} /> : null}
     </div>
+  );
+}
+
+/** Fork: how fast the model wrote this turn's output, like Claude Code's tokens per second. */
+function AssistantOutputRate({ rate }: { rate: TimelineOutputRate }) {
+  const perSecond = rate.outputTokens / (rate.generationMs / 1000);
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
+        {perSecond >= 100 ? Math.round(perSecond) : perSecond.toFixed(1)} tok/s
+      </TooltipTrigger>
+      <TooltipPopup>
+        {rate.outputTokens.toLocaleString()} output tokens in{" "}
+        {(rate.generationMs / 1000).toFixed(1)}s of writing
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

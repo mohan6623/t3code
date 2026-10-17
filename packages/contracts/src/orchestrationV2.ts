@@ -1006,6 +1006,12 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   tokenUsage: Schema.optional(OrchestrationV2ProviderTurnTokenUsage),
   turnTokenUsage: Schema.optional(TurnTokenUsage),
+  /**
+   * Fork: milliseconds the model spent streaming its output in this turn, from
+   * each response's first event to its last. Tool runs and waits are left out,
+   * so `turnTokenUsage.outputTokens` over this is the output speed.
+   */
+  outputGenerationMs: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationV2ProviderTurn = typeof OrchestrationV2ProviderTurn.Type;
 

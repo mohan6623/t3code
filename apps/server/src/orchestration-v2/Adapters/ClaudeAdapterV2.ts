@@ -91,6 +91,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Hex from "effect/encoding/Hex";
@@ -3018,6 +3019,8 @@ interface ActiveClaudeTurnContext {
   // Usage of the results that steers ended, oldest first. The final result's
   // usage covers only its own segment, so the turn bills these as well.
   readonly steeredSegmentUsage: Array<SDKResultMessage["usage"]>;
+  // Fork: time the model spent streaming responses, for the output speed.
+  readonly generation: { callStartedAtMs: number | null; totalMs: number };
   readonly subagentsByTaskId: Map<string, ActiveClaudeSubagent>;
   readonly subagentsByToolUseId: Map<string, ActiveClaudeSubagent>;
   readonly subagentNodesByTaskId: Map<string, OrchestrationV2ExecutionNode["id"]>;
@@ -5924,6 +5927,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     input.status,
                     input.context.steeredSegmentUsage,
                   ),
+                  ...(input.context.generation.totalMs > 0
+                    ? { outputGenerationMs: Math.round(input.context.generation.totalMs) }
+                    : {}),
                 },
               }),
               // Surface this native thread's roster before the root turn terminals so
@@ -6705,6 +6711,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             if (event.type === "message_start") {
               reasoning.messageId = event.message.id;
               reasoning.streamBlocks.clear();
+              context.generation.callStartedAtMs = yield* Clock.currentTimeMillis;
+            } else if (event.type === "message_stop") {
+              const startedAtMs = context.generation.callStartedAtMs;
+              if (startedAtMs !== null) {
+                context.generation.totalMs += (yield* Clock.currentTimeMillis) - startedAtMs;
+                context.generation.callStartedAtMs = null;
+              }
             } else if (
               event.type === "content_block_start" &&
               event.content_block.type === "thinking" &&
@@ -8452,6 +8465,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               rateLimitResetTimes: new Map(),
               latestAssistantRateLimited: false,
               steeredSegmentUsage: [],
+              generation: { callStartedAtMs: null, totalMs: 0 },
               subagentsByTaskId: new Map(),
               subagentsByToolUseId: new Map(),
               subagentNodesByTaskId: new Map(),

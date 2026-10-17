@@ -44,6 +44,7 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Clock from "effect/Clock";
@@ -4846,8 +4847,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             description: "Monitor 0",
             command: "sleep 8 && echo MONITOR_DONE",
             outputThreadId: harness.threadId,
-            outputItemId:
+            outputItemId: TurnItemId.make(
               "turn-item:provider:claudeAgent:native-item:toolu_monitor_0%3Abackground-output",
+            ),
           },
         ]);
       }).pipe(

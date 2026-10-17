@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 export function useComposerFocusState() {
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -6,15 +6,15 @@ export function useComposerFocusState() {
   // Timeline scroll handlers ask for the same value on every wheel and scroll
   // event. React still runs the composer for a repeated value, so drop repeats.
   const scrollCollapseRequestedRef = useRef(false);
-  const setIsComposerScrollCollapsed = useCallback((collapsed: boolean) => {
+  const setIsComposerScrollCollapsed = (collapsed: boolean) => {
     if (scrollCollapseRequestedRef.current === collapsed) return;
     scrollCollapseRequestedRef.current = collapsed;
     setIsComposerScrollCollapsedState(collapsed);
-  }, []);
+  };
 
-  const restoreAfterTimelineReachedEnd = useCallback(() => {
+  const restoreAfterTimelineReachedEnd = () => {
     setIsComposerScrollCollapsed(false);
-  }, [setIsComposerScrollCollapsed]);
+  };
 
   return {
     isComposerFocused,

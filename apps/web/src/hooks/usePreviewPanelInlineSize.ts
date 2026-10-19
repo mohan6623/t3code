@@ -9,7 +9,8 @@ export interface PreviewPanelInlineSize {
 }
 
 const PREVIEW_PANEL_WIDTH_STORAGE_KEY = "t3code:preview-panel-width";
-const PREVIEW_PANEL_MIN_WIDTH = 360;
+// Fork: 300, not 360. A narrow panel folds its buttons into one menu, so it still fits its tabs.
+const PREVIEW_PANEL_MIN_WIDTH = 300;
 const PREVIEW_PANEL_MAX_WIDTH_FRACTION = 0.7;
 /**
  * Floor for the column beside the panel: below this the chat column's

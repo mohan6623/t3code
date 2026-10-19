@@ -1,9 +1,18 @@
-import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
+import {
+  EllipsisVerticalIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PanelBottomIcon,
+  PanelRightIcon,
+  SquareMenuIcon,
+} from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement } from "react";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
+import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -157,5 +166,69 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
       />
       <TooltipPopup side="bottom">{label}</TooltipPopup>
     </Tooltip>
+  );
+});
+
+/**
+ * Fork: when the right panel is too narrow for its tabs, its maximize,
+ * terminal drawer and right panel buttons fold into this one menu.
+ */
+export const RightPanelOverflowMenu = memo(function RightPanelOverflowMenu({
+  maximized,
+  onToggleMaximized,
+  terminalAvailable,
+  terminalOpen,
+  terminalShortcutLabel,
+  onToggleTerminal,
+  rightPanelShortcutLabel,
+  onToggleRightPanel,
+}: {
+  maximized: boolean;
+  onToggleMaximized: () => void;
+  terminalAvailable: boolean;
+  terminalOpen: boolean;
+  terminalShortcutLabel: string | null;
+  onToggleTerminal: () => void;
+  rightPanelShortcutLabel: string | null;
+  onToggleRightPanel: () => void;
+}) {
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <Button
+                  className="shrink-0 [-webkit-app-region:no-drag]"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Panel options"
+                />
+              }
+            />
+          }
+        >
+          <EllipsisVerticalIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">Panel options</TooltipPopup>
+      </Tooltip>
+      <MenuPopup side="bottom" align="end">
+        <MenuItem onClick={onToggleMaximized}>
+          {maximized ? <Minimize2Icon /> : <Maximize2Icon />}
+          {maximized ? "Restore panel size" : "Maximize panel"}
+        </MenuItem>
+        <MenuItem disabled={!terminalAvailable} onClick={onToggleTerminal}>
+          <PanelBottomIcon />
+          {terminalOpen ? "Hide terminal drawer" : "Show terminal drawer"}
+          {terminalShortcutLabel ? <MenuShortcut>{terminalShortcutLabel}</MenuShortcut> : null}
+        </MenuItem>
+        <MenuItem onClick={onToggleRightPanel}>
+          <PanelRightIcon />
+          Hide right panel
+          {rightPanelShortcutLabel ? <MenuShortcut>{rightPanelShortcutLabel}</MenuShortcut> : null}
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 });

@@ -123,6 +123,8 @@ interface RightPanelTabsProps {
   onCloseSurfacesToRight: (surface: RightPanelSurface) => void;
   onCloseAllSurfaces: () => void;
   onMoveSurface?: (surfaceId: string, toIndex: number) => void;
+  /** Fork: tells the owner when the bar gets too narrow for the floating panel buttons. */
+  onCompactChange?: (compact: boolean) => void;
   onCopyFilePath: (relativePath: string) => void;
   onAddBrowser: () => void;
   /**
@@ -163,6 +165,9 @@ export function shouldOpenDefaultBrowserProfileFromMenuClick(
 ): boolean {
   return pointerType !== "touch";
 }
+
+/** Room the floating maximize, terminal drawer and right panel buttons take beside the tabs. */
+const FLOATING_BUTTONS_WIDTH = 112;
 
 const SURFACE_DISABLED_REASONS = {
   browser: "Browser previews are only available in the T3 Code desktop app.",
@@ -960,6 +965,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const browserProfiles = useBrowserDefaults().profiles;
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  // Fork: a narrow bar drops the tab scroll arrows, and the panel buttons fold
+  // into one menu (ChatView hides them while this bar is marked compact).
+  const [compactTabBar, setCompactTabBar] = useState(false);
   const addSurfaceTriggerRef = useRef<HTMLButtonElement>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
@@ -1203,6 +1212,39 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [props.activeSurfaceId, tabScrollState.hasOverflow]);
 
+  const foldsLayoutControls = props.mode === "inline" && !props.layoutControls;
+  useEffect(() => {
+    const bar = tabBarRef.current;
+    const content = tabScrollViewport(tabListRef.current)?.firstElementChild;
+    if (!bar || !(content instanceof HTMLElement) || !foldsLayoutControls) {
+      setCompactTabBar(false);
+      return;
+    }
+    // Fold only when the tabs do not fit beside the full set of buttons. The
+    // tabs' own width is measured, not the strip's, so folding (which frees
+    // room) cannot unfold the buttons again.
+    const measure = () => {
+      const style = getComputedStyle(bar);
+      const nativeControls = ownsDesktopTitleBar && bar.closest(".wco") !== null;
+      const buttonsRoom = nativeControls
+        ? Number.parseFloat(style.paddingRight) + FLOATING_BUTTONS_WIDTH
+        : FLOATING_BUTTONS_WIDTH;
+      const available = bar.clientWidth - Number.parseFloat(style.paddingLeft) - buttonsRoom;
+      let tabsWidth = 0;
+      for (const child of content.children) tabsWidth += child.getBoundingClientRect().width + 4;
+      setCompactTabBar(tabsWidth > available);
+    };
+    measure();
+    return observeResize([bar, content], measure);
+  }, [foldsLayoutControls, ownsDesktopTitleBar]);
+  const onCompactChange = useStableCallback((compact: boolean) => props.onCompactChange?.(compact));
+  const compactInline = compactTabBar && foldsLayoutControls;
+  useEffect(() => {
+    onCompactChange(compactInline);
+  }, [compactInline, onCompactChange]);
+  // A closed or unmounted panel leaves no compact bar behind.
+  useEffect(() => () => onCompactChange(false), [onCompactChange]);
+
   useEffect(() => {
     const viewport = tabScrollViewport(tabListRef.current);
     if (!viewport) return;
@@ -1253,14 +1295,21 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       {...(props.inlineSize ? { inlineSize: props.inlineSize } : {})}
     >
       <div
+        ref={tabBarRef}
         className={cn(
           "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 pl-2",
-          props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
+          // Room for the panel buttons that float over this bar; folded, they are one menu button.
+          props.mode === "inline" && !props.layoutControls
+            ? compactTabBar
+              ? "pr-11"
+              : "pr-28"
+            : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
           props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
         data-right-panel-tabbar
+        data-compact={compactInline ? "true" : undefined}
       >
         <ScrollArea
           radius="none"
@@ -1387,7 +1436,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             ) : null}
           </div>
         </ScrollArea>
-        {tabScrollState.hasOverflow ? (
+        {tabScrollState.hasOverflow && !compactTabBar ? (
           <div
             className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
             role="group"
@@ -1433,7 +1482,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         ) : null}
         {props.layoutControls}
         {ownsDesktopTitleBar && !props.layoutControls ? (
-          <span aria-hidden className="hidden w-24 shrink-0 wco:block" />
+          <span
+            aria-hidden
+            className={cn("hidden shrink-0 wco:block", compactInline ? "w-9" : "w-24")}
+          />
         ) : null}
         {ownsDesktopTitleBar ? (
           <span

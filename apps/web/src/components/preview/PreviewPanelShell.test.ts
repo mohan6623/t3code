@@ -24,10 +24,10 @@ describe("getPreviewPanelMaxWidth", () => {
   });
 
   it("never drops below the panel minimum when the row cannot fit both columns", () => {
-    expect(getPreviewPanelMaxWidth(1_000, 700)).toBe(360);
+    expect(getPreviewPanelMaxWidth(1_000, 600)).toBe(300);
   });
 
   it("stays at the panel minimum even when the row is narrower than the reservation", () => {
-    expect(getPreviewPanelMaxWidth(1_512, 300)).toBe(360);
+    expect(getPreviewPanelMaxWidth(1_512, 300)).toBe(300);
   });
 });

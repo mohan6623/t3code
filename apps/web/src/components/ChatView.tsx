@@ -423,6 +423,7 @@ import {
   PanelLayoutControls,
   type PanelLayoutControlsProps,
   RightPanelMaximizeControl,
+  RightPanelOverflowMenu,
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
@@ -1651,6 +1652,8 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
+  // Fork: the inline panel's tab bar reports when it is too narrow for the floating panel buttons.
+  const [rightPanelCompact, setRightPanelCompact] = useState(false);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
@@ -7832,11 +7835,27 @@ export default function ChatView(props: ChatViewProps) {
       )}
       data-workspace-titlebar-controls
     >
+      {/* Fork: while the open panel's tab bar is narrow, these buttons fold into one menu. */}
+      {!shouldUsePlanSidebarSheet && rightPanelOpen && rightPanelCompact ? (
+        <span className="pointer-events-auto flex shrink-0">
+          <RightPanelOverflowMenu
+            maximized={rightPanelMaximized}
+            onToggleMaximized={toggleRightPanelMaximizedStable}
+            terminalAvailable={panelToggleControlProps.terminalAvailable}
+            terminalOpen={panelToggleControlProps.terminalOpen}
+            terminalShortcutLabel={panelToggleControlProps.terminalShortcutLabel}
+            onToggleTerminal={toggleTerminalVisibilityStable}
+            rightPanelShortcutLabel={panelToggleControlProps.rightPanelShortcutLabel}
+            onToggleRightPanel={toggleRightPanelStable}
+          />
+        </span>
+      ) : null}
       {!shouldUsePlanSidebarSheet ? (
         <span
           aria-hidden={!rightPanelOpen}
           className={cn(
             "flex shrink-0",
+            rightPanelCompact && "hidden",
             panelAnimationsActive &&
               "motion-safe:transition-opacity motion-safe:duration-(--panel-animation-duration) motion-safe:ease-out",
             rightPanelOpen
@@ -7851,7 +7870,14 @@ export default function ChatView(props: ChatViewProps) {
           />
         </span>
       ) : null}
-      <div className="pointer-events-auto flex h-full items-center">{panelToggleControls}</div>
+      <div
+        className={cn(
+          "pointer-events-auto flex h-full items-center",
+          rightPanelOpen && !shouldUsePlanSidebarSheet && rightPanelCompact && "hidden",
+        )}
+      >
+        {panelToggleControls}
+      </div>
     </div>
   );
   const workspaceFileDropHandlers = makeWorkspaceFileDropHandlers({
@@ -8547,6 +8573,7 @@ export default function ChatView(props: ChatViewProps) {
 
       {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef ? (
         <RightPanelTabs
+          onCompactChange={setRightPanelCompact}
           mode="inline"
           open={rightPanelOpen}
           keybindings={keybindings}

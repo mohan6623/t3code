@@ -31,7 +31,7 @@ import { joinHostPath } from "./filePath";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
-import { useMaterialFolderIcons } from "./materialFolderIcons";
+import { useMaterialIcons } from "./materialIcons";
 import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
 
@@ -487,7 +487,7 @@ export default function FileBrowserPanel({
   // The capture phase runs before the tree's own dragstart handler selects
   // the dragged row, so the drag flag is up before that selection emits.
   const panelRef = useRef<HTMLDivElement | null>(null);
-  useMaterialFolderIcons(panelRef, directoryPaths);
+  useMaterialIcons(panelRef, treePaths);
   useEffect(() => {
     const panel = panelRef.current;
     if (panel === null) {

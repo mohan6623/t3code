@@ -440,6 +440,106 @@ export const layer: Layer.Layer<
     );
 
     /**
+     * Fork: a subagent T3 started (delegate_task) runs in its own thread, on
+     * any provider. That thread reports its context size as each reply lands;
+     * copy it to the parent's subagent row so the hover card shows a live
+     * token count, as Claude's native subagents already do.
+     *
+     * The write takes the parent's lock, so it runs on its own fiber: the
+     * parent may hold that lock while it waits for this child's events.
+     * Fibers can finish out of order, so each one writes the latest count.
+     */
+    const latestChildTokens = new Map<ThreadId, number>();
+    const notSubagentThreads = new Set<ThreadId>();
+    const childTokensReport = (
+      input: ProviderEventIngestInput,
+    ): { readonly threadId: ThreadId; readonly tokens: number } | undefined => {
+      const event = input.event;
+      if (event.type === "provider_turn.updated") {
+        const tokens = event.providerTurn.tokenUsage?.usedTokens;
+        return tokens === undefined
+          ? undefined
+          : { threadId: event.threadId ?? input.threadId, tokens };
+      }
+      if (event.type === "provider_thread.updated") {
+        const tokens = event.providerThread.contextUsage?.usedTokens;
+        return tokens === undefined
+          ? undefined
+          : { threadId: event.providerThread.appThreadId ?? input.threadId, tokens };
+      }
+      return undefined;
+    };
+    const syncParentSubagentUsage = Effect.fn("ProviderEventIngestor.syncParentSubagentUsage")(
+      function* (input: ProviderEventIngestInput, childThreadId: ThreadId) {
+        const child = yield* projections.getThread(childThreadId);
+        const parentThreadId =
+          child.lineage.relationshipToParent === "subagent" ? child.lineage.parentThreadId : null;
+        if (parentThreadId === null) {
+          latestChildTokens.delete(childThreadId);
+          if (notSubagentThreads.size >= 4096) notSubagentThreads.clear();
+          notSubagentThreads.add(childThreadId);
+          return;
+        }
+        yield* threadCommands.withLock(
+          parentThreadId,
+          Effect.gen(function* () {
+            const tokens = latestChildTokens.get(childThreadId);
+            if (tokens === undefined) return;
+            const { subagents } = yield* projections.getThreadRecords(parentThreadId, [
+              "subagents",
+            ]);
+            const task = subagents
+              .filter(
+                (candidate) =>
+                  candidate.origin === "app_owned" && candidate.childThreadId === childThreadId,
+              )
+              .toSorted(
+                (a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt),
+              )[0];
+            if (task === undefined || task.usage?.totalTokens === tokens) return;
+            const now = yield* DateTime.now;
+            const payload: OrchestrationV2Subagent = {
+              ...task,
+              usage: { ...task.usage, totalTokens: tokens },
+              updatedAt: now,
+            };
+            const event = yield* decodeDomainEvent({
+              id: yield* idAllocator.allocate.event({
+                threadId: parentThreadId,
+                providerSessionId: input.providerSessionId,
+              }),
+              type: "subagent.updated",
+              threadId: parentThreadId,
+              ...(task.runId === null ? {} : { runId: task.runId }),
+              nodeId: task.id,
+              driver: task.driver,
+              providerInstanceId: task.providerInstanceId,
+              occurredAt: now,
+              payload,
+            });
+            yield* eventSink.write({ events: [event] });
+          }),
+        );
+      },
+    );
+    const queueParentSubagentUsage = (input: ProviderEventIngestInput) => {
+      const report = childTokensReport(input);
+      if (report === undefined || notSubagentThreads.has(report.threadId)) return Effect.void;
+      if (latestChildTokens.get(report.threadId) === report.tokens) return Effect.void;
+      latestChildTokens.set(report.threadId, report.tokens);
+      return syncParentSubagentUsage(input, report.threadId).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logDebug("Subagent token count sync skipped", {
+            threadId: report.threadId,
+            cause,
+          }),
+        ),
+        Effect.forkDetach,
+        Effect.asVoid,
+      );
+    };
+
+    /**
      * Retire the runs that fell off its active branch with the same run,
      * root-node, and checkpoint updates CheckpointRollbackService writes for a
      * T3 revert. The run reporting the rewind performed it and stays, so it
@@ -816,6 +916,9 @@ export const layer: Layer.Layer<
                       }),
                   ),
                 ),
+          ),
+          Effect.tap((storedEvents) =>
+            storedEvents.length === 0 ? Effect.void : queueParentSubagentUsage(input),
           ),
           Effect.tap((storedEvents) =>
             Effect.gen(function* () {

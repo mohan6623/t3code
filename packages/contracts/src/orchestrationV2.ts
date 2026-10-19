@@ -716,7 +716,10 @@ export const OrchestrationV2Subagent = Schema.Struct({
   ]),
   progress: Schema.optional(Schema.String),
   workflow: Schema.optional(OrchestrationV2SubagentWorkflow),
-  /** Fork: live token count for a native subagent (Claude task_progress / task_notification). */
+  /**
+   * Fork: live token count. Claude native subagents report it (task_progress);
+   * for a delegated subagent it is its own thread's context size, on any provider.
+   */
   usage: Schema.optional(OrchestrationV2SubagentUsage),
   result: Schema.NullOr(Schema.String),
   startedAt: Schema.NullOr(Schema.DateTimeUtc),

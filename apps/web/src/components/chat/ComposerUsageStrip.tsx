@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 import {
+  cursorUsageWindowDetails,
   formatDuration,
   limitsNotice,
   providersWithLimits,
@@ -29,6 +30,8 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 const MINUTE = 60_000;
 /** Badge layout: one text line beside stacked bars, or one row per window. */
 const SPLIT_ROWS_STORAGE_KEY = "t3code:usage-badge-split-rows";
+/** Whether the panel shows the account in use opened or folded. */
+const CURRENT_OPEN_STORAGE_KEY = "t3code:usage-panel-current-open";
 
 /** Re-renders once a minute so reset countdowns stay current without animating. */
 function useMinuteClock(): number {
@@ -76,6 +79,22 @@ function relevantWindows(
     limits.windows.filter((window) => window.id === id),
   );
   return pools.length > 0 ? pools : limits.windows;
+}
+
+/** Cursor's panel order: its own models, then other models, then the overall figure. */
+const CURSOR_PANEL_ORDER = ["autoPercentUsed", "apiPercentUsed", "totalPercentUsed"];
+
+/** The windows the panel lists. Cursor's overall figure goes last; it is the pools' sum. */
+function panelWindows(
+  provider: ServerProvider,
+  limits: ServerProviderUsageLimits,
+): readonly ServerProviderUsageWindow[] {
+  if (provider.driver !== "cursor") return limits.windows;
+  const rank = (id: string) => {
+    const index = CURSOR_PANEL_ORDER.indexOf(id);
+    return index < 0 ? CURSOR_PANEL_ORDER.length : index;
+  };
+  return limits.windows.toSorted((left, right) => rank(left.id) - rank(right.id));
 }
 
 /**
@@ -130,10 +149,6 @@ function providerName(provider: ServerProvider): string {
   );
 }
 
-function driverLabel(provider: ServerProvider): string {
-  return providerClients.get(provider.driver)?.label ?? String(provider.driver);
-}
-
 function ProviderIcon({ provider, className }: { provider: ServerProvider; className?: string }) {
   return (
     <ProviderInstanceIcon
@@ -165,7 +180,8 @@ function Bar({
   );
 }
 
-function WindowCard({
+/** One limit inside an account card: name, bar, what is left, and when it resets. */
+function WindowRow({
   window,
   color,
   now,
@@ -175,24 +191,28 @@ function WindowCard({
   now: number;
 }) {
   const reset = resetsIn(window, now);
+  // Cursor's overall figure is the two pools added up; say so, so it is not read as a third limit.
+  const hint =
+    window.id === "totalPercentUsed" ? cursorUsageWindowDetails(window.id)?.description : undefined;
   return (
-    <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+    <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2 text-xs">
-        <span className="font-medium text-foreground">{window.label}</span>
-        <span className="font-medium text-foreground tabular-nums">
+        <span className="truncate font-medium text-foreground">{window.label}</span>
+        <span className="shrink-0 font-medium text-foreground tabular-nums">
           {clampPercent(window.usedPercent)}% used
         </span>
       </div>
       <Bar percent={window.usedPercent} color={color} className="h-1.5" />
-      <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground tabular-nums">
-        <span>{remainingPercent(window)}% remaining</span>
+      <div className="flex items-baseline justify-between gap-2 text-2xs text-muted-foreground tabular-nums">
+        <span>{remainingPercent(window)}% left</span>
         {reset ? <span>Resets in {reset}</span> : null}
       </div>
+      {hint ? <span className="text-2xs text-muted-foreground">{hint}</span> : null}
     </div>
   );
 }
 
-/** Banked reset credits, folded away until asked for. */
+/** Banked reset credits, folded away inside the account card until asked for. */
 function BankedResets({
   provider,
   limits,
@@ -208,12 +228,12 @@ function BankedResets({
   const credits = limits.resetCredits;
   if (!credits || credits.availableCount === 0) return null;
   return (
-    <div className="rounded-lg border bg-muted/30">
+    <div className="border-t pt-2">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 p-3 text-start text-xs"
+        className="flex w-full items-center gap-2 text-start text-xs"
       >
         <span className="font-medium text-foreground">Banked resets</span>
         <span className="rounded-full bg-muted px-1.5 text-muted-foreground tabular-nums">
@@ -224,7 +244,7 @@ function BankedResets({
         />
       </button>
       {open ? (
-        <div className="px-3 pb-3">
+        <div className="pt-2">
           <ResetCredits
             environmentId={environmentId}
             input={{ instanceId: provider.instanceId }}
@@ -237,50 +257,71 @@ function BankedResets({
   );
 }
 
-/** Another subscription: one line, expandable to its windows. */
-function OtherAccount({
+/**
+ * One account in one card. The header names the account; folded, it also
+ * shows the badge's bars and figures. Opened, it lists every limit.
+ */
+function AccountCard({
   provider,
   limits,
   environmentId,
   now,
+  inUse,
+  open,
+  onOpenChange,
 }: {
   provider: ServerProvider;
   limits: ServerProviderUsageLimits;
   environmentId: EnvironmentId;
   now: number;
+  inUse: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const color = barColor(provider.driver);
-  const tightestWindow = limits.windows.reduce<ServerProviderUsageWindow | null>(
-    (a, b) => (a === null || b.usedPercent > a.usedPercent ? b : a),
-    null,
-  );
-  const tightest = tightestWindow?.usedPercent ?? 0;
-  const reset = tightestWindow ? resetsIn(tightestWindow, now) : null;
+  const windows = panelWindows(provider, limits);
+  const summaryWindows = badgeWindows(relevantWindows(provider, limits));
   return (
-    <div className="rounded-lg border bg-muted/30">
+    <div className={cn("rounded-lg border bg-muted/30", inUse && "border-foreground/15")}>
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 p-2.5 text-start text-xs"
+        onClick={() => onOpenChange(!open)}
+        className="flex w-full min-w-0 items-center gap-2 p-2.5 text-start text-xs"
       >
         <ProviderIcon provider={provider} />
-        <span className="min-w-0 truncate font-medium text-foreground">
-          {providerName(provider)}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-medium text-foreground">{providerName(provider)}</span>
+            {inUse ? (
+              <span className="shrink-0 rounded-full bg-muted px-1.5 text-2xs text-muted-foreground">
+                In use
+              </span>
+            ) : null}
+          </span>
+          {provider.auth.label ? (
+            <span className="truncate text-2xs text-muted-foreground">{provider.auth.label}</span>
+          ) : null}
         </span>
-        <Bar percent={tightest} color={color} className="ms-auto w-12 shrink-0" />
-        <span className="shrink-0 text-muted-foreground tabular-nums">
-          {clampPercent(tightest)}%{reset ? ` · ${reset}` : ""}
-        </span>
+        {/* Folded: the badge's bars and figures; reset times wait until the card opens. */}
+        {open ? null : (
+          <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
+            <span className="flex w-10 shrink-0 flex-col gap-0.5">
+              {summaryWindows.map((window) => (
+                <Bar key={window.id} percent={window.usedPercent} color={color} />
+              ))}
+            </span>
+            {summaryWindows.map((window) => `${clampPercent(window.usedPercent)}%`).join(" · ")}
+          </span>
+        )}
         <ChevronDownIcon
           className={cn("size-3.5 shrink-0 text-muted-foreground", open && "rotate-180")}
         />
       </button>
       {open ? (
-        <div className="flex flex-col gap-2 px-2.5 pb-2.5">
-          {limits.windows.map((window) => (
-            <WindowCard key={window.id} window={window} color={color} now={now} />
+        <div className="flex flex-col gap-3 border-t px-2.5 pt-2.5 pb-3">
+          {windows.map((window) => (
+            <WindowRow key={window.id} window={window} color={color} now={now} />
           ))}
           <BankedResets
             provider={provider}
@@ -292,6 +333,17 @@ function OtherAccount({
       ) : null}
     </div>
   );
+}
+
+/** Another subscription: folded until opened. */
+function OtherAccount(props: {
+  provider: ServerProvider;
+  limits: ServerProviderUsageLimits;
+  environmentId: EnvironmentId;
+  now: number;
+}) {
+  const [open, setOpen] = useState(false);
+  return <AccountCard {...props} inUse={false} open={open} onOpenChange={setOpen} />;
 }
 
 /**
@@ -316,6 +368,11 @@ export function ComposerUsageStrip({
   const now = useMinuteClock();
   const [refreshing, setRefreshing] = useState(false);
   const [splitRows, setSplitRows] = useLocalStorage(SPLIT_ROWS_STORAGE_KEY, false, Schema.Boolean);
+  const [currentOpen, setCurrentOpen] = useLocalStorage(
+    CURRENT_OPEN_STORAGE_KEY,
+    true,
+    Schema.Boolean,
+  );
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -444,18 +501,9 @@ export function ComposerUsageStrip({
       </PopoverTrigger>
       <PopoverPopup side="top" align="end" width="md" padding="compact">
         <div className="flex max-h-[min(70vh,36rem)] flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex items-start gap-2.5 px-0.5 pb-1">
-            <ProviderIcon provider={provider} className="mt-0.5 size-5" />
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-sm font-semibold text-foreground">
-                {driverLabel(provider)} usage
-              </span>
-              <span className="truncate text-xs text-muted-foreground">
-                {providerName(provider)}
-                {provider.auth.label ? ` · ${provider.auth.label}` : ""}
-              </span>
-            </div>
-            <span className="mt-1 shrink-0 text-xs text-muted-foreground tabular-nums">
+          <div className="flex items-center gap-2 px-0.5 pb-1">
+            <span className="flex-1 text-sm font-semibold text-foreground">Usage limits</span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
               {checkedAgo} ago
             </span>
             <button
@@ -468,18 +516,18 @@ export function ComposerUsageStrip({
               <RefreshIcon size="sm" refreshing={refreshing} />
             </button>
           </div>
-          {windows.map((window) => (
-            <WindowCard key={window.id} window={window} color={color} now={now} />
-          ))}
-          <BankedResets
+          <AccountCard
             provider={provider}
             limits={limits}
             environmentId={environmentId}
             now={now}
+            inUse
+            open={currentOpen}
+            onOpenChange={setCurrentOpen}
           />
           {others.length > 0 ? (
             <>
-              <span className="px-0.5 pt-2 text-xs font-medium text-muted-foreground">
+              <span className="px-0.5 pt-1 text-xs font-medium text-muted-foreground">
                 Other subscriptions
               </span>
               {others.map((other) => {

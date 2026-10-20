@@ -6,12 +6,14 @@ import type {
   ProviderDriverKind,
   ProviderInstanceId,
   OrchestrationV2Subagent,
+  OrchestrationV2SubagentLimitShare,
 } from "@t3tools/contracts";
 import {
   resolveSubagentMetadata,
   subagentDetailPreview,
 } from "@t3tools/client-runtime/state/subagent-display";
 import { getModelSelectionStringOptionValue, resolveSelectableModel } from "@t3tools/shared/model";
+import { formatLimitShare } from "@t3tools/shared/usageCost";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
 import { shortenClaudeModelName } from "./providerIconUtils";
@@ -22,6 +24,7 @@ import {
   CircleDashedIcon,
   CircleXIcon,
   FolderIcon,
+  GaugeIcon,
   GitBranchIcon,
   TerminalIcon,
 } from "lucide-react";
@@ -53,7 +56,12 @@ export function SubagentTooltipContent(props: {
   progress?: string | null | undefined;
   /** Fork: tokens the subagent has used so far, updated live while it runs. */
   usage?:
-    | { readonly totalTokens: number; readonly toolUses?: number | undefined }
+    | {
+        readonly totalTokens: number;
+        readonly toolUses?: number | undefined;
+        /** Fork: estimated share of each account's limits. */
+        readonly limits?: ReadonlyArray<OrchestrationV2SubagentLimitShare> | undefined;
+      }
     | null
     | undefined;
 }) {
@@ -117,6 +125,7 @@ export function SubagentTooltipContent(props: {
   const entries = deriveProviderInstanceEntries(props.providers ?? []);
   const entry = entries.find((candidate) => candidate.instanceId === props.provider?.instanceId);
   const showInstanceBadge = entry !== undefined && shouldShowInstanceBadge(entry, entries);
+  const limitShares = props.usage?.limits ?? [];
   const working = ["running", "in_progress", "pending", "waiting"].includes(props.status);
   const failed = ["failed", "error"].includes(props.status);
   const StatusIcon = working
@@ -184,6 +193,30 @@ export function SubagentTooltipContent(props: {
           {props.elapsed}
         </span>
       </div>
+      {limitShares.map((share) => {
+        // The account only needs naming when the subagent used more than one.
+        const account =
+          limitShares.length > 1
+            ? `${entries.find((candidate) => candidate.instanceId === share.providerInstanceId)?.displayName ?? share.providerInstanceId}: `
+            : "";
+        const figures =
+          share.windows.length === 0
+            ? "learning this account's limits"
+            : share.windows
+                .map((window) => `${window.label} ${formatLimitShare(window.percent)}`)
+                .join(" · ");
+        return (
+          // Estimated from tokens: providers report limits only for the whole account.
+          <div key={share.providerInstanceId} className="flex min-w-0 items-center gap-2">
+            <GaugeIcon aria-hidden className="size-3 shrink-0" />
+            <span className="sr-only">Limit used, estimated</span>
+            <span className="min-w-0 truncate tabular-nums">
+              {account}
+              {figures}
+            </span>
+          </div>
+        );
+      })}
       {metadata.map(({ label, value }) => {
         const Icon = label === "Branch" ? GitBranchIcon : FolderIcon;
         return (

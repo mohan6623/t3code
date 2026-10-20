@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import type {
   OrchestrationV2AppThread,
   OrchestrationV2Subagent,
+  OrchestrationV2SubagentLimitShare,
   OrchestrationV2SubagentUsage,
   OrchestrationV2SubagentWorkflow,
   OrchestrationV2TurnItem,
@@ -27,6 +28,8 @@ export interface SubagentUsage {
   readonly reasoningOutputTokens?: number;
   readonly toolUses?: number;
   readonly durationMs?: number;
+  /** Fork: estimated share of each account's limits. */
+  readonly limits?: ReadonlyArray<OrchestrationV2SubagentLimitShare>;
 }
 
 export interface SubagentActivityEntry {
@@ -218,6 +221,7 @@ export function projectedSubagentsToRuntime(
                 ...(subagent.usage.durationMs === undefined
                   ? {}
                   : { durationMs: subagent.usage.durationMs }),
+                ...(subagent.usage.limits === undefined ? {} : { limits: subagent.usage.limits }),
               }
           : workflowUsage(workflow),
       progress: subagent.progress ?? null,

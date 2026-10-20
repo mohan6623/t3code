@@ -678,11 +678,30 @@ export const OrchestrationV2SubagentWorkflow = Schema.Struct({
 });
 export type OrchestrationV2SubagentWorkflow = typeof OrchestrationV2SubagentWorkflow.Type;
 
+/**
+ * Fork: an estimate of how much of one account's limits a subagent used. The
+ * cost score weighs its tokens by API price; `windows` divides it by what the
+ * account learned 1% of each limit costs, and stays empty until it has.
+ */
+export const OrchestrationV2SubagentLimitShare = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
+  cost: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+  windows: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      label: Schema.String,
+      percent: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+    }),
+  ),
+});
+export type OrchestrationV2SubagentLimitShare = typeof OrchestrationV2SubagentLimitShare.Type;
+
 /** Fork: a native subagent's running totals, as its provider reports them. */
 export const OrchestrationV2SubagentUsage = Schema.Struct({
   totalTokens: NonNegativeInt,
   toolUses: Schema.optional(NonNegativeInt),
   durationMs: Schema.optional(NonNegativeInt),
+  limits: Schema.optional(Schema.Array(OrchestrationV2SubagentLimitShare)),
 });
 export type OrchestrationV2SubagentUsage = typeof OrchestrationV2SubagentUsage.Type;
 

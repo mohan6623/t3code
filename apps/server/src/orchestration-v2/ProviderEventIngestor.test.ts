@@ -41,6 +41,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { toolOutputImages } from "@t3tools/shared/toolOutput";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerConfig from "../config.ts";
+import { UsageCalibration } from "../usage/UsageCalibration.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
@@ -2371,4 +2372,146 @@ layer("ProviderEventIngestorV2", (it) => {
       });
     }),
   );
+});
+
+it.effect("adds a delegated subagent's finished turn to its account and its parent's row", () => {
+  const recorded: Array<{ readonly instanceId: string; readonly model?: string; cost: number }> =
+    [];
+  const layerCalibration = Layer.succeed(UsageCalibration, {
+    recordCost: ({ instanceId, model, cost }) => {
+      recorded.push({ instanceId, ...(model === undefined ? {} : { model }), cost });
+    },
+    limitShares: ({ cost }) => [{ id: "primary", label: "Session", percent: cost * 100 }],
+    costPerToken: () => undefined,
+  });
+  return Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+    const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
+    const idAllocator = yield* IdAllocator.IdAllocatorV2;
+    const rootEvent = yield* threadCreatedEvent(now);
+    if (rootEvent.type !== "thread.created") {
+      throw new Error("Expected a thread.created fixture event");
+    }
+    const childThreadId = idAllocator.derive.threadFromProviderThread({
+      driver: CODEX_DRIVER,
+      nativeThreadId: "native-costed-child",
+    });
+    const providerSessionId = yield* idAllocator.allocate.providerSession({
+      providerInstanceId: modelSelection.instanceId,
+      threadId: rootEvent.threadId,
+    });
+    const ingest = (
+      threadId: ThreadId,
+      event: ProviderEventIngestor.ProviderEventIngestInput["event"],
+    ) =>
+      ingestor.ingestNormalized({
+        providerSessionId,
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+        analyticsContext: { modelSelection },
+        event,
+      });
+    yield* eventSink.write({ events: [rootEvent] });
+    yield* ingest(rootEvent.threadId, {
+      type: "app_thread.created",
+      driver: CODEX_DRIVER,
+      appThread: {
+        ...rootEvent.payload,
+        id: childThreadId,
+        title: "costed review",
+        activeProviderThreadId: null,
+        lineage: {
+          parentThreadId: rootEvent.threadId,
+          relationshipToParent: "subagent",
+          rootThreadId: rootEvent.threadId,
+        },
+      },
+    });
+    const task = {
+      id: NodeId.make("node:costed-task"),
+      threadId: rootEvent.threadId,
+      runId: null,
+      parentNodeId: NodeId.make("node:root"),
+      origin: "app_owned",
+      createdBy: "agent",
+      driver: CODEX_DRIVER,
+      providerInstanceId: modelSelection.instanceId,
+      providerThreadId: null,
+      childThreadId,
+      nativeTaskRef: null,
+      prompt: "Review the design",
+      title: "costed review",
+      model: modelSelection.model,
+      status: "running",
+      result: null,
+      startedAt: now,
+      completedAt: null,
+      updatedAt: now,
+    } satisfies OrchestrationV2Subagent;
+    yield* ingest(rootEvent.threadId, {
+      type: "subagent.updated",
+      driver: CODEX_DRIVER,
+      subagent: task,
+    });
+
+    const providerThreadId = idAllocator.derive.providerThread({
+      driver: CODEX_DRIVER,
+      nativeThreadId: "native-costed-child",
+    });
+    const finishedTurn = (nativeTurnId: string, ordinal: number) => ({
+      type: "provider_turn.updated" as const,
+      driver: CODEX_DRIVER,
+      threadId: childThreadId,
+      providerTurn: {
+        id: idAllocator.derive.providerTurn({ driver: CODEX_DRIVER, nativeTurnId }),
+        providerThreadId,
+        nodeId: NodeId.make(`node:${nativeTurnId}`),
+        runAttemptId: null,
+        nativeTurnRef: null,
+        ordinal,
+        status: "completed" as const,
+        startedAt: now,
+        completedAt: now,
+        // GPT: $1.25 input, $0.125 cached input, $10 output per million tokens.
+        turnTokenUsage: {
+          usageStatus: "complete" as const,
+          usageScope: "main_agent" as const,
+          hasSubagents: false,
+          inputTokens: 1_000_000,
+          cachedInputTokens: 800_000,
+          outputTokens: 10_000,
+        },
+      },
+    });
+    yield* ingest(childThreadId, finishedTurn("costed-turn-1", 1));
+    yield* ingest(childThreadId, finishedTurn("costed-turn-1", 1));
+    yield* ingest(childThreadId, finishedTurn("costed-turn-2", 2));
+
+    const cost = 0.2 * 1.25 + 0.8 * 0.125 + 0.01 * 10;
+    assert.lengthOf(recorded, 2);
+    assert.equal(recorded[0]?.instanceId, modelSelection.instanceId);
+    assert.equal(recorded[0]?.model, modelSelection.model);
+    assert.closeTo(recorded[0]!.cost, cost, 1e-9);
+
+    const parentTask = projectionStore
+      .getThreadRecords(rootEvent.threadId, ["subagents"])
+      .pipe(Effect.map(({ subagents }) => subagents.find((entry) => entry.id === task.id)));
+    const settled = (entry: OrchestrationV2Subagent | undefined) =>
+      Math.abs((entry?.usage?.limits?.[0]?.cost ?? 0) - 2 * cost) < 1e-6;
+    let copied = yield* parentTask;
+    for (let attempt = 0; attempt < 200 && !settled(copied); attempt++) {
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      copied = yield* parentTask;
+    }
+    const share = copied?.usage?.limits?.[0];
+    assert.equal(share?.providerInstanceId, modelSelection.instanceId);
+    assert.closeTo(share!.cost, 2 * cost, 1e-6);
+    assert.deepEqual(
+      share?.windows.map((window) => window.label),
+      ["Session"],
+    );
+    assert.closeTo(share!.windows[0]!.percent, 2 * cost * 100, 1e-3);
+  }).pipe(Effect.provide(layerTest.pipe(Layer.provide(layerCalibration))));
 });

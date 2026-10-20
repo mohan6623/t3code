@@ -7,6 +7,8 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2Subagent,
+  isOrchestrationV2WorkActive,
+  type OrchestrationV2SubagentLimitShare,
   type OrchestrationV2ThreadProjection,
   type ModelSelection,
   type RuntimeMode,
@@ -29,7 +31,9 @@ import * as Schema from "effect/Schema";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
+import { totalTurnTokens, turnCostScore } from "@t3tools/shared/usageCost";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
+import { UsageCalibration } from "../usage/UsageCalibration.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -307,8 +311,53 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
+    const calibration = yield* UsageCalibration;
     const agentScope = yield* AgentScope;
     const completedTurnAnalytics = new Set<string>();
+    const recordedNativeSubagents = new Set<string>();
+
+    /** Fork: one account's estimated share of its limits for `cost`. */
+    const limitShare = (
+      instanceId: ProviderInstanceId,
+      model: string | undefined,
+      cost: number,
+    ): OrchestrationV2SubagentLimitShare => ({
+      providerInstanceId: instanceId,
+      cost: Math.round(cost * 1e6) / 1e6,
+      windows: calibration
+        .limitShares({ instanceId, model, cost })
+        .map((window) => ({ ...window, percent: Math.round(window.percent * 1e4) / 1e4 })),
+    });
+    const turnModel = (input: ProviderEventIngestInput) =>
+      input.analyticsContext?.modelSelection.model;
+    /**
+     * Fork: Claude's own subagents report only a token total, and run on the
+     * parent's account. Their cost is that total at the account's average cost
+     * per token so far.
+     */
+    const nativeSubagentCost = (
+      input: ProviderEventIngestInput,
+      subagent: OrchestrationV2Subagent,
+    ): number | undefined => {
+      if (subagent.origin === "app_owned" || subagent.workflow !== undefined) return undefined;
+      const tokens = subagent.usage?.totalTokens;
+      const perToken = calibration.costPerToken(input.providerInstanceId);
+      return tokens && perToken !== undefined ? tokens * perToken : undefined;
+    };
+    const withNativeSubagentLimits = (
+      input: ProviderEventIngestInput,
+      subagent: OrchestrationV2Subagent,
+    ): OrchestrationV2Subagent => {
+      const cost = nativeSubagentCost(input, subagent);
+      if (cost === undefined || subagent.usage === undefined) return subagent;
+      return {
+        ...subagent,
+        usage: {
+          ...subagent.usage,
+          limits: [limitShare(input.providerInstanceId, turnModel(input), cost)],
+        },
+      };
+    };
 
     const makeDomainEvent = (
       input: ProviderEventIngestInput,
@@ -450,6 +499,15 @@ export const layer: Layer.Layer<
      * Fibers can finish out of order, so each one writes the latest count.
      */
     const latestChildTokens = new Map<ThreadId, number>();
+    /** Fork: cost of a delegated subagent's finished turns, not yet on the parent's row. */
+    const pendingChildCost = new Map<
+      ThreadId,
+      Array<{
+        readonly instanceId: ProviderInstanceId;
+        readonly model: string | undefined;
+        readonly cost: number;
+      }>
+    >();
     const notSubagentThreads = new Set<ThreadId>();
     const childTokensReport = (
       input: ProviderEventIngestInput,
@@ -476,6 +534,7 @@ export const layer: Layer.Layer<
           child.lineage.relationshipToParent === "subagent" ? child.lineage.parentThreadId : null;
         if (parentThreadId === null) {
           latestChildTokens.delete(childThreadId);
+          pendingChildCost.delete(childThreadId);
           if (notSubagentThreads.size >= 4096) notSubagentThreads.clear();
           notSubagentThreads.add(childThreadId);
           return;
@@ -483,8 +542,9 @@ export const layer: Layer.Layer<
         yield* threadCommands.withLock(
           parentThreadId,
           Effect.gen(function* () {
-            const tokens = latestChildTokens.get(childThreadId);
-            if (tokens === undefined) return;
+            const reportedTokens = latestChildTokens.get(childThreadId);
+            const costs = pendingChildCost.get(childThreadId);
+            if (reportedTokens === undefined && costs === undefined) return;
             const { subagents } = yield* projections.getThreadRecords(parentThreadId, [
               "subagents",
             ]);
@@ -496,11 +556,32 @@ export const layer: Layer.Layer<
               .toSorted(
                 (a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt),
               )[0];
-            if (task === undefined || task.usage?.totalTokens === tokens) return;
+            if (task === undefined) return;
+            const tokens = reportedTokens ?? task.usage?.totalTokens ?? 0;
+            if (costs === undefined && task.usage?.totalTokens === tokens) return;
+            pendingChildCost.delete(childThreadId);
+            // Each account the subagent ran on keeps its own running cost.
+            const limits = [...(task.usage?.limits ?? [])];
+            for (const entry of costs ?? []) {
+              const index = limits.findIndex(
+                (share) => share.providerInstanceId === entry.instanceId,
+              );
+              const share = limitShare(
+                entry.instanceId,
+                entry.model,
+                (index === -1 ? 0 : limits[index]!.cost) + entry.cost,
+              );
+              if (index === -1) limits.push(share);
+              else limits[index] = share;
+            }
             const now = yield* DateTime.now;
             const payload: OrchestrationV2Subagent = {
               ...task,
-              usage: { ...task.usage, totalTokens: tokens },
+              usage: {
+                ...task.usage,
+                totalTokens: tokens,
+                ...(limits.length === 0 ? {} : { limits }),
+              },
               updatedAt: now,
             };
             const event = yield* decodeDomainEvent({
@@ -533,6 +614,24 @@ export const layer: Layer.Layer<
             threadId: report.threadId,
             cause,
           }),
+        ),
+        Effect.forkDetach,
+        Effect.asVoid,
+      );
+    };
+    const queueParentSubagentCost = (
+      input: ProviderEventIngestInput,
+      threadId: ThreadId,
+      model: string | undefined,
+      cost: number,
+    ) => {
+      if (notSubagentThreads.has(threadId)) return Effect.void;
+      const pending = pendingChildCost.get(threadId) ?? [];
+      pending.push({ instanceId: input.providerInstanceId, model, cost });
+      pendingChildCost.set(threadId, pending);
+      return syncParentSubagentUsage(input, threadId).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logDebug("Subagent limit share sync skipped", { threadId, cause }),
         ),
         Effect.forkDetach,
         Effect.asVoid,
@@ -712,7 +811,7 @@ export const layer: Layer.Layer<
               yield* makeDomainEvent(input, {
                 type: "subagent.updated",
                 threadId: input.event.subagent.threadId,
-                payload: input.event.subagent,
+                payload: withNativeSubagentLimits(input, input.event.subagent),
                 runId: input.event.subagent.runId,
                 nodeId: input.event.subagent.id,
               }),
@@ -921,6 +1020,27 @@ export const layer: Layer.Layer<
             storedEvents.length === 0 ? Effect.void : queueParentSubagentUsage(input),
           ),
           Effect.tap((storedEvents) =>
+            Effect.sync(() => {
+              // Fork: a finished native subagent's tokens count toward its account too.
+              if (storedEvents.length === 0 || input.event.type !== "subagent.updated") return;
+              const subagent = input.event.subagent;
+              if (isOrchestrationV2WorkActive(subagent.status) || subagent.status === "idle")
+                return;
+              const key = `${input.providerInstanceId}:${subagent.id}`;
+              if (recordedNativeSubagents.has(key)) return;
+              const cost = nativeSubagentCost(input, subagent);
+              if (cost === undefined) return;
+              recordedNativeSubagents.add(key);
+              if (recordedNativeSubagents.size > 4096) recordedNativeSubagents.clear();
+              calibration.recordCost({
+                instanceId: input.providerInstanceId,
+                model: turnModel(input),
+                cost,
+                tokens: subagent.usage?.totalTokens ?? 0,
+              });
+            }),
+          ),
+          Effect.tap((storedEvents) =>
             Effect.gen(function* () {
               if (storedEvents.length === 0 || input.event.type !== "provider_turn.updated") return;
               const providerTurn = input.event.providerTurn;
@@ -937,6 +1057,27 @@ export const layer: Layer.Layer<
               if (completedTurnAnalytics.size > 4096) {
                 const oldest = completedTurnAnalytics.values().next().value;
                 if (oldest !== undefined) completedTurnAnalytics.delete(oldest);
+              }
+              // Fork: the turn's cost teaches its account what 1% of each limit
+              // costs, and adds to its parent's row when it ran as a subagent.
+              const usage = providerTurn.turnTokenUsage;
+              if (usage !== undefined) {
+                const model = turnModel(input);
+                const cost = turnCostScore(input.event.driver, model, usage);
+                calibration.recordCost({
+                  instanceId: input.providerInstanceId,
+                  model,
+                  cost,
+                  tokens: totalTurnTokens(usage),
+                });
+                if (cost > 0) {
+                  yield* queueParentSubagentCost(
+                    input,
+                    input.event.threadId ?? input.threadId,
+                    model,
+                    cost,
+                  );
+                }
               }
               yield* analytics.record(
                 providerTurnAnalyticsProperties({

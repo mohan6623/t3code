@@ -150,6 +150,11 @@ folders are linked into that copy rather than duplicated, so edits to them chang
 With a `.code-workspace` file, only the folders it lists are linked, along with top-level files and
 dot-folders.
 
+The project folder can be a repository itself, for example one whose `.gitignore` lists the
+repositories inside it. It then appears first, and keeps its usual branch controls. Git submodules
+are not counted as separate repositories. In this layout, **New worktree** isolates only the
+project folder's own repository.
+
 ## Create a pull request
 
 Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit

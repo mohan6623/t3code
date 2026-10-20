@@ -373,7 +373,11 @@ import { vcsEnvironment } from "../state/vcs";
 import { useWorkspaceRepositories } from "../hooks/useWorkspaceRepositories";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
-import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
+import {
+  hasRootWorkspaceRepository,
+  projectCloneDisplayName,
+  projectCloneProgressSummary,
+} from "@t3tools/contracts";
 import {
   type EnvironmentPresentation,
   useEnvironmentProviders,
@@ -6433,10 +6437,10 @@ export default function ChatView(props: ChatViewProps) {
     const isFirstMessage = !sendQueuesBehindSetup && (!isServerThread || activeMessageCount === 0);
     const shouldCreateWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
-    // The server starts each repository of a multi-repo workspace from its own default
-    // branch, so there is no base branch to pick.
+    // The server starts each repository of a multi-repo workspace folder from its own default
+    // branch, so there is no base branch to pick. A root repository isolates as a single one.
     const baseBranchForWorktree = shouldCreateWorktree
-      ? workspaceRepositories.length > 0
+      ? workspaceRepositories.length > 0 && !hasRootWorkspaceRepository(workspaceRepositories)
         ? (activeThreadBranch ?? "HEAD")
         : activeThreadBranch
       : null;

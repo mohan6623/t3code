@@ -1,10 +1,11 @@
-import type {
-  EditorId,
-  EnvironmentId,
-  ProjectScript,
-  ResolvedKeybindingsConfig,
-  ThreadId,
-  VcsRepository,
+import {
+  isRootWorkspaceRepository,
+  type EditorId,
+  type EnvironmentId,
+  type ProjectScript,
+  type ResolvedKeybindingsConfig,
+  type ThreadId,
+  type VcsRepository,
 } from "@t3tools/contracts";
 import { joinWorkspaceRepositoryPath } from "@t3tools/shared/path";
 
@@ -75,6 +76,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     props.activeProjectScripts ? props.gitCwd : null,
   );
   const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
+  // A root repository is the thread's own checkout, so it keeps the single-repository section.
+  const rootRepository = props.workspaceRepositories.find(isRootWorkspaceRepository);
+  const nestedRepositories = props.workspaceRepositories.filter(
+    (repository) => !isRootWorkspaceRepository(repository),
+  );
   const branchToolbarProps = {
     showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
@@ -155,8 +161,37 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             </div>
           </ThreadDetailsSection>
 
-          {props.gitCwd && props.activeProjectName && props.workspaceRepositories.length > 0
-            ? props.workspaceRepositories.map((repository) => (
+          {props.gitCwd && (props.workspaceRepositories.length === 0 || rootRepository) ? (
+            <ThreadDetailsSection
+              headingId="thread-details-version-control-heading"
+              title={rootRepository?.name ?? "Version Control"}
+              showHeading={rootRepository !== undefined}
+              separated={density === "full"}
+            >
+              <div className="flex flex-col">
+                {props.isGitRepo ? (
+                  <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
+                ) : null}
+                {props.activeProjectName ? (
+                  <GitActionsControl
+                    displayMode="panel"
+                    compact={density !== "full"}
+                    gitCwd={props.gitCwd}
+                    activeThreadRef={activeThreadRef}
+                    {...(props.draftId ? { draftId: props.draftId } : {})}
+                    {...(props.onOpenChanges
+                      ? {
+                          onOpenChanges: () => props.onOpenChanges!(rootRepository?.relativePath),
+                        }
+                      : {})}
+                  />
+                ) : null}
+              </div>
+            </ThreadDetailsSection>
+          ) : null}
+
+          {props.gitCwd && props.activeProjectName && nestedRepositories.length > 0
+            ? nestedRepositories.map((repository) => (
                 <ThreadDetailsSection
                   key={repository.relativePath}
                   headingId={`thread-details-repository-${repository.relativePath.replaceAll("/", "-")}`}
@@ -180,33 +215,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 </ThreadDetailsSection>
               ))
             : null}
-
-          {props.gitCwd && props.workspaceRepositories.length === 0 ? (
-            <ThreadDetailsSection
-              headingId="thread-details-version-control-heading"
-              title="Version Control"
-              showHeading={false}
-              separated={density === "full"}
-            >
-              <div className="flex flex-col">
-                {props.isGitRepo ? (
-                  <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
-                ) : null}
-                {props.activeProjectName ? (
-                  <GitActionsControl
-                    displayMode="panel"
-                    compact={density !== "full"}
-                    gitCwd={props.gitCwd}
-                    activeThreadRef={activeThreadRef}
-                    {...(props.draftId ? { draftId: props.draftId } : {})}
-                    {...(props.onOpenChanges
-                      ? { onOpenChanges: () => props.onOpenChanges!() }
-                      : {})}
-                  />
-                ) : null}
-              </div>
-            </ThreadDetailsSection>
-          ) : null}
 
           {density === "full" && !props.draftId ? (
             <ThreadAutomationsPanel environmentId={props.environmentId} threadId={props.threadId} />

@@ -7,7 +7,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import type { ScopedThreadRef, RunId } from "@t3tools/contracts";
+import { isRootWorkspaceRepository, type ScopedThreadRef, type RunId } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -599,12 +599,16 @@ export default function DiffPanel({
     revealDiffFile(selectedFilePath);
   }, [lazySource, selectedFilePath, selectedFileRevealRequestId, filePatchScope, revealDiffFile]);
 
-  const diffFilesCwd = selectedRunId === null ? gitDiffCwd : activeCwd;
+  // A nested repository's git diff lists paths from its own folder; files open from the workspace.
+  const diffFileRepositoryPrefix =
+    selectedRunId === null && selectedRepository && !isRootWorkspaceRepository(selectedRepository)
+      ? `${selectedRepository.relativePath}/`
+      : "";
   const openDiffFile = (filePath: string) => {
     openDiffFilePrimaryAction({
       threadRef: routeThreadRef,
-      filePath,
-      activeCwd: diffFilesCwd,
+      filePath: `${diffFileRepositoryPrefix}${filePath}`,
+      activeCwd,
       repositoryRoot: activeRepositoryRoot,
       openInEditor: (targetPath) => {
         void (async () => {
@@ -1137,8 +1141,8 @@ export default function DiffPanel({
                     onFileContextMenu(
                       {
                         environmentId: activeThread?.environmentId ?? null,
-                        filePath,
-                        workspaceRoot: diffFilesCwd,
+                        filePath: `${diffFileRepositoryPrefix}${filePath}`,
+                        workspaceRoot: activeCwd,
                         repositoryRoot: activeRepositoryRoot,
                       },
                       event,

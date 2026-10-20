@@ -260,46 +260,78 @@ const CLAWD_ARMS_UP = [
 const CLAWD_BELLY = "...dddddddddddd...";
 const CLAWD_LEGS = "....d.d....d.d....";
 
-/** Codex's blue cloud bot: a visor with happy eyes, `>_` on its chest, waving as it walks. */
+/**
+ * Codex's blue cloud bot, drawn by GLM 5.3 after Codex's own mascot: a cloud
+ * head with a `^ ^` visor and `>_` on its chest. Its arms take turns waving.
+ */
 const CODEX_BOT_BODY = [
-  ".......oooo.......",
-  "..ooo.ollwlo.ooo..",
-  ".olllobllllbolllo.",
-  ".olbbbbbbbbbbbbbo.",
-  "olbbbvvvvvvvvbbbdo",
-  "olbbvvevvvvevvbbdo",
-  "olbbvevevvevevbbdo",
-  "olbbvvvvvvvvvvbbdo",
-  ".obbbvvvvvvvvbbbo.",
-  "..oddddddddddddo..",
-  "...oooooooooooo...",
-  "....obwbbbbbdo....",
-  "....obbwbbbbdo....",
-  "....obwbwwbbdo....",
-  ".....oooooooo.....",
+  "........oooo........",
+  ".......olllbo.......",
+  ".....olllbbbbbbo....",
+  "....ollbbbbbbbbo....",
+  "...ollvvvvvvvvbbo...",
+  "..olbvvcvvvvcvvbso..",
+  "..obbvcvcvvcvcvbso..",
+  "...obbvvvvvvvvbso...",
+  "..obbbbbbbbbbsssso..",
+  "...oooooooooooooo...",
+  ".....obbbbbbbbo.....",
+  ".....obcbbbbbbo.....",
+  ".....obbcbbbbbo.....",
+  ".....obcbbbbbbso....",
+  "......ooooccoo......",
 ];
-const CODEX_BOT_RIGHT_ARM = [
-  [12, 14, "b"],
-  [12, 15, "d"],
-  [13, 14, "d"],
-] as const;
-const CODEX_BOT_WAVE_UP = [
-  ...CODEX_BOT_RIGHT_ARM,
-  [10, 0, "l"],
+const CODEX_BOT_LEFT_UP = [
+  [9, 0, "o"],
+  [9, 1, "o"],
+  [10, 0, "o"],
   [10, 1, "b"],
-  [11, 1, "b"],
+  [10, 2, "o"],
+  [11, 1, "o"],
   [11, 2, "b"],
-  [12, 2, "b"],
-  [12, 3, "d"],
+  [11, 3, "o"],
+  [11, 4, "o"],
+  [12, 2, "o"],
+  [12, 3, "o"],
+  [12, 4, "o"],
 ] as const;
-const CODEX_BOT_WAVE_OUT = [
-  ...CODEX_BOT_RIGHT_ARM,
-  [12, 0, "l"],
-  [12, 1, "b"],
-  [12, 2, "b"],
-  [12, 3, "d"],
-  [13, 1, "d"],
-  [13, 2, "d"],
+const CODEX_BOT_LEFT_OUT = [
+  [10, 2, "o"],
+  [10, 3, "o"],
+  [10, 4, "o"],
+  [11, 1, "o"],
+  [11, 2, "b"],
+  [11, 3, "b"],
+  [11, 4, "b"],
+  [12, 2, "o"],
+  [12, 3, "o"],
+  [12, 4, "o"],
+] as const;
+const CODEX_BOT_RIGHT_UP = [
+  [9, 19, "o"],
+  [9, 18, "o"],
+  [10, 19, "o"],
+  [10, 18, "b"],
+  [10, 17, "o"],
+  [11, 18, "o"],
+  [11, 17, "b"],
+  [11, 16, "o"],
+  [11, 15, "o"],
+  [12, 17, "o"],
+  [12, 16, "o"],
+  [12, 15, "o"],
+] as const;
+const CODEX_BOT_RIGHT_OUT = [
+  [10, 17, "o"],
+  [10, 16, "o"],
+  [10, 15, "o"],
+  [11, 18, "o"],
+  [11, 17, "b"],
+  [11, 16, "b"],
+  [11, 15, "b"],
+  [12, 17, "o"],
+  [12, 16, "o"],
+  [12, 15, "o"],
 ] as const;
 
 /**
@@ -422,30 +454,45 @@ export const MASCOTS: Readonly<Record<string, MascotSpec>> = {
   "codex-bot": {
     label: "Codex bot",
     palette: {
-      o: "#1b2f8f",
-      b: "#3f6cf2",
-      l: "#7fa2ff",
-      d: "#2b52d0",
-      w: "#d6e2ff",
-      v: "#0b1433",
-      e: "#7ee8ff",
+      o: "#1e3191",
+      b: "#4b6ef5",
+      l: "#8fa7ff",
+      s: "#3a53c9",
+      v: "#0e1640",
+      c: "#7ee8ff",
     },
     frames: [
-      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_UP), "......bd..bd......", ".....ooo..ooo....."],
-      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_OUT), ".....ooo..bd......", "..........ooo....."],
-      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_UP), "......bd..bd......", ".....ooo..ooo....."],
-      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_OUT), "......bd..ooo.....", ".....ooo.........."],
+      [
+        ...paint(CODEX_BOT_BODY, [...CODEX_BOT_LEFT_UP, ...CODEX_BOT_RIGHT_UP]),
+        "......obo..obo......",
+        "......ooo..ooo......",
+      ],
+      [
+        ...paint(CODEX_BOT_BODY, [...CODEX_BOT_LEFT_UP, ...CODEX_BOT_RIGHT_OUT]),
+        "......ooo..obo......",
+        "...........ooo......",
+      ],
+      [
+        ...paint(CODEX_BOT_BODY, [...CODEX_BOT_LEFT_UP, ...CODEX_BOT_RIGHT_UP]),
+        "......obo..obo......",
+        "......ooo..ooo......",
+      ],
+      [
+        ...paint(CODEX_BOT_BODY, [...CODEX_BOT_LEFT_OUT, ...CODEX_BOT_RIGHT_UP]),
+        "......obo..ooo......",
+        "......ooo...........",
+      ],
     ],
     blink: {
       kind: "eyes",
       rows: [
-        "..................",
-        "..................",
-        "..................",
-        "..................",
-        "..................",
-        "......v....v......",
-        ".....eee..eee.....",
+        "....................",
+        "....................",
+        "....................",
+        "....................",
+        "....................",
+        ".......v....v.......",
+        "......ccc..ccc......",
       ],
     },
     motion: "walk",

@@ -4,6 +4,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   CommandId,
+  hasRootWorkspaceRepository,
   type ChatAttachment,
   type MessageId,
   type ModelSelection,
@@ -393,9 +394,12 @@ const make = Effect.gen(function* () {
                 phase: "worktree",
               })
               .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+      // A root repository that holds others isolates as a single repository: its own worktree.
       const repositories =
         input.workspaceStrategy.type === "worktree"
-          ? yield* workspaceRepositories.list(project.workspaceRoot)
+          ? yield* workspaceRepositories
+              .list(project.workspaceRoot)
+              .pipe(Effect.map((listed) => (hasRootWorkspaceRepository(listed) ? [] : listed)))
           : [];
       if (input.workspaceStrategy.type === "worktree" && repositories.length > 0) {
         yield* reportWorktreePhase;

@@ -302,6 +302,160 @@ it.layer(layerTest)("CheckpointStore.layer", (it) => {
     );
   });
 
+  describe("a repository root holding other repositories", () => {
+    const addChildRepositories = (workspace: string) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        for (const name of ["backend", "frontend"]) {
+          const repo = NodePath.join(workspace, name);
+          yield* fileSystem.makeDirectory(repo);
+          yield* initRepoWithCommit(repo);
+        }
+      });
+    const makeRootWorkspace = (options: { readonly ignoreChildren: boolean }) =>
+      Effect.gen(function* () {
+        const workspace = yield* makeTmpDir("checkpoint-store-root-workspace-");
+        yield* initRepoWithCommit(workspace);
+        if (options.ignoreChildren) {
+          yield* writeTextFile(NodePath.join(workspace, ".gitignore"), "frontend/\nbackend/\n");
+          yield* git(workspace, ["add", ".gitignore"]);
+          yield* git(workspace, ["commit", "-m", "ignore child repositories"]);
+        }
+        yield* addChildRepositories(workspace);
+        return workspace;
+      });
+
+    it.effect("captures, diffs and restores the root and its child repositories", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeRootWorkspace({ ignoreChildren: true });
+        const fileSystem = yield* FileSystem.FileSystem;
+        const checkpointStore = yield* CheckpointStore.CheckpointStore;
+        const threadId = ThreadId.make("thread-root-workspace");
+        const refs = {
+          cwd: workspace,
+          fromCheckpointRef: checkpointRefForThreadTurn(threadId, 0),
+          toCheckpointRef: checkpointRefForThreadTurn(threadId, 1),
+        };
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: workspace,
+          checkpointRef: refs.fromCheckpointRef,
+        });
+        yield* writeTextFile(NodePath.join(workspace, "README.md"), "# root edit\n");
+        yield* writeTextFile(NodePath.join(workspace, "backend", "README.md"), "# api edit\n");
+        yield* writeTextFile(NodePath.join(workspace, "frontend", "app.ts"), "export {};\n");
+        yield* checkpointStore.captureCheckpoint({
+          cwd: workspace,
+          checkpointRef: refs.toCheckpointRef,
+        });
+
+        const numstat = yield* checkpointStore.diffCheckpoints({
+          ...refs,
+          ignoreWhitespace: false,
+          format: "numstat",
+        });
+        expect(parseTurnDiffFilesFromNumstat(numstat)).toEqual([
+          { path: "backend/README.md", additions: 1, deletions: 1 },
+          { path: "frontend/app.ts", additions: 1, deletions: 0 },
+          { path: "README.md", additions: 1, deletions: 1 },
+        ]);
+        // No repository's HEAD moved, so every changed path counts, as in a single repository.
+        expect(yield* checkpointStore.listAuthoredPaths(refs)).toBeNull();
+        const onlyFrontend = yield* checkpointStore.diffCheckpoints({
+          ...refs,
+          ignoreWhitespace: false,
+          format: "numstat",
+          filePaths: ["frontend/app.ts"],
+        });
+        expect(parseTurnDiffFilesFromNumstat(onlyFrontend).map((file) => file.path)).toEqual([
+          "frontend/app.ts",
+        ]);
+
+        expect(
+          yield* checkpointStore.restoreCheckpoint({
+            cwd: workspace,
+            checkpointRef: refs.fromCheckpointRef,
+          }),
+        ).toBe(true);
+        expect(yield* fileSystem.readFileString(NodePath.join(workspace, "README.md"))).toBe(
+          "# test\n",
+        );
+        expect(
+          yield* fileSystem.readFileString(NodePath.join(workspace, "backend", "README.md")),
+        ).toBe("# test\n");
+        expect(yield* fileSystem.exists(NodePath.join(workspace, "frontend", "app.ts"))).toBe(
+          false,
+        );
+      }),
+    );
+
+    it.effect("leaves child repositories the root does not ignore out of its capture", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeRootWorkspace({ ignoreChildren: false });
+        const checkpointStore = yield* CheckpointStore.CheckpointStore;
+        const threadId = ThreadId.make("thread-root-workspace-unignored");
+        const refs = {
+          cwd: workspace,
+          fromCheckpointRef: checkpointRefForThreadTurn(threadId, 0),
+          toCheckpointRef: checkpointRefForThreadTurn(threadId, 1),
+        };
+        const frontend = NodePath.join(workspace, "frontend");
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: workspace,
+          checkpointRef: refs.fromCheckpointRef,
+        });
+        yield* writeTextFile(NodePath.join(workspace, "README.md"), "# root edit\n");
+        yield* writeTextFile(NodePath.join(frontend, "app.ts"), "export {};\n");
+        yield* git(frontend, ["add", "."]);
+        yield* git(frontend, ["commit", "-m", "app"]);
+        yield* checkpointStore.captureCheckpoint({
+          cwd: workspace,
+          checkpointRef: refs.toCheckpointRef,
+        });
+
+        const numstat = yield* checkpointStore.diffCheckpoints({
+          ...refs,
+          ignoreWhitespace: false,
+          format: "numstat",
+        });
+        expect(parseTurnDiffFilesFromNumstat(numstat).map((file) => file.path)).toEqual([
+          "frontend/app.ts",
+          "README.md",
+        ]);
+        expect(yield* checkpointStore.listAuthoredPaths(refs)).toEqual(
+          new Set(["README.md", "frontend/app.ts"]),
+        );
+      }),
+    );
+
+    it.effect("restores the root alone from a checkpoint taken before it held repositories", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeTmpDir("checkpoint-store-root-legacy-");
+        yield* initRepoWithCommit(workspace);
+        yield* writeTextFile(NodePath.join(workspace, ".gitignore"), "frontend/\nbackend/\n");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const checkpointStore = yield* CheckpointStore.CheckpointStore;
+        const checkpointRef = checkpointRefForThreadTurn(ThreadId.make("thread-root-legacy"), 0);
+
+        yield* checkpointStore.captureCheckpoint({ cwd: workspace, checkpointRef });
+        yield* addChildRepositories(workspace);
+        yield* writeTextFile(NodePath.join(workspace, "README.md"), "# root edit\n");
+        yield* writeTextFile(NodePath.join(workspace, "frontend", "README.md"), "# kept\n");
+
+        expect(yield* checkpointStore.restoreCheckpoint({ cwd: workspace, checkpointRef })).toBe(
+          true,
+        );
+        expect(yield* fileSystem.readFileString(NodePath.join(workspace, "README.md"))).toBe(
+          "# test\n",
+        );
+        expect(
+          yield* fileSystem.readFileString(NodePath.join(workspace, "frontend", "README.md")),
+        ).toBe("# kept\n");
+      }),
+    );
+  });
+
   describe("diffCheckpoints", () => {
     it.effect("returns full oversized checkpoint diffs without truncation", () =>
       Effect.gen(function* () {

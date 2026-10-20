@@ -2,16 +2,18 @@
  * WorkspaceRepositories - finds the Git repositories a multi-repo workspace folder holds.
  *
  * A project or isolated-run folder that is not itself inside a repository can still hold
- * several: a wrapper folder with one checkout per repository. A `.code-workspace` file in the
- * folder decides which of its folders count; without one, every immediate child directory with
- * a `.git` entry counts. Folders outside the workspace are never included.
+ * several: a wrapper folder with one checkout per repository. A repository root can too: its
+ * direct child checkouts (not its submodules) join it, and it is listed as `.`. A
+ * `.code-workspace` file in the folder decides which of its folders count; without one, every
+ * immediate child directory with a `.git` entry counts. Folders outside the workspace are never
+ * included.
  *
  * Discovery reads only the filesystem and treats anything unreadable as absent, so callers on
  * hot paths (checkpoints, session start) can rely on it without handling failures.
  *
  * @module WorkspaceRepositories
  */
-import type { VcsRepository } from "@t3tools/contracts";
+import { ROOT_WORKSPACE_REPOSITORY_PATH, type VcsRepository } from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -45,7 +47,7 @@ const NOT_A_WORKSPACE: WorkspaceLayout = { repositories: [], listedFolders: null
 export class WorkspaceRepositories extends Context.Service<
   WorkspaceRepositories,
   {
-    /** Repositories under `cwd`; empty when `cwd` is inside a repository or holds none. */
+    /** Repositories under `cwd`; empty for a plain repository, a folder below one, or none. */
     readonly list: (cwd: string) => Effect.Effect<ReadonlyArray<VcsRepository>>;
     /** `list`, plus the folders a `.code-workspace` file names, or null without one. */
     readonly describe: (cwd: string) => Effect.Effect<WorkspaceLayout>;
@@ -138,8 +140,21 @@ export const make = Effect.gen(function* () {
     return repositories;
   });
 
-  const describe = Effect.fn("WorkspaceRepositories.describe")(function* (cwd: string) {
-    if (yield* isInsideRepository(cwd)) return NOT_A_WORKSPACE;
+  // Submodules are tracked by the root repository itself, so they stay part of its checkpoints.
+  const readSubmodulePaths = (cwd: string) =>
+    fileSystem.readFileString(path.join(cwd, ".gitmodules")).pipe(
+      Effect.map(
+        (text) =>
+          new Set(
+            Array.from(text.matchAll(/^\s*path\s*=\s*(.+?)\s*$/gm), (match) =>
+              match[1]!.replace(/\/+$/, ""),
+            ),
+          ),
+      ),
+      Effect.orElseSucceed(() => new Set<string>()),
+    );
+
+  const describeFolder = Effect.fn("WorkspaceRepositories.describeFolder")(function* (cwd: string) {
     const names = (yield* fileSystem
       .readDirectory(cwd)
       .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []))).toSorted();
@@ -158,6 +173,29 @@ export const make = Effect.gen(function* () {
     }
     const repositories = yield* fromChildDirectories(cwd, realRoot, names);
     return { repositories, listedFolders: null } satisfies WorkspaceLayout;
+  });
+
+  const describe = Effect.fn("WorkspaceRepositories.describe")(function* (cwd: string) {
+    const isRepositoryRoot = yield* hasGitEntry(cwd);
+    if (!isRepositoryRoot) {
+      if (yield* isInsideRepository(cwd)) return NOT_A_WORKSPACE;
+      return yield* describeFolder(cwd);
+    }
+    // A repository root that holds other checkouts (for example a parent repo that ignores its
+    // frontend/ and backend/ clones) lists itself first, so its own files keep being captured.
+    const layout = yield* describeFolder(cwd);
+    const submodules = yield* readSubmodulePaths(cwd);
+    const nested = layout.repositories.filter(
+      (repository) => !submodules.has(repository.relativePath),
+    );
+    if (nested.length === 0) return NOT_A_WORKSPACE;
+    return {
+      repositories: [
+        { relativePath: ROOT_WORKSPACE_REPOSITORY_PATH, name: path.basename(cwd) || cwd },
+        ...nested,
+      ],
+      listedFolders: layout.listedFolders,
+    } satisfies WorkspaceLayout;
   });
 
   const list = (cwd: string) => describe(cwd).pipe(Effect.map((layout) => layout.repositories));

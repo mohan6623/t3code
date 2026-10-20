@@ -50,6 +50,20 @@ describe("buildRuntimeInstructions", () => {
     );
   });
 
+  it("tells the agent a root repository's nested repositories need their own Git", () => {
+    const instructions = buildRuntimeInstructions({
+      harness: "Claude",
+      repositories: [
+        { relativePath: ".", name: "workspace" },
+        { relativePath: "backend", name: "backend" },
+        { relativePath: "frontend", name: "frontend" },
+      ],
+    });
+    expect(instructions).toContain("Your working directory is a Git repository that also holds");
+    expect(instructions).not.toContain("is not a Git repository");
+    expect(instructions).toContain("- backend\n- frontend\nRun Git commands");
+  });
+
   it("keeps workspace-supplied repository names inside the block", () => {
     const instructions = buildRuntimeInstructions({
       harness: "Codex",

@@ -67,6 +67,58 @@ it.layer(layerTest)("WorkspaceRepositories", (it) => {
       }),
     );
 
+    it.effect("lists a repository root first when it holds child clones", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const root = yield* makeWorkspace({
+          ".git/HEAD": "ref",
+          ".gitignore": "frontend/\nbackend/\n",
+          frontend: "repo",
+          backend: "repo",
+          docs: "dir",
+        });
+
+        expect(yield* list(root)).toEqual([
+          { relativePath: ".", name: path.basename(root) },
+          { relativePath: "backend", name: "backend" },
+          { relativePath: "frontend", name: "frontend" },
+        ]);
+        // Inside a child clone, only that clone's own layout counts.
+        expect(yield* list(path.join(root, "frontend"))).toEqual([]);
+      }),
+    );
+
+    it.effect("keeps a repository root's submodules part of the root", () =>
+      Effect.gen(function* () {
+        const root = yield* makeWorkspace({
+          ".git/HEAD": "ref",
+          ".gitmodules": '[submodule "vendor"]\n\tpath = vendor\n\turl = ../vendor.git\n',
+          vendor: "worktree",
+        });
+
+        expect(yield* list(root)).toEqual([]);
+      }),
+    );
+
+    it.effect("lets a repository root's workspace file choose its child repositories", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const root = yield* makeWorkspace({
+          ".git/HEAD": "ref",
+          web: "repo",
+          scratch: "repo",
+          "app.code-workspace": JSON.stringify({
+            folders: [{ path: "." }, { path: "web", name: "Web" }],
+          }),
+        });
+
+        expect(yield* list(root)).toEqual([
+          { relativePath: ".", name: path.basename(root) },
+          { relativePath: "web", name: "Web" },
+        ]);
+      }),
+    );
+
     it.effect("lets a workspace file choose the repositories and their names", () =>
       Effect.gen(function* () {
         const root = yield* makeWorkspace({

@@ -118,6 +118,7 @@ export function resolveWorkspaceFilePath(path: string, workspaceRoot: string): s
  * result keeps the folder's own separator style so Windows paths stay Windows paths.
  */
 export function joinWorkspaceRepositoryPath(workspacePath: string, relativePath: string): string {
+  if (relativePath === ".") return workspacePath;
   const separator = isWindowsAbsolutePath(workspacePath) ? "\\" : "/";
   const base = trimTrailingPathSeparators(workspacePath);
   const joint = base.endsWith(separator) ? "" : separator;

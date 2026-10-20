@@ -947,6 +947,12 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           }
         }
 
+        // Git rejects an exclude pathspec that names an ignored folder, and an ignored folder is
+        // left out anyway, so only the nested repositories the root still sees are excluded.
+        const excludedRepositories = (yield* filterIgnoredPaths(
+          input.cwd,
+          (input.excludePaths ?? []).map((folder) => `${folder.replace(/\/+$/, "")}/`),
+        )).map((folder) => `:(exclude,literal)${folder}`);
         const stageFiles = (exclusions: ReadonlyArray<string>) =>
           execute({
             operation,
@@ -959,6 +965,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
               "-A",
               "--",
               ".",
+              ...excludedRepositories,
               ...exclusions,
             ],
             env: commitEnv,

@@ -78,6 +78,7 @@ describe("path helpers", () => {
       "C:\\work\\app\\services\\api",
     );
     expect(joinWorkspaceRepositoryPath("/", "api")).toBe("/api");
+    expect(joinWorkspaceRepositoryPath("C:\\work\\app", ".")).toBe("C:\\work\\app");
   });
 });
 

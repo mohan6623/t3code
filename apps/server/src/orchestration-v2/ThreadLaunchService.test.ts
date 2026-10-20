@@ -1532,6 +1532,39 @@ it.effect("gives a multi-repo project one container with a worktree per reposito
   }),
 );
 
+it.effect("isolates a root repository that holds others as a single repository", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      repositories: [
+        { relativePath: ".", name: "workspace" },
+        { relativePath: "frontend", name: "frontend" },
+      ],
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:root-repo",
+          thread: "thread:launch:root-repo",
+          message: "Build the feature",
+          workspace: { type: "worktree", baseRef: "main", branch: "t3/abcd1234" },
+        }),
+      );
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(launched.threadId)
+          .pipe(Effect.map((projection) => projection.thread.branch === "generated-branch")),
+      );
+
+      assert.equal(harness.createWorkspaceWorktree.mock.calls.length, 0);
+      assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.baseRefName, "main");
+      assert.equal(harness.renameWorkspaceBranch.mock.calls.length, 0);
+      assert.equal(harness.renameBranch.mock.calls[0]?.[0]?.oldBranch, "t3/abcd1234");
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("keeps an explicit branch name instead of generating one", () =>
   Effect.gen(function* () {
     const harness = makeHarness();

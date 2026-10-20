@@ -343,3 +343,64 @@ it.effect("refreshes pull requests of a multi-repo project folder's checked-out 
     assert.deepEqual(refreshed, ["/projects/shop/api"]);
   }).pipe(Effect.provide(layer));
 });
+
+it.effect("refreshes a root repository and its child repositories after a run", () => {
+  const localRefreshed: string[] = [];
+  const pullRequestRefreshed: string[] = [];
+  const layer = RunFinalization.layerObserver.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(WorkspaceEntries.WorkspaceEntries)({ refresh: () => Effect.void }),
+        Layer.mock(WorkspaceRepositories.WorkspaceRepositories)({
+          list: () =>
+            Effect.succeed([
+              { relativePath: ".", name: "shop" },
+              { relativePath: "frontend", name: "frontend" },
+            ]),
+        }),
+        Layer.mock(PullRequestService.PullRequestService)({
+          refreshAfterTurn: () => Effect.void,
+        }),
+        Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
+          refreshLocalStatus: (cwd) =>
+            Effect.sync(() => {
+              localRefreshed.push(cwd);
+              return {
+                isRepo: true,
+                hasPrimaryRemote: true,
+                isDefaultRef: false,
+                refName: "feature",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+              };
+            }),
+          refreshPullRequestStatus: (cwd) =>
+            Effect.sync(() => {
+              pullRequestRefreshed.push(cwd);
+              return null;
+            }),
+        }),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getThreadShell: () =>
+            Effect.succeed({
+              id: ThreadId.make("thread-root-repo"),
+              branch: "other-branch",
+              worktreePath: null,
+              activeRunId: null,
+            } as OrchestrationV2ThreadShell),
+        }),
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const observer = yield* RunFinalization.RunFinalizationObserver;
+    yield* observer.refresh({
+      cwd: "/projects/shop",
+      threadId: ThreadId.make("thread-root-repo"),
+      runId: RunId.make("run-root-repo"),
+    });
+    assert.deepEqual(localRefreshed.toSorted(), ["/projects/shop", "/projects/shop/frontend"]);
+    // The root is the thread's own checkout, so its branch must match the thread's to refresh.
+    assert.deepEqual(pullRequestRefreshed, ["/projects/shop/frontend"]);
+  }).pipe(Effect.provide(layer));
+});

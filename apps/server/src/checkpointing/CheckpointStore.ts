@@ -1,4 +1,8 @@
-import { VcsUnsupportedOperationError, type CheckpointRef } from "@t3tools/contracts";
+import {
+  isRootWorkspaceRepository,
+  VcsUnsupportedOperationError,
+  type CheckpointRef,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -90,8 +94,14 @@ export class CheckpointStore extends Context.Service<
 /** One repository a checkpoint operation runs in, and where its paths sit under the cwd. */
 interface CheckpointTarget {
   readonly cwd: string;
+  /** Null for the cwd's own repository, whose paths need no prefix. */
   readonly pathPrefix: string | null;
+  /** Folders of the other repositories nested in this one, left out of its capture. */
+  readonly excludePaths: ReadonlyArray<string>;
 }
+
+const isUnderAny = (filePath: string, folders: ReadonlyArray<string>) =>
+  folders.some((folder) => filePath.startsWith(`${folder}/`));
 
 const MULTI_REPO_CONCURRENCY = 4;
 
@@ -121,16 +131,25 @@ export const make = Effect.gen(function* () {
       .detect({ cwd, requestedKind: "git" })
       .pipe(Effect.map((repository) => repository !== null));
 
-  // A cwd that is no repository and holds none stays a single target, so its operations
-  // fail the way they always have.
+  // A plain repository, or a cwd that is no repository and holds none, stays a single target,
+  // so its operations behave the way they always have.
   const resolveTargets = Effect.fn("CheckpointStore.resolveTargets")(function* (cwd: string) {
-    if (yield* isGitRepository(cwd)) return [{ cwd, pathPrefix: null }];
     const repositories = yield* workspaceRepositories.list(cwd);
-    if (repositories.length === 0) return [{ cwd, pathPrefix: null }];
-    return repositories.map((repository): CheckpointTarget => ({
-      cwd: path.join(cwd, ...repository.relativePath.split("/")),
-      pathPrefix: repository.relativePath,
-    }));
+    if (repositories.length === 0) {
+      return [{ cwd, pathPrefix: null, excludePaths: [] }] satisfies Array<CheckpointTarget>;
+    }
+    const nested = repositories
+      .filter((repository) => !isRootWorkspaceRepository(repository))
+      .map((repository) => repository.relativePath);
+    return repositories.map((repository): CheckpointTarget =>
+      isRootWorkspaceRepository(repository)
+        ? { cwd, pathPrefix: null, excludePaths: nested }
+        : {
+            cwd: path.join(cwd, ...repository.relativePath.split("/")),
+            pathPrefix: repository.relativePath,
+            excludePaths: [],
+          },
+    );
   });
 
   const forEachTarget = <A, E, R>(
@@ -165,6 +184,7 @@ export const make = Effect.gen(function* () {
         yield* checkpoints.captureCheckpoint({
           cwd: target.cwd,
           checkpointRef: input.checkpointRef,
+          ...(target.excludePaths.length > 0 ? { excludePaths: target.excludePaths } : {}),
         });
       }),
     );
@@ -182,13 +202,21 @@ export const make = Effect.gen(function* () {
   const restoreCheckpoint: CheckpointStore["Service"]["restoreCheckpoint"] = Effect.fn(
     "restoreCheckpoint",
   )(function* (input) {
-    const targets = yield* resolveTargets(input.cwd);
+    let targets = yield* resolveTargets(input.cwd);
     // Refuse up front rather than restore some repositories and then find one without the ref.
     if (targets.length > 1 && input.fallbackToHead !== true) {
       const found = yield* forEachTarget(targets, (target) =>
         hasRefIn(target, input.checkpointRef),
       );
-      if (!found.every(Boolean)) return false;
+      if (!found.every(Boolean)) {
+        // A root repository's checkpoint from before its nested repositories were captured
+        // restores the root alone, as it did then.
+        const rootIndex = targets.findIndex((target) => target.pathPrefix === null);
+        const onlyRootHasRef =
+          rootIndex !== -1 && found.every((hasRef, index) => hasRef === (index === rootIndex));
+        if (!onlyRootHasRef) return false;
+        targets = [targets[rootIndex]!];
+      }
     }
     // One at a time, so a failure can name the repositories that were already restored.
     const restored = yield* Effect.forEach(targets, (target, index) =>
@@ -220,7 +248,17 @@ export const make = Effect.gen(function* () {
           target.cwd,
         );
         if (target.pathPrefix === null) {
-          return yield* checkpoints.diffCheckpoints({ ...input, cwd: target.cwd });
+          return yield* checkpoints.diffCheckpoints({
+            ...input,
+            cwd: target.cwd,
+            ...(input.filePaths && target.excludePaths.length > 0
+              ? {
+                  filePaths: input.filePaths.filter(
+                    (filePath) => !isUnderAny(filePath, target.excludePaths),
+                  ),
+                }
+              : {}),
+          });
         }
         // A repository added to the workspace after either checkpoint has nothing to compare.
         const comparable =
@@ -313,7 +351,9 @@ export const make = Effect.gen(function* () {
         );
       }
       for (const repositoryPath of repositoryPaths) {
-        authored.add(`${target.pathPrefix}/${repositoryPath}`);
+        authored.add(
+          target.pathPrefix === null ? repositoryPath : `${target.pathPrefix}/${repositoryPath}`,
+        );
       }
     }
     return authored;

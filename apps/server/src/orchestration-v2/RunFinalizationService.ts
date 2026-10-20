@@ -1,4 +1,10 @@
-import { CheckpointScopeId, ProjectId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  CheckpointScopeId,
+  isRootWorkspaceRepository,
+  ProjectId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -130,25 +136,21 @@ export const layerObserver = Layer.effect(
       refresh: ({ cwd, threadId, runId }) =>
         Effect.gen(function* () {
           // A multi-repo workspace folder is not a repository; its repositories hold the status.
+          // A root repository among them is the thread's own checkout, so it keeps the branch match.
           const repositories = yield* workspaceRepositories.list(cwd);
-          const statusCwds =
+          const statusTargets =
             repositories.length === 0
-              ? [cwd]
-              : repositories.map((repository) =>
-                  joinWorkspaceRepositoryPath(cwd, repository.relativePath),
-                );
+              ? [{ cwd, isWorkspaceRepository: false }]
+              : repositories.map((repository) => ({
+                  cwd: joinWorkspaceRepositoryPath(cwd, repository.relativePath),
+                  isWorkspaceRepository: !isRootWorkspaceRepository(repository),
+                }));
           yield* Effect.all(
             [
               workspaceEntries.refresh(cwd),
               Effect.forEach(
-                statusCwds,
-                (statusCwd) =>
-                  refreshStatus({
-                    cwd: statusCwd,
-                    threadId,
-                    runId,
-                    isWorkspaceRepository: repositories.length > 0,
-                  }),
+                statusTargets,
+                (target) => refreshStatus({ ...target, threadId, runId }),
                 { concurrency: "unbounded", discard: true },
               ),
             ],

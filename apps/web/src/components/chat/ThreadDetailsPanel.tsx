@@ -8,9 +8,13 @@ import {
   type VcsRepository,
 } from "@t3tools/contracts";
 import { joinWorkspaceRepositoryPath } from "@t3tools/shared/path";
+import * as Schema from "effect/Schema";
 
 import type { DraftId } from "../../composerDraftStore";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
+import { useEnvironmentQuery } from "../../state/query";
+import { vcsEnvironment } from "../../state/vcs";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
@@ -19,6 +23,7 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { memo, type ComponentProps } from "react";
+import { DiffStatLabel } from "./DiffStatLabel";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -26,6 +31,27 @@ import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 
 const GitActionsControl = memo(BaseGitActionsControl);
+
+// Keyed by environment and repository path, so a repository stays collapsed in every thread.
+const COLLAPSED_REPOSITORIES_KEY = "t3code:thread-details:collapsed-repositories";
+const CollapsedRepositoriesSchema = Schema.Record(Schema.String, Schema.Boolean);
+
+/** Keeps a collapsed repository's changes visible in its heading. */
+function RepositoryChangesStat(props: { environmentId: EnvironmentId; cwd: string }) {
+  const { data: status } = useEnvironmentQuery(
+    vcsEnvironment.status({ environmentId: props.environmentId, input: { cwd: props.cwd } }),
+  );
+  const totals = status?.branchChanges ?? status?.workingTree;
+  if (!totals || (totals.insertions === 0 && totals.deletions === 0)) return null;
+  return (
+    <DiffStatLabel
+      layout="inline"
+      className="text-2xs"
+      additions={totals.insertions}
+      deletions={totals.deletions}
+    />
+  );
+}
 
 export interface ThreadDetailsPanelProps extends Pick<
   ComponentProps<typeof ThreadDetailsCard>,
@@ -81,6 +107,29 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const nestedRepositories = props.workspaceRepositories.filter(
     (repository) => !isRootWorkspaceRepository(repository),
   );
+  const [collapsedRepositories, setCollapsedRepositories] = useLocalStorage(
+    COLLAPSED_REPOSITORIES_KEY,
+    {},
+    CollapsedRepositoriesSchema,
+  );
+  const repositorySectionProps = (gitCwd: string, repository: VcsRepository) => {
+    const cwd = joinWorkspaceRepositoryPath(gitCwd, repository.relativePath);
+    const key = `${props.environmentId}:${cwd}`;
+    const collapsed = collapsedRepositories[key] === true;
+    return {
+      collapsed,
+      onCollapsedChange: (nextCollapsed: boolean) =>
+        setCollapsedRepositories((current) => {
+          const next = { ...current };
+          if (nextCollapsed) next[key] = true;
+          else delete next[key];
+          return next;
+        }),
+      ...(collapsed
+        ? { actions: <RepositoryChangesStat environmentId={props.environmentId} cwd={cwd} /> }
+        : {}),
+    };
+  };
   const branchToolbarProps = {
     showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
@@ -167,6 +216,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               title={rootRepository?.name ?? "Version Control"}
               showHeading={rootRepository !== undefined}
               separated={density === "full"}
+              {...(rootRepository ? repositorySectionProps(props.gitCwd, rootRepository) : {})}
             >
               <div className="flex flex-col">
                 {props.isGitRepo ? (
@@ -197,6 +247,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   headingId={`thread-details-repository-${repository.relativePath.replaceAll("/", "-")}`}
                   title={repository.name}
                   separated={density === "full"}
+                  {...repositorySectionProps(props.gitCwd!, repository)}
                 >
                   <GitActionsControl
                     displayMode="panel"

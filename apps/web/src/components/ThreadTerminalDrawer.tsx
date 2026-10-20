@@ -1784,9 +1784,10 @@ export default function ThreadTerminalDrawer({
         />
       ) : null}
 
+      {/* Fork: the buttons sit in their own row, not over the terminal, so they never hide the prompt. */}
       {!hasTerminalSidebar && (
-        <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+        <div className="flex h-7 shrink-0 items-center justify-end bg-(--terminal-background) px-2 pt-1">
+          <div className="inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className={`p-1 text-foreground/90 transition-colors ${

@@ -308,6 +308,9 @@ import {
 export interface TimelineOutputRate {
   readonly outputTokens: number;
   readonly generationMs: number;
+  /** All input tokens, cached ones included. */
+  readonly inputTokens?: number | undefined;
+  readonly cachedInputTokens?: number | undefined;
 }
 const EMPTY_OUTPUT_RATES: ReadonlyMap<string, TimelineOutputRate> = new Map();
 
@@ -2779,6 +2782,7 @@ function AssistantMessageMeta({
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
+      {!message.streaming && outputRate ? <AssistantOutputRate rate={outputRate} /> : null}
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
@@ -2789,22 +2793,49 @@ function AssistantMessageMeta({
           </TooltipPopup>
         </Tooltip>
       )}
-      {!message.streaming && outputRate ? <AssistantOutputRate rate={outputRate} /> : null}
     </div>
   );
 }
 
-/** Fork: how fast the model wrote this turn's output, like Claude Code's tokens per second. */
+/** "28K" for 28,000; small counts stay whole. */
+function formatTokenCount(tokens: number): string {
+  if (tokens < 1000) return String(tokens);
+  if (tokens < 1_000_000)
+    return `${tokens < 10_000 ? (tokens / 1000).toFixed(1) : Math.round(tokens / 1000)}K`;
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+/**
+ * Fork: how fast the model wrote this turn's output, like Claude Code's tokens
+ * per second. The hover shows the turn's tokens; the speed is already in view.
+ */
 function AssistantOutputRate({ rate }: { rate: TimelineOutputRate }) {
   const perSecond = rate.outputTokens / (rate.generationMs / 1000);
+  const { inputTokens, cachedInputTokens } = rate;
+  const cached = cachedInputTokens ?? 0;
+  const hitRate =
+    inputTokens !== undefined && inputTokens > 0 && cachedInputTokens !== undefined
+      ? Math.min(1, cached / inputTokens)
+      : null;
+  const counts = [
+    inputTokens === undefined
+      ? null
+      : `${formatTokenCount(Math.max(0, inputTokens - cached))} input`,
+    `${formatTokenCount(rate.outputTokens)} output`,
+    cachedInputTokens === undefined ? null : `${formatTokenCount(cached)} cached`,
+  ].filter((part) => part !== null);
   return (
     <Tooltip>
       <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
         {perSecond >= 100 ? Math.round(perSecond) : perSecond.toFixed(1)} tok/s
       </TooltipTrigger>
       <TooltipPopup>
-        {rate.outputTokens.toLocaleString()} output tokens in{" "}
-        {(rate.generationMs / 1000).toFixed(1)}s of writing
+        <div className="tabular-nums">
+          {hitRate === null ? null : <div>Cache hit {Math.round(hitRate * 100)}%</div>}
+          <div className={hitRate === null ? undefined : "text-muted-foreground"}>
+            {counts.join(" · ")}
+          </div>
+        </div>
       </TooltipPopup>
     </Tooltip>
   );

@@ -966,8 +966,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
   const tabBarRef = useRef<HTMLDivElement>(null);
-  // Fork: a narrow bar drops the tab scroll arrows, and the panel buttons fold
-  // into one menu (ChatView hides them while this bar is marked compact).
+  // Fork: in a narrow bar the panel buttons fold into one menu (ChatView hides
+  // them while this bar is marked compact), and the tab scroll arrows slim down.
   const [compactTabBar, setCompactTabBar] = useState(false);
   const addSurfaceTriggerRef = useRef<HTMLButtonElement>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
@@ -1436,9 +1436,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             ) : null}
           </div>
         </ScrollArea>
-        {tabScrollState.hasOverflow && !compactTabBar ? (
+        {tabScrollState.hasOverflow ? (
           <div
-            className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
+            className={cn(
+              "flex shrink-0 items-center [-webkit-app-region:no-drag]",
+              !compactTabBar && "gap-0.5",
+            )}
             role="group"
             aria-label="Scroll panel tabs"
           >
@@ -1451,6 +1454,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       disabled={!tabScrollState.canScrollLeft}
                       onClick={() => scrollTabs(-1)}
                       size="icon-xs"
+                      className={compactTabBar ? "w-4.5" : undefined}
                       variant="ghost"
                     >
                       <ChevronLeft />
@@ -1469,6 +1473,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       disabled={!tabScrollState.canScrollRight}
                       onClick={() => scrollTabs(1)}
                       size="icon-xs"
+                      className={compactTabBar ? "w-4.5" : undefined}
                       variant="ghost"
                     >
                       <ChevronRight />

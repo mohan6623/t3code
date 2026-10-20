@@ -1159,7 +1159,12 @@ export default function ChatView(props: ChatViewProps) {
       const generationMs = turn.outputGenerationMs;
       // Under a second of writing gives a noisy number, so leave it out.
       if (outputTokens === undefined || generationMs === undefined || generationMs < 1000) continue;
-      rates.set(turn.id, { outputTokens, generationMs });
+      rates.set(turn.id, {
+        outputTokens,
+        generationMs,
+        inputTokens: turn.turnTokenUsage?.inputTokens,
+        cachedInputTokens: turn.turnTokenUsage?.cachedInputTokens,
+      });
     }
     return rates;
   })();
@@ -8573,8 +8578,8 @@ export default function ChatView(props: ChatViewProps) {
 
       {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef ? (
         <RightPanelTabs
-          onCompactChange={setRightPanelCompact}
           mode="inline"
+          onCompactChange={setRightPanelCompact}
           open={rightPanelOpen}
           keybindings={keybindings}
           getShortcutContext={getShortcutContextStable}

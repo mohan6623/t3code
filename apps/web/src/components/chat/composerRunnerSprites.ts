@@ -3,7 +3,7 @@
  * gets its own; any other provider walks one of Monocode's 8x8 mascots
  * (https://github.com/hardbeat920/monocode, src/features/projects/model/projectMascots.ts,
  * MIT License, Copyright (c) 2026 Nick), picked by project. The
- * `composerMascots` setting can give any provider any mascot.
+ * `composerMascots` setting can give any provider setup any mascot.
  *
  * Rows are pixels: "." is empty, any other character a palette color.
  */

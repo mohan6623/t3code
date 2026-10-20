@@ -33,8 +33,8 @@ applies to the web and desktop clients.
 
 While an agent works, a pixel mascot walks along the top of the composer. Claude, Codex, Cursor, and
 Antigravity each have their own; other providers get a mascot picked by project. To pick another
-mascot for a provider, or turn it off, use **Settings › Appearance › Composer mascots**. Reduced
-motion hides the mascot.
+mascot, or turn it off, open the provider in **Settings → Providers** and choose its **Composer
+mascot**. Each provider setup keeps its own choice on each device. Reduced motion hides the mascot.
 
 ## Motion
 

@@ -6359,7 +6359,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
     // The project folder name, as Monocode picks its mascot.
     gitCwd?.split(/[\\/]/).findLast((part) => part.length > 0) ?? activeThread?.projectId ?? "",
-    settings.composerMascots[selectedProvider],
+    settings.composerMascots[selectedInstanceId],
   );
 
   return (

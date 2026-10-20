@@ -418,8 +418,8 @@ export const ClientSettingsSchema = Schema.Struct({
   persistComposerContextStrip: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
-  // Fork: the composer runner's mascot per provider driver: a mascot id,
-  // "project" or "off". A missing driver walks its own mascot.
+  // Fork: the composer runner's mascot per provider instance: a mascot id,
+  // "project" or "off". A missing instance walks its driver's own mascot.
   composerMascots: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),

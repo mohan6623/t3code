@@ -293,12 +293,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
-    id: "composer-mascots",
-    title: "Composer mascots",
-    to: "/settings/appearance",
-    searchTerms: ["runner pixel character clawd codex cursor animation"],
-  },
-  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",
@@ -643,7 +637,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Providers",
     to: "/settings/providers",
     searchTerms: [
-      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
+      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color composer mascot runner pixel character clawd custom favorite hidden auto compact",
     ],
   },
   {

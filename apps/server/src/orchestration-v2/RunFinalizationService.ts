@@ -105,36 +105,35 @@ export const layerObserver = Layer.effect(
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
-    const refreshStatus = (input: {
+    const refreshStatus = Effect.fn("RunFinalizationService.refreshStatus")(function* (input: {
       readonly cwd: string;
       readonly threadId: ThreadId;
       readonly runId: RunId;
       readonly isWorkspaceRepository: boolean;
-    }) =>
-      Effect.gen(function* () {
-        const local = yield* vcsStatus.refreshLocalStatus(input.cwd);
-        if (local.refName === null || local.isDefaultRef) return;
-        const thread = yield* projections.getThreadShell(input.threadId);
-        if (!thread) return;
-        // Repositories in a multi-repo project folder keep their own branches, so only a
-        // single repository or an isolated run has a thread branch to match.
-        const inProjectFolder = input.isWorkspaceRepository && thread.worktreePath === null;
-        if (!inProjectFolder && thread.branch !== local.refName) return;
-        if (thread.activeRunId !== null && thread.activeRunId !== input.runId) return;
-        yield* vcsStatus.refreshPullRequestStatus(input.cwd).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("failed to refresh pull request status after run completion", {
-              threadId: input.threadId,
-              cwd: input.cwd,
-              detail: error.message,
-            }),
-          ),
-        );
-      });
+    }) {
+      const local = yield* vcsStatus.refreshLocalStatus(input.cwd);
+      if (local.refName === null || local.isDefaultRef) return;
+      const thread = yield* projections.getThreadShell(input.threadId);
+      if (!thread) return;
+      // Repositories in a multi-repo project folder keep their own branches, so only a
+      // single repository or an isolated run has a thread branch to match.
+      const inProjectFolder = input.isWorkspaceRepository && thread.worktreePath === null;
+      if (!inProjectFolder && thread.branch !== local.refName) return;
+      if (thread.activeRunId !== null && thread.activeRunId !== input.runId) return;
+      yield* vcsStatus.refreshPullRequestStatus(input.cwd).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to refresh pull request status after run completion", {
+            threadId: input.threadId,
+            cwd: input.cwd,
+            detail: error.message,
+          }),
+        ),
+      );
+    });
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
-      refresh: ({ cwd, threadId, runId }) =>
-        Effect.gen(function* () {
+      refresh: Effect.fn("RunFinalizationService.refresh")(
+        function* ({ cwd, threadId, runId }) {
           // A multi-repo workspace folder is not a repository; its repositories hold the status.
           // A root repository among them is the thread's own checkout, so it keeps the branch match.
           const repositories = yield* workspaceRepositories.list(cwd);
@@ -156,7 +155,10 @@ export const layerObserver = Layer.effect(
             ],
             { concurrency: "unbounded", discard: true },
           );
-        }).pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+        },
+        (effect, { cwd }) =>
+          effect.pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+      ),
     };
   }),
 );

@@ -275,6 +275,26 @@ function Sidebar({
   } = useSidebar();
   const canPeek = side === "left" && collapsible === "offcanvas" && state === "collapsed";
   const showPeek = canPeek && peeking;
+  const desktopSidebarRef = React.useRef<HTMLDivElement>(null);
+  // A peeking sidebar is on screen and usable, so only an offcanvas sidebar that is out of view goes inert.
+  const offcanvasHidden =
+    !isMobile && collapsible === "offcanvas" && state === "collapsed" && !showPeek;
+
+  React.useLayoutEffect(() => {
+    const sidebar = desktopSidebarRef.current;
+    if (!sidebar) return;
+
+    // Transfer focus before inert causes the browser to clear the focused descendant.
+    if (offcanvasHidden && sidebar.contains(document.activeElement)) {
+      const wrapper = sidebar.closest('[data-slot="sidebar-wrapper"]');
+      const trigger = Array.from(
+        wrapper?.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]') ?? [],
+      ).find((element) => !sidebar.contains(element));
+      trigger?.focus({ preventScroll: true });
+    }
+    sidebar.toggleAttribute("inert", offcanvasHidden);
+  }, [offcanvasHidden]);
+
   // The rail's width restore and drag refresh key on this value.
   const resolvedResizable = resolveSidebarResizable({ collapsible, isMobile, resizable });
   const instanceContextValue: SidebarInstanceContextProps = { side, resizable: resolvedResizable };
@@ -339,7 +359,18 @@ function Sidebar({
 
   return (
     <SidebarInstanceContext value={instanceContextValue}>
+      {/* Outside the sidebar, which is inert while collapsed, so it still sees the pointer. */}
+      {canPeek ? (
+        <div
+          aria-hidden="true"
+          className="fixed inset-y-0 left-0 z-40 hidden w-1.5 md:block"
+          data-slot="sidebar-peek-edge"
+          onMouseEnter={() => schedulePeek(true)}
+          onMouseLeave={() => schedulePeek(false)}
+        />
+      ) : null}
       <div
+        ref={desktopSidebarRef}
         className="group peer hidden text-sidebar-foreground md:block"
         data-collapsible={state === "collapsed" ? collapsible : ""}
         data-peek={showPeek ? "true" : undefined}
@@ -360,15 +391,6 @@ function Sidebar({
           )}
           data-slot="sidebar-gap"
         />
-        {canPeek ? (
-          <div
-            aria-hidden="true"
-            className="fixed inset-y-0 left-0 z-40 w-1.5"
-            data-slot="sidebar-peek-edge"
-            onMouseEnter={() => schedulePeek(true)}
-            onMouseLeave={() => schedulePeek(false)}
-          />
-        ) : null}
         <div
           className={cn(
             "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",

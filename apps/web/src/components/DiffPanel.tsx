@@ -20,7 +20,7 @@ import {
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide";
 import * as Schema from "effect/Schema";
 import * as DateTime from "effect/DateTime";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useCodeViewFileReveal } from "./diffs/useCodeViewFileReveal";
 import { useFilesystemReadAccess } from "~/state/filesystem";
 import { useOpenInPreferredEditor } from "../editorPreferences";
@@ -31,6 +31,8 @@ import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "../hooks/useResizableWidth";
+import { RightPanelResizeHandle } from "./preview/RightPanelResizeHandle";
 import { useTheme } from "../hooks/useTheme";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
@@ -94,6 +96,11 @@ import { useThreadRouteRef } from "../hooks/useThreadRouteTarget";
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 const DIFF_FILE_TREE_STORAGE_KEY = "t3code.diffFileTreeOpen";
+// Fork: the diff file tree is resizable; its width is kept across sessions.
+const DIFF_FILE_TREE_WIDTH_STORAGE_KEY = "t3code.diffFileTreeWidth";
+const DIFF_FILE_TREE_DEFAULT_WIDTH = 220;
+const DIFF_FILE_TREE_MIN_WIDTH = 140;
+const DIFF_FILE_TREE_MAX_WIDTH = 640;
 const fileEntryCache = new WeakMap<
   FileDiffMetadata,
   { fileDiff: FileDiffMetadata; fileKey: string; fileVersion: number }
@@ -212,6 +219,14 @@ export default function DiffPanel({
     false,
     Schema.Boolean,
   );
+  const fileTreeWidth = useResizableWidth({
+    storageKey: DIFF_FILE_TREE_WIDTH_STORAGE_KEY,
+    defaultWidth: DIFF_FILE_TREE_DEFAULT_WIDTH,
+    minWidth: DIFF_FILE_TREE_MIN_WIDTH,
+    maxWidth: DIFF_FILE_TREE_MAX_WIDTH,
+    // The handle sits on the tree's left edge, facing the diff.
+    edge: "left",
+  });
   const [baseRefQuery, setBaseRefQuery] = useState("");
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
     scopeKey: null,
@@ -1133,7 +1148,16 @@ export default function DiffPanel({
                   />
                 </div>
                 {fileTreeOpen ? (
-                  <aside className="flex w-[min(16rem,40%)] min-w-40 shrink-0 border-l border-border/60">
+                  <aside
+                    className="relative flex max-w-[70%] shrink-0 border-l border-border/60"
+                    style={
+                      {
+                        [RESIZABLE_WIDTH_PROPERTY]: `${fileTreeWidth.width}px`,
+                        width: `var(${RESIZABLE_WIDTH_PROPERTY})`,
+                      } as CSSProperties
+                    }
+                  >
+                    <RightPanelResizeHandle handlers={fileTreeWidth.handlers} />
                     <DiffFileTree
                       ariaLabel={`${reviewSectionTitle} files`}
                       entries={fileTreeEntries}

@@ -172,6 +172,29 @@ const SPRITES: ReadonlyArray<{ name: string; rest: Rows; step: Rows }> = [
     ],
   },
   {
+    name: "rocket",
+    rest: [
+      "...##...",
+      "..####..",
+      "..#..#..",
+      "..####..",
+      ".######.",
+      ".######.",
+      "##....##",
+      "..####..",
+    ],
+    step: [
+      "...##...",
+      "..####..",
+      "..#..#..",
+      "..####..",
+      ".######.",
+      ".######.",
+      "##....##",
+      "...##...",
+    ],
+  },
+  {
     name: "dino",
     rest: [
       "...#####",
@@ -250,7 +273,10 @@ const RUNNER_SPRITES: readonly RunnerSprite[] = SPRITES.map((sprite) => ({
   stepPath: spritePath(sprite.step),
 }));
 
-/** The same project always gets the same mascot. */
+/**
+ * The same project always gets the same mascot. Same list order and hash as
+ * Monocode, so a project folder gets the mascot Monocode gives it.
+ */
 export function runnerSprite(seed: string): RunnerSprite {
   let hash = 0;
   for (let index = 0; index < seed.length; index++) {

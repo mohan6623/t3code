@@ -6601,7 +6601,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <div className="relative">
         <ComposerRunner
           running={phase === "running"}
-          seed={activeThread?.projectId ?? activeThreadId ?? ""}
+          // The project folder name, as Monocode picks its mascot.
+          seed={
+            gitCwd?.split(/[\\/]/).findLast((part) => part.length > 0) ??
+            activeThread?.projectId ??
+            ""
+          }
         />
         <ComposerSurface.Main
           ref={composerMainSurfaceRef}

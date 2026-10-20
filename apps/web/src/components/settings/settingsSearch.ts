@@ -293,6 +293,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "composer-mascots",
+    title: "Composer mascots",
+    to: "/settings/appearance",
+    searchTerms: ["runner pixel character clawd codex cursor animation"],
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

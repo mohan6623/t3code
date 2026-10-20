@@ -139,6 +139,7 @@ import {
   NumberFieldInput,
 } from "../ui/number-field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { ComposerMascotPickers } from "./ComposerMascotSettings";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -591,6 +592,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
       ? ["Composer context"]
       : []),
+    ...(Object.keys(settings.composerMascots).length > 0 ? ["Composer mascots"] : []),
     ...getChangedTypographySettingLabels(settings),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? ["Default diff file state"]
@@ -724,6 +726,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
+      composerMascots: DEFAULT_UNIFIED_SETTINGS.composerMascots,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
@@ -1344,6 +1347,26 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
+
+        <SettingsRow
+          {...searchableSetting("composer-mascots")}
+          description="Choose the mascot that walks the composer while each provider works."
+          resetAction={
+            Object.keys(settings.composerMascots).length > 0 ? (
+              <SettingResetButton
+                label="composer mascots"
+                onClick={() =>
+                  updateSettings({ composerMascots: DEFAULT_UNIFIED_SETTINGS.composerMascots })
+                }
+              />
+            ) : null
+          }
+        >
+          <ComposerMascotPickers
+            mascots={settings.composerMascots}
+            onChange={(composerMascots) => updateSettings({ composerMascots })}
+          />
+        </SettingsRow>
 
         <SettingsRow
           {...searchableSetting("chat-width")}

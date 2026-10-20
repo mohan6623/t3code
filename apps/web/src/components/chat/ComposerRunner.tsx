@@ -2,7 +2,7 @@ import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 
 import { observeResize } from "~/lib/observeResize";
 
-import { runnerSprite, type RunnerLayer } from "./composerRunnerSprites";
+import type { RunnerLayer, RunnerSprite } from "./composerRunnerSprites";
 
 /** Walking speed in CSS px per second, as in Monocode. */
 const RUNNER_SPEED = 160;
@@ -30,17 +30,14 @@ const RUNNER_INSET = 20;
  */
 export function ComposerRunner(props: {
   readonly running: boolean;
-  /** The provider's driver picks its mascot. */
-  readonly driver: string;
-  /** Picks a mascot for providers without one: the project folder name. */
-  readonly seed: string;
+  readonly sprite: RunnerSprite;
 }) {
   const [shown, setShown] = useState(props.running);
   // Show at once when a turn starts; hide only after the exit jump ends.
   if (props.running && !shown) setShown(true);
   const leaving = shown && !props.running;
   const trackRef = useRef<HTMLDivElement>(null);
-  const sprite = runnerSprite(props.driver, props.seed);
+  const { sprite } = props;
   const { width, height } = sprite;
 
   useLayoutEffect(() => {
@@ -91,7 +88,7 @@ export function ComposerRunner(props: {
     >
       <div className="t3-runner-walk">
         <div
-          className="t3-runner-body text-runner"
+          className="t3-runner-body"
           data-runner-motion={sprite.motion}
           onAnimationEnd={(event) => {
             if (event.animationName === "t3-runner-exit") setShown(false);
@@ -120,6 +117,18 @@ export function ComposerRunner(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+/** A mascot standing still, for pickers. */
+export function MascotPreview(props: { readonly sprite: RunnerSprite }) {
+  return (
+    <RunnerFrame
+      layers={props.sprite.frames[0]!}
+      width={props.sprite.width}
+      height={props.sprite.height}
+      className="h-4 w-5 shrink-0"
+    />
   );
 }
 

@@ -29,6 +29,13 @@ The controls retreat as the composer docks after you send the first message.
 Turn on **Composer context** to keep those controls visible after the thread starts. This preference
 applies to the web and desktop clients.
 
+## Composer mascots
+
+While an agent works, a pixel mascot walks along the top of the composer. Claude, Codex, Cursor, and
+Antigravity each have their own; other providers get a mascot picked by project. To pick another
+mascot for a provider, or turn it off, use **Settings › Appearance › Composer mascots**. Reduced
+motion hides the mascot.
+
 ## Motion
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the

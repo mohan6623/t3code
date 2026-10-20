@@ -130,7 +130,11 @@ import {
   resolvePromptInjectedEffort,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
-import { projectScriptCwd, resolveProjectScripts } from "@t3tools/shared/projectScripts";
+import {
+  projectScriptCwd,
+  projectScriptTerminalInput,
+  resolveProjectScripts,
+} from "@t3tools/shared/projectScripts";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import {
@@ -206,7 +210,6 @@ import {
 } from "../proposedPlan";
 import {
   DEFAULT_INTERACTION_MODE,
-  DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type SessionPhase,
@@ -308,6 +311,7 @@ import {
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
+import { findReusableProjectScriptTerminal } from "../lib/projectScriptTerminal";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -1370,6 +1374,7 @@ export default function ChatView(props: ChatViewProps) {
   const getTimelineScrollableNodeStable = useStableCallback(getTimelineScrollableNode);
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const [composerTimelineInset, setComposerTimelineInset] = useState(0);
+  const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
   const composerTimelineInsetRef = useRef(0);
   const composerRestingRef = useRef(false);
   const composerMountedRef = useRef(true);
@@ -1419,7 +1424,6 @@ export default function ChatView(props: ChatViewProps) {
   const storeSplitTerminal = useTerminalUiStateStore((s) => s.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore((s) => s.splitTerminalVertical);
   const storeNewTerminal = useTerminalUiStateStore((s) => s.newTerminal);
-  const storeSetActiveTerminal = useTerminalUiStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((s) => s.closeTerminal);
   const serverThreadRefs = useThreadRefs();
   const serverThreadKeys = serverThreadRefs.map(scopedThreadKey);
@@ -1588,9 +1592,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeServerOrderedTerminalIds = activeThreadKnownSessions.map(
     (session) => session.target.terminalId,
   );
-  const activeKnownTerminalIds = [
-    ...new Set([...activeServerOrderedTerminalIds, ...terminalUiState.terminalIds]),
-  ];
   const activeTerminalLabelsById = (() => {
     const labels = new Map<string, string>();
     for (const session of activeThreadKnownSessions) {
@@ -2196,6 +2197,11 @@ export default function ChatView(props: ChatViewProps) {
       ? null
       : clampFileAttachmentUploadBytes(advertisedFileAttachmentBytes);
   const envLocked = Boolean(activeThread && (activeMessageCount > 0 || activeRuntime !== null));
+  // onEnvironmentChange only retargets an unsent draft. envLocked alone does not
+  // rule out a started thread: one whose machine is offline never loads its
+  // messages, so it would otherwise be offered a machine picker that does nothing.
+  const canChangeEnvironment =
+    hasMultipleEnvironments && !envLocked && draftId !== null && !draftThread?.promotedTo;
 
   const loadBalancingSettings = useClientSettings((settings) => ({
     loadBalancingEnabled: settings.loadBalancingEnabled,
@@ -2577,12 +2583,21 @@ export default function ChatView(props: ChatViewProps) {
     ({ item }) =>
       item.type === "compaction" &&
       item.runId === activeActivityRun?.runId &&
-      item.status === "completed",
+      (item.status === "completed" ||
+        item.status === "failed" ||
+        item.status === "interrupted" ||
+        item.status === "cancelled"),
+  );
+  const compactionRunning = serverVisibleTurnItems.some(
+    ({ item }) =>
+      item.type === "compaction" &&
+      item.runId !== null &&
+      item.runId === activeRuntime?.activeRunId &&
+      item.status === "running",
   );
   const isCompacting =
     (isSendBusy || phase === "connecting" || phase === "running") &&
-    compactRequestIsActive &&
-    !compactionSettled;
+    (compactionRunning || (compactRequestIsActive && !compactionSettled));
   const isWorking =
     phase === "running" ||
     isSendBusy ||
@@ -3510,6 +3525,7 @@ export default function ChatView(props: ChatViewProps) {
       worktreePath?: string | null;
       preferNewTerminal?: boolean;
       rememberAsLastInvoked?: boolean;
+      shellHistory?: "preserve" | "suppress";
     },
   ) => {
     if (!hasTerminalWriteAccess() || !activeThreadId || !activeProject || !activeThread) return;
@@ -3520,14 +3536,21 @@ export default function ChatView(props: ChatViewProps) {
       });
     }
     const targetCwd = options?.cwd ?? gitCwd ?? activeProject.workspaceRoot;
-    const baseTerminalId =
-      terminalUiState.activeTerminalId || activeKnownTerminalIds[0] || DEFAULT_THREAD_TERMINAL_ID;
-    const isBaseTerminalBusy = runningTerminalIds.includes(baseTerminalId);
-    const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
-    const shouldCreateNewTerminal =
-      wantsNewTerminal ||
+    const reusableTerminalId =
+      options?.preferNewTerminal ||
       !canReuseTerminal ||
-      !readEnvironmentScope(environmentId, AuthTerminalReadScope);
+      !readEnvironmentScope(environmentId, AuthTerminalReadScope)
+        ? null
+        : findReusableProjectScriptTerminal({
+            // Server sessions cover drawer terminals this client has not opened yet, such as a
+            // worktree setup shell; the helper drops the panel-owned ones.
+            drawerTerminalIds: [
+              ...new Set([...terminalUiState.terminalIds, ...activeServerOrderedTerminalIds]),
+            ],
+            activeTerminalId: terminalUiState.activeTerminalId,
+            panelTerminalIds,
+            runningTerminalIds,
+          });
     const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
 
     setTerminalUiLaunchContext({
@@ -3535,20 +3558,21 @@ export default function ChatView(props: ChatViewProps) {
       cwd: targetCwd,
       worktreePath: targetWorktreePath,
     });
-    setTerminalOpen(true);
     if (!activeThreadRef) {
       return;
     }
     setTerminalFocusRequestId((value) => value + 1);
 
     const launched = terminalActions.launchTerminal({
+      // The drawer opens with the target already placed: opening it empty would claim
+      // DEFAULT_THREAD_TERMINAL_ID, which a right-panel terminal may already own.
       place: (terminalId) =>
-        shouldCreateNewTerminal
+        reusableTerminalId === null
           ? storeNewTerminal(activeThreadRef, terminalId)
-          : storeSetActiveTerminal(activeThreadRef, terminalId),
-      ...(shouldCreateNewTerminal
+          : storeEnsureTerminal(activeThreadRef, terminalId, { open: true }),
+      ...(reusableTerminalId === null
         ? { size: { cols: SCRIPT_TERMINAL_COLS, rows: SCRIPT_TERMINAL_ROWS } }
-        : { terminalId: baseTerminalId }),
+        : { terminalId: reusableTerminalId }),
       location: { cwd: targetCwd, worktreePath: targetWorktreePath },
       ...(options?.env ? { extraEnv: options.env } : {}),
     });
@@ -3568,7 +3592,9 @@ export default function ChatView(props: ChatViewProps) {
 
     const writeResult = await terminalActions.writeToTerminal(
       targetTerminalId,
-      `${script.command}\r`,
+      options?.shellHistory === "preserve"
+        ? `${script.command}\r`
+        : projectScriptTerminalInput(script.command),
     );
     if (!writeResult) return;
     if (writeResult._tag === "Failure") {
@@ -3614,7 +3640,7 @@ export default function ChatView(props: ChatViewProps) {
         icon: "play",
         runOnWorktreeCreate: false,
       },
-      { rememberAsLastInvoked: false },
+      { rememberAsLastInvoked: false, shellHistory: "preserve" },
     );
   };
   const runShellCommandStable = useStableCallback(runShellCommand);
@@ -4732,6 +4758,7 @@ export default function ChatView(props: ChatViewProps) {
   const publishComposerOverlayHeight = (height: number) => {
     const nextHeight = Math.ceil(height);
     if (nextHeight <= 0) return;
+    setComposerOverlayHeight(isDraftHeroState ? 0 : nextHeight);
     const isResting = overlayComposerIsResting({
       composerMounted: composerMountedRef.current,
       composerReportedResting: composerRestingRef.current,
@@ -5286,10 +5313,10 @@ export default function ChatView(props: ChatViewProps) {
                     <span className="whitespace-nowrap">
                       <InlineButton
                         tone="muted"
-                        aria-label={`Open subagent ${item.label}`}
+                        aria-label={`${presentation.items.length === 1 ? "Show" : "Open"} subagent ${item.label}`}
                         onClick={() => onOpenRelatedThreadStable(childThreadId)}
                       >
-                        {item.label}
+                        {presentation.items.length === 1 ? "Show" : item.label}
                       </InlineButton>
                       {separator}
                     </span>
@@ -5695,7 +5722,7 @@ export default function ChatView(props: ChatViewProps) {
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
       "composer.cycleHost": ({ event }) => {
-        if (envLocked || !draftId || !hasMultipleEnvironments) return false;
+        if (!canChangeEnvironment) return false;
         if (event.repeat) return;
         const currentId = readPendingEnvironmentChange()?.environmentId ?? environmentId;
         const index = logicalProjectEnvironments.findIndex(
@@ -8133,6 +8160,7 @@ export default function ChatView(props: ChatViewProps) {
                 onAnchorReady={onTimelineAnchorReadyStable}
                 onAnchorSizeChanged={onTimelineAnchorSizeChangedStable}
                 contentInsetEndAdjustment={composerTimelineInset}
+                composerOverlayHeight={isDraftHeroState ? 0 : composerOverlayHeight}
                 liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
                 onIsAtEndChange={onIsAtEndChangeStable}
                 onContentOverflowChange={setTimelineOverflows}
@@ -8461,7 +8489,7 @@ export default function ChatView(props: ChatViewProps) {
                                 {...(canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
                                   : {})}
-                                {...(hasMultipleEnvironments
+                                {...(canChangeEnvironment
                                   ? { onEnvironmentChange: onEnvironmentChangeStable }
                                   : {})}
                                 autoEnvironmentLabel={autoEnvironmentLabel}
@@ -8529,6 +8557,13 @@ export default function ChatView(props: ChatViewProps) {
               keybindings={keybindings}
               availableEditors={availableEditors}
               showOpenInPicker={showOpenInPicker}
+              openInShortcutEnabled={
+                !(
+                  rightPanelOpen &&
+                  renderedRightPanelSurface?.kind === "file" &&
+                  renderedRightPanelSurface.attachment === undefined
+                )
+              }
               gitCwd={gitCwd}
               isGitRepo={isGitRepo}
               envLocked={envLocked}
@@ -8542,7 +8577,7 @@ export default function ChatView(props: ChatViewProps) {
                   ? onAutoEnvironmentStable
                   : undefined
               }
-              onEnvironmentChange={onEnvironmentChangeStable}
+              {...(canChangeEnvironment ? { onEnvironmentChange: onEnvironmentChangeStable } : {})}
               onEnvModeChange={onEnvModeChangeStable}
               envMode={envMode}
               {...(canOverrideServerThreadEnvMode

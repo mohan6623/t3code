@@ -260,22 +260,47 @@ const CLAWD_ARMS_UP = [
 const CLAWD_BELLY = "...dddddddddddd...";
 const CLAWD_LEGS = "....d.d....d.d....";
 
-/** Codex's blue cloud bot: a visor with happy eyes, `>_` on its chest, arms up. */
+/** Codex's blue cloud bot: a visor with happy eyes, `>_` on its chest, waving as it walks. */
 const CODEX_BOT_BODY = [
-  "...oo.oo.oo...",
-  "..ollollollo..",
-  ".ollbbbbbbllo.",
-  "obbvvvvvvvvbbo",
-  "obvvevvvvevvbo",
-  "obvevevvevevbo",
-  "obbvvvvvvvvbbo",
-  ".obbbbbbbbbbo.",
-  "..oooooooooo..",
-  "..b.ovlllo.b..",
-  "...bolvllob...",
-  "....ovlvvo....",
-  "....oooooo....",
+  ".......oooo.......",
+  "..ooo.ollwlo.ooo..",
+  ".olllobllllbolllo.",
+  ".olbbbbbbbbbbbbbo.",
+  "olbbbvvvvvvvvbbbdo",
+  "olbbvvevvvvevvbbdo",
+  "olbbvevevvevevbbdo",
+  "olbbvvvvvvvvvvbbdo",
+  ".obbbvvvvvvvvbbbo.",
+  "..oddddddddddddo..",
+  "...oooooooooooo...",
+  "....obwbbbbbdo....",
+  "....obbwbbbbdo....",
+  "....obwbwwbbdo....",
+  ".....oooooooo.....",
 ];
+const CODEX_BOT_RIGHT_ARM = [
+  [12, 14, "b"],
+  [12, 15, "d"],
+  [13, 14, "d"],
+] as const;
+const CODEX_BOT_WAVE_UP = [
+  ...CODEX_BOT_RIGHT_ARM,
+  [10, 0, "l"],
+  [10, 1, "b"],
+  [11, 1, "b"],
+  [11, 2, "b"],
+  [12, 2, "b"],
+  [12, 3, "d"],
+] as const;
+const CODEX_BOT_WAVE_OUT = [
+  ...CODEX_BOT_RIGHT_ARM,
+  [12, 0, "l"],
+  [12, 1, "b"],
+  [12, 2, "b"],
+  [12, 3, "d"],
+  [13, 1, "d"],
+  [13, 2, "d"],
+] as const;
 
 /**
  * Cursor's logo, a hexagon with its arrow cut out, on arms and legs. The
@@ -397,27 +422,30 @@ export const MASCOTS: Readonly<Record<string, MascotSpec>> = {
   "codex-bot": {
     label: "Codex bot",
     palette: {
-      o: "#1f3fae",
-      b: "#4a73f5",
-      l: "#8eaeff",
+      o: "#1b2f8f",
+      b: "#3f6cf2",
+      l: "#7fa2ff",
+      d: "#2b52d0",
+      w: "#d6e2ff",
       v: "#0b1433",
       e: "#7ee8ff",
     },
     frames: [
-      [...CODEX_BOT_BODY, "....o....o....", "...oo....oo..."],
-      [...CODEX_BOT_BODY, ".....o..o.....", "........oo...."],
-      [...CODEX_BOT_BODY, "....o....o....", "...oo....oo..."],
-      [...CODEX_BOT_BODY, ".....o..o.....", ".....oo......."],
+      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_UP), "......bd..bd......", ".....ooo..ooo....."],
+      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_OUT), ".....ooo..bd......", "..........ooo....."],
+      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_UP), "......bd..bd......", ".....ooo..ooo....."],
+      [...paint(CODEX_BOT_BODY, CODEX_BOT_WAVE_OUT), "......bd..ooo.....", ".....ooo.........."],
     ],
     blink: {
       kind: "eyes",
       rows: [
-        "..............",
-        "..............",
-        "..............",
-        "..............",
-        "....v....v....",
-        "...eee..eee...",
+        "..................",
+        "..................",
+        "..................",
+        "..................",
+        "..................",
+        "......v....v......",
+        ".....eee..eee.....",
       ],
     },
     motion: "walk",

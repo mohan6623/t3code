@@ -3165,6 +3165,7 @@ export default function ChatView(props: ChatViewProps) {
       providers={providerStatuses as ServerProvider[]}
       environmentId={environmentId}
       modelSlug={activeThread?.modelSelection.model ?? activeProjectDefaultModelSelection?.model}
+      promptCacheTtlMs={activeThreadLiveTokenUsage?.promptCacheTtlMs}
       lastRun={activeLatestRun}
     />
   );

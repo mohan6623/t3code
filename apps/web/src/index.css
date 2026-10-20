@@ -167,6 +167,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono:
     ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  /* Fork: the composer runner mascot, the gold of Monocode's runner. */
+  --color-runner: #f2bf2a;
 }
 
 @theme inline {
@@ -2383,5 +2385,87 @@ code {
         3rem + var(--chat-lane-inset-end, 0px) - var(--chat-timeline-gutter, 0px)
       );
     }
+  }
+}
+
+/* Fork: composer runner (ComposerRunner.tsx). Every animation here is a
+   transform or opacity change on its own layer, so the compositor runs it
+   without JavaScript, layout or paint. */
+.t3-runner-walk {
+  will-change: transform;
+  animation: t3-runner-walk var(--runner-lap, 8s) linear infinite;
+}
+.t3-runner-body {
+  will-change: transform;
+  animation: t3-runner-hop 460ms steps(1, end) infinite;
+}
+.t3-runner-frame-a {
+  will-change: opacity;
+  animation: t3-runner-frame-a 460ms steps(1, end) infinite;
+}
+.t3-runner-frame-b {
+  opacity: 0;
+  will-change: opacity;
+  animation: t3-runner-frame-b 460ms steps(1, end) infinite;
+}
+[data-composer-runner="leaving"] .t3-runner-walk {
+  animation-play-state: paused;
+}
+[data-composer-runner="leaving"] .t3-runner-body {
+  animation: t3-runner-drop 650ms ease-in forwards;
+}
+[data-composer-runner="leaving"] .t3-runner-frame-a,
+[data-composer-runner="leaving"] .t3-runner-frame-b {
+  animation-play-state: paused;
+}
+@keyframes t3-runner-walk {
+  0% {
+    transform: translateX(0) scaleX(1);
+  }
+  49.999% {
+    transform: translateX(var(--runner-travel, 0px)) scaleX(1);
+  }
+  50% {
+    transform: translateX(var(--runner-travel, 0px)) scaleX(-1);
+  }
+  100% {
+    transform: translateX(0) scaleX(-1);
+  }
+}
+@keyframes t3-runner-hop {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+@keyframes t3-runner-frame-a {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes t3-runner-frame-b {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* A hop, then a fall through the composer's top edge, where the track clips it. */
+@keyframes t3-runner-drop {
+  0% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-7px);
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: translateY(20px);
   }
 }

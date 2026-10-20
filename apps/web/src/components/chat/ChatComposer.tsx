@@ -6554,6 +6554,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <div className="relative">
         <ComposerRunner
           running={phase === "running"}
+          driver={selectedProvider}
           // The project folder name, as Monocode picks its mascot.
           seed={
             gitCwd?.split(/[\\/]/).findLast((part) => part.length > 0) ??

@@ -6,7 +6,6 @@ import type {
 } from "@t3tools/contracts";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 import {
-  cursorUsageWindowDetails,
   formatDuration,
   limitsNotice,
   providersWithLimits,
@@ -191,9 +190,6 @@ function WindowRow({
   now: number;
 }) {
   const reset = resetsIn(window, now);
-  // Cursor's overall figure is the two pools added up; say so, so it is not read as a third limit.
-  const hint =
-    window.id === "totalPercentUsed" ? cursorUsageWindowDetails(window.id)?.description : undefined;
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2 text-xs">
@@ -207,7 +203,6 @@ function WindowRow({
         <span>{remainingPercent(window)}% left</span>
         {reset ? <span>Resets in {reset}</span> : null}
       </div>
-      {hint ? <span className="text-2xs text-muted-foreground">{hint}</span> : null}
     </div>
   );
 }
@@ -299,19 +294,28 @@ function AccountCard({
               </span>
             ) : null}
           </span>
-          {provider.auth.label ? (
+          {/* Folded other subscriptions show just their name; the plan line joins once opened. */}
+          {(inUse || open) && provider.auth.label ? (
             <span className="truncate text-2xs text-muted-foreground">{provider.auth.label}</span>
           ) : null}
         </span>
         {/* Folded: the badge's bars and figures; reset times wait until the card opens. */}
         {open ? null : (
           <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
-            <span className="flex w-10 shrink-0 flex-col gap-0.5">
+            <span className="flex w-10 shrink-0 flex-col gap-0.75">
               {summaryWindows.map((window) => (
-                <Bar key={window.id} percent={window.usedPercent} color={color} />
+                <Bar
+                  key={window.id}
+                  percent={window.usedPercent}
+                  color={color}
+                  {...(inUse ? {} : { className: "bg-foreground/15" })}
+                />
               ))}
             </span>
-            {summaryWindows.map((window) => `${clampPercent(window.usedPercent)}%`).join(" · ")}
+            {/* Fixed width, so every card's bars start in one column whatever the figures. */}
+            <span className="w-18 text-end">
+              {summaryWindows.map((window) => `${clampPercent(window.usedPercent)}%`).join(" · ")}
+            </span>
           </span>
         )}
         <ChevronDownIcon

@@ -5,6 +5,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, RunId } from "@t3tools/contracts";
 import {
@@ -84,7 +85,9 @@ import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
+import { joinWorkspaceRepositoryPath } from "@t3tools/shared/path";
 import { vcsEnvironment } from "../state/vcs";
+import { useWorkspaceRepositories } from "../hooks/useWorkspaceRepositories";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
 
@@ -273,6 +276,27 @@ export default function DiffPanel({
     selectThreadDiffPanelSelection(state.byThreadKey, routeThreadRef),
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  const workspaceRepositories = useWorkspaceRepositories({
+    environmentId: activeThread?.environmentId ?? null,
+    cwd: activeCwd ?? null,
+    isRepo: gitStatusQuery.data?.isRepo,
+  });
+  const hasGitSurfaces = isGitRepo || workspaceRepositories.length > 0;
+  const selectedRepositoryPath = useDiffPanelStore((state) =>
+    routeThreadRef ? state.repositoryByThreadKey[scopedThreadKey(routeThreadRef)] : undefined,
+  );
+  const selectedRepository =
+    workspaceRepositories.find(
+      (repository) => repository.relativePath === selectedRepositoryPath,
+    ) ??
+    workspaceRepositories[0] ??
+    null;
+  // Uncommitted and Changes compare one repository at a time in a multi-repo workspace; turn
+  // diffs already cover every repository, with paths relative to the workspace folder.
+  const gitDiffCwd =
+    activeCwd && selectedRepository
+      ? joinWorkspaceRepositoryPath(activeCwd, selectedRepository.relativePath)
+      : activeCwd;
   const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadRef);
   const orderedTurnDiffSummaries = turnDiffSummaries.toSorted((left, right) => {
     if (left.checkpointTurnCount !== right.checkpointTurnCount) {
@@ -336,14 +360,14 @@ export default function DiffPanel({
       ignoreWhitespace: diffIgnoreWhitespace,
       cacheScope: selectedTurn ? `turn:${selectedTurn.runId}` : null,
     },
-    { enabled: isGitRepo && selectedTurn !== undefined },
+    { enabled: hasGitSurfaces && selectedTurn !== undefined },
   );
   const branchDiffPreview = useEnvironmentQuery(
-    canReadFiles && selectedRunId === null && activeThread && activeCwd
+    canReadFiles && selectedRunId === null && activeThread && gitDiffCwd
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
           input: {
-            cwd: activeCwd,
+            cwd: gitDiffCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
           },
@@ -351,7 +375,7 @@ export default function DiffPanel({
       : null,
   );
   const canRefreshGitDiff =
-    isGitRepo && selectedRunId === null && activeThread != null && activeCwd != null;
+    hasGitSurfaces && selectedRunId === null && activeThread != null && gitDiffCwd != null;
   const activeThreadRefreshKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
@@ -575,11 +599,12 @@ export default function DiffPanel({
     revealDiffFile(selectedFilePath);
   }, [lazySource, selectedFilePath, selectedFileRevealRequestId, filePatchScope, revealDiffFile]);
 
+  const diffFilesCwd = selectedRunId === null ? gitDiffCwd : activeCwd;
   const openDiffFile = (filePath: string) => {
     openDiffFilePrimaryAction({
       threadRef: routeThreadRef,
       filePath,
-      activeCwd,
+      activeCwd: diffFilesCwd,
       repositoryRoot: activeRepositoryRoot,
       openInEditor: (targetPath) => {
         void (async () => {
@@ -651,6 +676,10 @@ export default function DiffPanel({
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
+  const selectRepository = (relativePath: string) => {
+    if (!routeThreadRef) return;
+    useDiffPanelStore.getState().selectRepository(routeThreadRef, relativePath);
+  };
   const selectedTurnValue = selectedTurn ? `turn:${selectedTurn.runId}` : "";
   const selectedScopeValue =
     selectedRunId === null
@@ -719,6 +748,34 @@ export default function DiffPanel({
             </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
+        {selectedRunId === null && selectedRepository && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button size="xs" variant="secondary" />}
+              className="max-w-full"
+              aria-label={`Repository: ${selectedRepository.name}`}
+            >
+              <span className="truncate">{selectedRepository.name}</span>
+              <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuRadioGroup
+                value={selectedRepository.relativePath}
+                onValueChange={selectRepository}
+              >
+                {workspaceRepositories.map((repository) => (
+                  <DropdownMenuRadioItem
+                    key={repository.relativePath}
+                    value={repository.relativePath}
+                    closeOnClick
+                  >
+                    <span>{repository.name}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {selectedRunId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef && (
           <div
             className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground"
@@ -984,7 +1041,7 @@ export default function DiffPanel({
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
         </div>
-      ) : !isGitRepo ? (
+      ) : !hasGitSurfaces ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
@@ -1081,7 +1138,7 @@ export default function DiffPanel({
                       {
                         environmentId: activeThread?.environmentId ?? null,
                         filePath,
-                        workspaceRoot: activeCwd,
+                        workspaceRoot: diffFilesCwd,
                         repositoryRoot: activeRepositoryRoot,
                       },
                       event,

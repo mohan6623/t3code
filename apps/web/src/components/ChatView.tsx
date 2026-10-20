@@ -1293,7 +1293,6 @@ export default function ChatView(props: ChatViewProps) {
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
-  const [restingComposerControlsVisible, setRestingComposerControlsVisible] = useState(false);
   const citeAssistantText = (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -3151,14 +3150,10 @@ export default function ChatView(props: ChatViewProps) {
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
-  const showComposerContextStrip = shouldShowComposerContextStrip({
-    isDraftHeroState,
-    persistInActiveThreads: settings.persistComposerContextStrip,
-    hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: hasGitSurfaces,
-    showEnvironmentIndicator: showComposerEnvironmentIndicator,
-    hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
-  });
+  // Fork: shown whenever mounted, like the model strip, since it always holds
+  // the usage badge. Hiding it when the model controls did not fit changed the
+  // composer's width, which made them fit again, and the strip flickered.
+  const showComposerContextStrip = mountComposerContextStrip;
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   // The strip holds the model controls and usage badge in every composer state.
@@ -8439,7 +8434,6 @@ export default function ChatView(props: ChatViewProps) {
                                 mountComposerContextStrip &&
                                 (hasGitSurfaces || showComposerEnvironmentIndicator)
                               }
-                              onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                               getTimelineScrollableNode={getTimelineScrollableNodeStable}
                               isTimelineAtLogicalEnd={isTimelineAtLogicalEndStable}
                               timelineOverflows={timelineOverflows}

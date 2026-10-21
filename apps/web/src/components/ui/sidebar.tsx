@@ -397,9 +397,13 @@ function Sidebar({
             "[[data-panel-animations=true]_&]:transition-[left,right,width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
             side === "left"
               ? showPeek
-                ? "left-0 z-40 shadow-2xl shadow-black/40"
+                ? "left-0 shadow-2xl shadow-black/40"
                 : "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+            // Fork: a peeking sidebar overlays the chat, whose edge chrome (the message minimap,
+            // the composer) sits at z-40. It keeps this layer while it slides out of view too, so
+            // that chrome never shows through the moving panel.
+            canPeek && "z-50",
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",

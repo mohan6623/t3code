@@ -246,7 +246,6 @@ export interface SideChatListingShell {
   readonly id: string;
   readonly sideChat?: boolean | undefined;
   readonly deletedAt?: string | null | undefined;
-  readonly archivedAt?: string | null | undefined;
   readonly lineage?: { readonly parentThreadId: string | null } | undefined;
 }
 
@@ -261,9 +260,7 @@ export function makeSideChatListingFilter<T extends SideChatListingShell>(
   threads: ReadonlyArray<T>,
 ): (thread: T) => boolean {
   const present = new Set(
-    threads.flatMap((thread) =>
-      thread.deletedAt || thread.archivedAt ? [] : [`${thread.environmentId}:${thread.id}`],
-    ),
+    threads.flatMap((thread) => (thread.deletedAt ? [] : [`${thread.environmentId}:${thread.id}`])),
   );
   return (thread) => {
     const parentThreadId = thread.lineage?.parentThreadId;

@@ -108,7 +108,7 @@ describe("v2 thread shell lists", () => {
     registry.dispose();
   });
 
-  it("leaves side chats out of navigation until their parent is archived or deleted", () => {
+  it("leaves side chats out of navigation until their parent is deleted", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const parent = v2ThreadShell;
     const sideChat = {
@@ -128,16 +128,6 @@ describe("v2 thread shell lists", () => {
     const dispose = registry.mount(threads.navigationThreadShellsAtom);
     const navigationIds = () =>
       registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id);
-    expect(navigationIds()).toEqual([parent.id]);
-    registry.set(snapshotAtom(environmentId), {
-      ...v2ShellSnapshot,
-      threads: [{ ...parent, archivedAt: v2Now }, sideChat],
-    });
-    expect(navigationIds()).toEqual([sideChat.id]);
-    registry.set(snapshotAtom(environmentId), {
-      ...v2ShellSnapshot,
-      threads: [parent, sideChat],
-    });
     expect(navigationIds()).toEqual([parent.id]);
     registry.set(snapshotAtom(environmentId), {
       ...v2ShellSnapshot,

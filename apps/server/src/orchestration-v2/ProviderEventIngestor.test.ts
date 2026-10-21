@@ -2420,7 +2420,7 @@ layer("ProviderEventIngestorV2", (it) => {
         .pipe(Effect.map(({ subagents }) => subagents.find((entry) => entry.id === task.id)));
       let copied = yield* parentTask;
       for (let attempt = 0; attempt < 200 && copied?.usage === undefined; attempt++) {
-        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)));
+        yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
         copied = yield* parentTask;
       }
       assert.deepEqual(copied?.usage, { totalTokens: 12_345 });
@@ -2571,7 +2571,7 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
       Math.abs((entry?.usage?.limits?.[0]?.cost ?? 0) - 2 * cost) < 1e-6;
     let copied = yield* parentTask;
     for (let attempt = 0; attempt < 200 && !settled(copied); attempt++) {
-      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
       copied = yield* parentTask;
     }
     const share = copied?.usage?.limits?.[0];

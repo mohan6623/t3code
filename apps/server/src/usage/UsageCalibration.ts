@@ -17,11 +17,14 @@ import type {
 } from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { windowCountsModel } from "@t3tools/shared/usageCost";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
@@ -185,15 +188,15 @@ export class UsageCalibration extends Context.Reference<UsageCalibrationShape>(
   },
 ) {}
 
+const StateJson = Schema.fromJsonString(Schema.Unknown);
+const decodeStateJson = Schema.decodeUnknownOption(StateJson);
+const encodeStateJson = Schema.encodeSync(StateJson);
+
 function parseState(text: string): CalibrationState {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as CalibrationState)
-      : {};
-  } catch {
-    return {};
-  }
+  const parsed = Option.getOrUndefined(decodeStateJson(text));
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as CalibrationState)
+    : {};
 }
 
 export const layer = Layer.effect(
@@ -211,13 +214,14 @@ export const layer = Layer.effect(
     let dirty = false;
 
     const observe = (providers: ReadonlyArray<ServerProvider>) =>
-      Effect.sync(() => {
-        const now = Date.now();
-        for (const provider of providers) {
-          if (provider.usageLimits === undefined) continue;
-          if (observeLimits(state, provider.instanceId, provider.usageLimits, now)) dirty = true;
-        }
-      });
+      Clock.currentTimeMillis.pipe(
+        Effect.map((now) => {
+          for (const provider of providers) {
+            if (provider.usageLimits === undefined) continue;
+            if (observeLimits(state, provider.instanceId, provider.usageLimits, now)) dirty = true;
+          }
+        }),
+      );
 
     yield* registry.getProviders.pipe(Effect.flatMap(observe));
     yield* Stream.runForEach(registry.streamChanges, observe).pipe(Effect.forkScoped);
@@ -228,7 +232,7 @@ export const layer = Layer.effect(
         Effect.suspend(() => {
           if (!dirty) return Effect.void;
           dirty = false;
-          return writeFileStringAtomically({ filePath, contents: JSON.stringify(state) }).pipe(
+          return writeFileStringAtomically({ filePath, contents: encodeStateJson(state) }).pipe(
             Effect.provideService(FileSystem.FileSystem, fileSystem),
             Effect.provideService(Path.Path, path),
             Effect.catchCause((cause) =>

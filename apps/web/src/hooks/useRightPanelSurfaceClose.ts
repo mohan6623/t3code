@@ -2,7 +2,6 @@ import {
   AuthPreviewOperateScope,
   AuthTerminalOperateScope,
   type ScopedThreadRef,
-  ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.logic";
@@ -31,10 +30,8 @@ import { useStableCallback } from "./useStableCallback";
 export function useRightPanelSurfaceClose(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly terminalLabelsById: ReadonlyMap<string, string>;
-  /** Closes a side chat's tab, discarding the side chat when it has no messages. */
-  readonly closeSideChat?: (threadId: ThreadId) => void;
 }) {
-  const { threadRef, terminalLabelsById, closeSideChat } = input;
+  const { threadRef, terminalLabelsById } = input;
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
   const canOperatePreview = useEnvironmentScope(
     threadRef?.environmentId ?? null,
@@ -96,10 +93,6 @@ export function useRightPanelSurfaceClose(input: {
       (left, right) => Number(left.id === activeId) - Number(right.id === activeId),
     );
     for (const surface of ordered) {
-      if (surface.kind === "aside" && closeSideChat) {
-        closeSideChat(ThreadId.make(surface.threadId));
-        continue;
-      }
       releaseSurfaceResources(threadRef, surface);
       store.closeSurface(threadRef, surface.id);
     }

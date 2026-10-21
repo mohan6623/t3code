@@ -589,7 +589,6 @@ it("restores the selected PR tab when switching threads and remounting the right
           getShortcutContext={shortcutContext}
           onSendAnnotation={() => {}}
           onCloseSurface={() => {}}
-          renderSideChat={() => null}
           terminal={{
             launchContext: null,
             focusRequestId: 0,

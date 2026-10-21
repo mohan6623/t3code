@@ -26,6 +26,7 @@ import type { SidebarThreadSummary, Thread } from "../types";
 import { normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
+import { makeSideChatListingFilter } from "@t3tools/client-runtime/state/thread-workflows";
 
 export function shouldNavigateAfterThreadPark(input: {
   readonly threadKey: string;
@@ -538,15 +539,19 @@ export function resolveSidebarRowThreadId(
 }
 
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
-    environmentId: string;
-    projectId: string;
-  },
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "id" | "lineage"> &
+    Partial<Pick<SidebarThreadSummary, "sideChat">> & {
+      environmentId: string;
+      projectId: string;
+    },
 >(threads: readonly T[], scopedProjectKeys: ReadonlySet<string> | null): T[] {
+  // Side chats live in the right panel and the parent's details panel.
+  const listable = makeSideChatListingFilter(threads);
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
+      listable(thread) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
@@ -1334,7 +1339,9 @@ export function sortLogicalProjectsForSidebar<
 
 export function sortSidebarV2ProjectGroups<
   TProject extends LogicalSidebarProject,
-  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage">,
+  TThread extends ScopedSidebarThread &
+    Pick<SidebarThreadSummary, "id" | "lineage"> &
+    Partial<Pick<SidebarThreadSummary, "sideChat">>,
 >(
   projects: readonly TProject[],
   threads: readonly TThread[],
@@ -1377,4 +1384,49 @@ export function sortScopedProjectsForSidebar<
       left.environmentId.localeCompare(right.environmentId) ||
       left.id.localeCompare(right.id),
   );
+}
+
+// The filter stores the DISABLED environments so a newly connected
+// environment is visible by default and "all enabled" is the empty set. Both
+// helpers return the input set instance when nothing changed so React state
+// setters can skip the update entirely.
+
+export function toggleDisabledEnvironmentId(input: {
+  disabledIds: ReadonlySet<EnvironmentId>;
+  environmentId: EnvironmentId;
+  enabled: boolean;
+  allEnvironmentIds: ReadonlyArray<EnvironmentId>;
+}): ReadonlySet<EnvironmentId> {
+  if (input.disabledIds.has(input.environmentId) !== input.enabled) {
+    // Already in the requested state (repeated or stale checkbox event):
+    // keep the instance so the caller's state update is a no-op.
+    return input.disabledIds;
+  }
+  const next = new Set(input.disabledIds);
+  if (input.enabled) {
+    next.delete(input.environmentId);
+    return next;
+  }
+  next.add(input.environmentId);
+  // Never allow disabling the last enabled environment: an empty thread list
+  // with no visible reason reads as data loss. (The menu also disables the
+  // last enabled item; this guards races and stale events.)
+  const someEnabled = input.allEnvironmentIds.some((id) => !next.has(id));
+  return someEnabled ? next : input.disabledIds;
+}
+
+export function pruneDisabledEnvironmentIds(input: {
+  disabledIds: ReadonlySet<EnvironmentId>;
+  connectedEnvironmentIds: ReadonlySet<EnvironmentId>;
+}): ReadonlySet<EnvironmentId> {
+  const { connectedEnvironmentIds, disabledIds } = input;
+  if (disabledIds.size === 0) return disabledIds;
+  const next = new Set([...disabledIds].filter((id) => connectedEnvironmentIds.has(id)));
+  // A catalog change can strand the filter with nothing enabled (the last
+  // enabled environment disconnected) — and on single-environment catalogs
+  // the filter button no longer renders, so nothing could undo it. Reset to
+  // all-enabled instead of hiding every thread.
+  const someEnabled = [...connectedEnvironmentIds].some((id) => !next.has(id));
+  if (!someEnabled) return new Set<EnvironmentId>();
+  return next.size === disabledIds.size ? disabledIds : next;
 }

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { ComposerHandleContext, type ComposerHandleRef } from "../../composerHandleContext";
 import {
+  composerTakesShortcut,
   isInsideCollapsedComposerControls,
   isInsideComposerFloatingLayer,
   isInsideRestingComposerControlScope,
@@ -106,5 +107,40 @@ describe("composer event scopes", () => {
       false,
     );
     expect(isInsideCollapsedComposerControls(null)).toBe(false);
+  });
+});
+
+describe("composer shortcut ownership with a side chat", () => {
+  function mount(sideChatFocused: boolean) {
+    const host = document.createElement("div");
+    host.innerHTML = `
+      <div data-host-timeline tabindex="-1"></div>
+      <div data-host-anchor ${sideChatFocused ? "hidden" : ""}><form data-host-form></form></div>
+      <div data-chat-embedded="side">
+        <div data-side-timeline tabindex="-1"></div>
+        ${sideChatFocused ? "<form data-side-form></form>" : ""}
+      </div>`;
+    document.body.append(host);
+    return {
+      hostTimeline: host.querySelector("[data-host-timeline]"),
+      sideTimeline: host.querySelector("[data-side-timeline]"),
+      hostForm: host.querySelector("[data-host-form]"),
+      sideForm: host.querySelector("[data-side-form]"),
+    };
+  }
+
+  it("gives keys outside any side chat to the host while it has its composer", () => {
+    const { hostTimeline, sideTimeline, hostForm } = mount(false);
+    expect(composerTakesShortcut(hostTimeline, hostForm)).toBe(true);
+    expect(composerTakesShortcut(null, hostForm)).toBe(true);
+    expect(composerTakesShortcut(sideTimeline, hostForm)).toBe(false);
+  });
+
+  it("gives keys outside any side chat to the side chat that has the composer", () => {
+    const { hostTimeline, sideTimeline, hostForm, sideForm } = mount(true);
+    expect(composerTakesShortcut(hostTimeline, hostForm)).toBe(false);
+    expect(composerTakesShortcut(hostTimeline, sideForm)).toBe(true);
+    expect(composerTakesShortcut(sideTimeline, sideForm)).toBe(true);
+    expect(composerTakesShortcut(sideTimeline, hostForm)).toBe(false);
   });
 });

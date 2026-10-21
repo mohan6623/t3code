@@ -41,6 +41,7 @@ import {
   archiveThread,
   cancelQueuedRun,
   createProject,
+  createThread,
   dismissThreadUserInput,
   editQueuedRun,
   forkThreadFromRun,
@@ -361,6 +362,71 @@ describe("V2 environment commands", () => {
           branch: "feature",
         },
       });
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("launches with the user's thread name and no title generation", () =>
+    Effect.gen(function* () {
+      const launches: OrchestrationV2ThreadLaunchInput[] = [];
+      const supervisor = yield* makeSupervisor({ commands: [], projects: [], launches });
+
+      yield* startThreadTurn({
+        commandId: CommandId.make("launch-named-thread"),
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("message-named-thread"),
+          role: "user",
+          text: "Fix the invoice PDF",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        titleSeed: "Fix the invoice PDF",
+        title: "ZA-123 invoice PDF",
+        bootstrap: {
+          createThread: {
+            projectId: ProjectId.make("project-1"),
+            title: "Draft title",
+            modelSelection: v2Projection.thread.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-06-20T00:00:00.000Z",
+          },
+        },
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(launches[0]).toMatchObject({
+        title: "ZA-123 invoice PDF",
+        generateTitle: false,
+      });
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("skips the title seed when retrying a named thread that already exists", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+
+      yield* startThreadTurn({
+        commandId: CommandId.make("retry-named-thread"),
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("message-retry-named-thread"),
+          role: "user",
+          text: "Fix the invoice PDF",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        titleSeed: "Fix the invoice PDF",
+        title: "ZA-123 invoice PDF",
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toMatchObject({ type: "message.dispatch" });
+      expect(commands[0]).not.toHaveProperty("titleSeed");
     }).pipe(Effect.provide(layerTestCrypto)),
   );
 
@@ -720,6 +786,56 @@ describe("V2 environment commands", () => {
         ]);
         expect(commands[5]).not.toHaveProperty("attachments");
       }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("starts side chats as a latest-stable fork or a linked thread, and promotes one", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const provide = Effect.provideService(
+        EnvironmentSupervisor.EnvironmentSupervisor,
+        supervisor,
+      );
+
+      yield* forkThreadFromRun({
+        commandId: CommandId.make("side-fork"),
+        sourceThreadId: v2ThreadId,
+        targetThreadId: ThreadId.make("thread-side-fork"),
+        sideChat: true,
+        runtimeMode: "approval-required",
+      }).pipe(provide);
+      yield* createThread({
+        commandId: CommandId.make("side-linked"),
+        threadId: ThreadId.make("thread-side-linked"),
+        projectId: ProjectId.make("project-1"),
+        title: "Side chat",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        parentThreadId: v2ThreadId,
+        sideChat: true,
+      }).pipe(provide);
+      yield* updateThreadMetadata({
+        commandId: CommandId.make("side-promote"),
+        threadId: ThreadId.make("thread-side-fork"),
+        sideChat: false,
+      }).pipe(provide);
+
+      expect(commands[0]).toMatchObject({
+        type: "thread.fork",
+        sourcePoint: { type: "latest_stable" },
+        sideChat: true,
+        runtimeMode: "approval-required",
+      });
+      expect(commands[1]).toMatchObject({
+        type: "thread.create",
+        parentThreadId: v2ThreadId,
+        sideChat: true,
+      });
+      expect(commands[2]).toMatchObject({ type: "thread.metadata.update", sideChat: false });
+    }).pipe(Effect.provide(layerTestCrypto)),
   );
 
   it.effect("delegates model selection to the server without fetching the full projection", () =>

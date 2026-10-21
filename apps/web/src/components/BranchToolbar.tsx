@@ -5,14 +5,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import {
-  ChevronDownIcon,
-  FolderGit2Icon,
-  FolderGitIcon,
-  FolderIcon,
-  PlusIcon,
-  ScaleIcon,
-} from "lucide-react";
+import { FolderGit2Icon, FolderGitIcon, FolderIcon, PlusIcon, ScaleIcon } from "lucide-react";
 import {
   type ReactNode,
   type Ref,
@@ -32,8 +25,13 @@ import { useProject, useThreadShellsForProjectRefs } from "../state/entities";
 import {
   ADD_TO_MACHINE_LABEL_CLASS,
   type EnvMode,
+  CONTEXT_STRIP_FOLD_STEPS,
+  CONTEXT_STRIP_PART_LEVELS,
+  type ContextStripFoldLevel,
   type EnvironmentOption,
-  resolveContextStripLabelsCompact,
+  contextStripFoldAttributes,
+  contextStripFoldUsesCollapsedControls,
+  resolveContextStripFoldLevel,
   resolveCurrentWorkspaceLabel,
   resolveEnvModeLabel,
   resolveLockedWorkspaceLabel,
@@ -76,7 +74,10 @@ import { MiddleTruncate } from "./ui/middle-truncate";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { useComposerMenuProps } from "./chat/composerEventScope";
 import { measureRestingComposerControls } from "./chat/restingComposerControlsMeasurement";
-import { resolveRestingComposerControlsNaturalWidth } from "./composerFooterLayout";
+import {
+  resolveRestingComposerControlsCollapsedWidth,
+  resolveRestingComposerControlsNaturalWidth,
+} from "./composerFooterLayout";
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
 
@@ -340,7 +341,6 @@ const RunContextSelector = memo(function RunContextSelector({
         ].join(" ")}
       >
         {triggerContent}
-        {!isPanel ? <ChevronDownIcon className="size-3 shrink-0 opacity-50" /> : null}
       </MenuTrigger>
       <MenuPopup
         align="start"
@@ -469,7 +469,8 @@ const RunContextSelector = memo(function RunContextSelector({
 
 const COMPOSER_CONTEXT_MOTION_DURATION_MS = 180;
 const COMPOSER_CONTEXT_MOTION_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
-const COMPOSER_CONTEXT_LABEL_SELECTOR = "[data-composer-label]";
+// Fork: every part that folds at some strip level (see DOCK_FOLD_ORDER).
+const COMPOSER_CONTEXT_FOLD_SELECTOR = "[data-composer-label], [data-strip-fold]";
 
 /**
  * Reading one element's scrollWidth drops the tail when the label is hidden or
@@ -490,13 +491,12 @@ function labelTextWidth(label: HTMLElement, range: Range): number {
   return Number.isFinite(maxWidth) ? Math.min(width, maxWidth) : width;
 }
 
-export function useLabelsOverflow(element: HTMLDivElement | null): boolean {
-  const [overflows, setOverflows] = useState(false);
+export function useLabelsOverflow(element: HTMLDivElement | null): ContextStripFoldLevel {
+  const [level, setLevel] = useState<ContextStripFoldLevel>(0);
   const pendingLabelRectsRef = useRef<Map<HTMLElement, DOMRect> | null>(null);
   const labelAnimationsRef = useRef(new Map<HTMLElement, Animation>());
   const measure = useEffectEvent(() => {
     const current = element;
-    const compact = overflows;
     if (!current) return;
     const stripWidth = current.clientWidth;
     if (stripWidth === 0) return;
@@ -516,8 +516,9 @@ export function useLabelsOverflow(element: HTMLDivElement | null): boolean {
       let counted = 0;
       for (const child of parent.children) {
         if (!(child instanceof HTMLElement)) continue;
-        if (child.offsetWidth === 0) continue;
         const style = getComputedStyle(child);
+        // Fork: a folded part keeps its flex gap, so it counts with no width.
+        if (style.display === "none") continue;
         const position = style.position;
         if (position === "absolute" || position === "fixed") continue;
         width +=
@@ -529,7 +530,9 @@ export function useLabelsOverflow(element: HTMLDivElement | null): boolean {
       return width + gap * Math.max(0, counted - 1);
     };
     const stripGap = Number.parseFloat(stripStyle.columnGap) || 0;
-    let needed = 0;
+    let controlsNatural = 0;
+    let controlsCollapsed = 0;
+    let others = 0;
     let groups = 0;
     for (const child of current.children) {
       if (!(child instanceof HTMLElement)) continue;
@@ -544,31 +547,52 @@ export function useLabelsOverflow(element: HTMLDivElement | null): boolean {
       const hostedMeasurement = hostedControls
         ? measureRestingComposerControls(hostedControls)
         : null;
-      const width = hostedMeasurement
-        ? resolveRestingComposerControlsNaturalWidth(hostedMeasurement)
-        : contentWidth(hostedControls ?? child);
+      if (hostedMeasurement) {
+        const natural = resolveRestingComposerControlsNaturalWidth(hostedMeasurement);
+        if (natural <= 1) continue;
+        groups += 1;
+        controlsNatural += natural;
+        controlsCollapsed += resolveRestingComposerControlsCollapsedWidth(hostedMeasurement);
+        continue;
+      }
+      const width = contentWidth(hostedControls ?? child);
       if (width <= 1) continue;
       groups += 1;
-      needed += width;
+      others += width;
     }
-    needed += stripGap * Math.max(0, groups - 1);
+    const gaps = stripGap * Math.max(0, groups - 1);
+    // Fork: every folding part counts at its natural width on the levels it shows on, and not
+    // at all on the others, whatever the strip shows now.
+    const naturalAtLevel = CONTEXT_STRIP_FOLD_STEPS.map(() => 0);
     const range = document.createRange();
-    for (const label of current.querySelectorAll<HTMLElement>("[data-composer-label]")) {
-      needed += Math.max(0, labelTextWidth(label, range) - label.getBoundingClientRect().width);
+    for (const part of current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_FOLD_SELECTOR)) {
+      const fold = part.dataset.stripFold;
+      const [firstLevel, lastLevel] = CONTEXT_STRIP_PART_LEVELS[fold ?? "label"] ?? [0, 0];
+      const natural = fold ? part.scrollWidth : labelTextWidth(part, range);
+      others -= part.getBoundingClientRect().width;
+      for (let index = firstLevel; index <= lastLevel; index += 1) {
+        if (index < naturalAtLevel.length) naturalAtLevel[index]! += natural;
+      }
     }
-    const nextOverflows = resolveContextStripLabelsCompact({
-      compact,
-      neededWidth: needed,
+    const nextLevel = resolveContextStripFoldLevel({
+      level,
+      neededWidths: naturalAtLevel.map(
+        (parts, index) =>
+          (contextStripFoldUsesCollapsedControls(index) ? controlsCollapsed : controlsNatural) +
+          others +
+          gaps +
+          parts,
+      ),
       availableWidth: available,
     });
-    if (nextOverflows !== compact) {
+    if (nextLevel !== level) {
       pendingLabelRectsRef.current = new Map(
-        Array.from(current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_LABEL_SELECTOR)).map(
+        Array.from(current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_FOLD_SELECTOR)).map(
           (label) => [label, label.getBoundingClientRect()],
         ),
       );
     }
-    setOverflows(nextOverflows);
+    setLevel(nextLevel);
   });
 
   useLayoutEffect(() => {
@@ -636,7 +660,7 @@ export function useLabelsOverflow(element: HTMLDivElement | null): boolean {
     };
   }, [element]);
 
-  return overflows;
+  return level;
 }
 
 export const BranchToolbar = memo(function BranchToolbar({
@@ -735,7 +759,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     canPickEnvironment: hasMultipleEnvironments,
   });
   const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
-  const labelsOverflow = useLabelsOverflow(stripElement);
+  const stripFoldLevel = useLabelsOverflow(stripElement);
 
   if (!activeProject) return null;
 
@@ -790,7 +814,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   return (
     <ComposerSurface.ContextStrip
       ref={setStripElement}
-      data-compact={labelsOverflow ? "" : undefined}
+      {...contextStripFoldAttributes(stripFoldLevel)}
       className={cn(
         "gap-1 text-xs font-normal text-muted-foreground/70",
         // A non-Git strip with no visible composer controls should occupy no

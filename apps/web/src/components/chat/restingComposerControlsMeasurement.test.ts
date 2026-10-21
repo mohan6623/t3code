@@ -47,7 +47,6 @@ describe("measureRestingComposerControls", () => {
     expect(resolveRestingComposerControlsLayout({ ...measurement, hostWidth: 200 })).toEqual({
       hiddenCount: 0,
       iconOnlyCount: 0,
-      visible: true,
     });
   });
 
@@ -58,7 +57,6 @@ describe("measureRestingComposerControls", () => {
     expect(resolveRestingComposerControlsLayout({ ...measurement, hostWidth: 200 })).toEqual({
       hiddenCount: 1,
       iconOnlyCount: 1,
-      visible: true,
     });
   });
 
@@ -69,7 +67,6 @@ describe("measureRestingComposerControls", () => {
     expect(resolveRestingComposerControlsLayout({ ...measurement, hostWidth: 200 })).toEqual({
       hiddenCount: 1,
       iconOnlyCount: 1,
-      visible: true,
     });
   });
 

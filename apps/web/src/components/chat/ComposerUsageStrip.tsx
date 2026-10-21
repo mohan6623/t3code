@@ -28,7 +28,6 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import {
   BADGE_STYLES,
   Bar,
-  FoldingLabel,
   USAGE_SUMMARY_STYLES,
   UsageSummary,
   UsageSummaryStyle,
@@ -387,23 +386,26 @@ export function ComposerUsageStrip({
             aria-label={`${providerName(provider)} usage limits`}
             className={cn(
               "flex min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground",
-              splitRows ? "min-h-6" : "py-0.5",
+              // Fork: the strip moves the limits to rows when it runs short of room.
+              splitRows
+                ? "min-h-6"
+                : "py-0.5 group-data-[usage-rows]/composer-context:min-h-6 group-data-[usage-rows]/composer-context:py-0",
             )}
           />
         }
       >
-        <ProviderIcon provider={provider} />
-        {/* Beside two rows, lowercase letters make the name look low; lift it to the rows' middle. */}
-        <span
-          className={cn(
-            "max-w-24 truncate @max-[26rem]/composer-surface:hidden",
-            splitRows && "-translate-y-px",
-          )}
-        >
-          {providerName(provider)}
-        </span>
-        {/* With one row per limit, the badge draws the cards' style when it fits the dock's
-            height; taller styles leave the badge as bars. */}
+        {/* Fork: the account shows as the model picker's initials badge; the button's label
+            carries the full name. */}
+        <ProviderInstanceIcon
+          driverKind={provider.driver}
+          displayName={providerName(provider)}
+          accentColor={provider.accentColor}
+          showBadge
+          className="size-3.5"
+          iconClassName="size-3.5"
+          indicatorBackground="color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
+          badgeClassName="-right-1 -bottom-1 h-3 min-w-3 px-0.5 text-5xs shadow-none"
+        />
         {splitRows && BADGE_STYLES.has(summaryStyle) ? (
           <UsageSummary
             style={summaryStyle}
@@ -413,52 +415,71 @@ export function ComposerUsageStrip({
             now={now}
             compact
           />
-        ) : splitRows ? (
-          <span className="flex min-w-0 items-center gap-1.5 text-2xs leading-3">
-            {/* One bar per row; the pair leans together so it reads as one gauge. */}
-            <span className="flex w-10 shrink-0 flex-col gap-1.5">
-              {rows.map((window) => (
-                <Bar key={window.id} percent={window.usedPercent} color={color} />
-              ))}
-            </span>
-            {/* The figures fold away first when the strip runs out of room. */}
-            <FoldingLabel>
-              <span className="flex shrink-0 flex-col whitespace-nowrap">
-                {rows.map((window) => (
-                  <span key={window.id} className="flex gap-1.5">
-                    {/* Fixed width so both rows' reset times start in one column. */}
-                    <span className="w-6 shrink-0 text-end">
-                      {clampPercent(window.usedPercent)}%
-                    </span>
-                    <span>{resetsIn(window, now)}</span>
-                  </span>
-                ))}
-              </span>
-            </FoldingLabel>
-          </span>
         ) : (
           <>
-            {/* Thin stacked bars fit inside the text line, so the badge keeps its height.
-                Nudged down to sit on the digits, which ride low in the line box. */}
-            <span className="flex w-10 shrink-0 translate-y-px flex-col gap-0.5">
+            {/* One bar per limit. On one line the thin pair sits on the digits, which ride low
+                in the line box; in rows each bar lines up with its own figures. */}
+            <span
+              className={cn(
+                "flex w-10 shrink-0 flex-col",
+                splitRows
+                  ? "gap-1.5"
+                  : "translate-y-px gap-0.5 group-data-[usage-rows]/composer-context:translate-y-0 group-data-[usage-rows]/composer-context:gap-1.5",
+              )}
+            >
               {rows.map((window) => (
                 <Bar key={window.id} percent={window.usedPercent} color={color} />
               ))}
             </span>
-            <FoldingLabel>
-              <span className="shrink-0 whitespace-nowrap">{summary}</span>
-            </FoldingLabel>
+            {/* The figures: on one line, or one row per limit (see DOCK_FOLD_ORDER). */}
+            <span className="flex shrink-0">
+              {splitRows ? null : (
+                <span
+                  data-strip-fold="line"
+                  className="flex max-w-60 min-w-0 shrink-0 overflow-hidden transition-opacity duration-180 ease-drawer group-data-[usage-rows]/composer-context:max-w-0 group-data-[usage-rows]/composer-context:opacity-0 motion-reduce:transition-none"
+                >
+                  <span className="shrink-0 whitespace-nowrap">{summary}</span>
+                </span>
+              )}
+              <span
+                data-strip-fold={splitRows ? "figures" : "rows"}
+                className={cn(
+                  "flex min-w-0 shrink-0 overflow-hidden text-2xs leading-3 transition-opacity duration-180 ease-drawer motion-reduce:transition-none",
+                  splitRows
+                    ? "max-w-60 group-data-[fold-figures]/composer-context:max-w-0 group-data-[fold-figures]/composer-context:opacity-0"
+                    : "max-w-0 opacity-0 group-data-[usage-row-figures]/composer-context:max-w-60 group-data-[usage-row-figures]/composer-context:opacity-100",
+                )}
+              >
+                <span className="flex shrink-0 flex-col whitespace-nowrap">
+                  {rows.map((window) => (
+                    <span key={window.id} className="flex gap-1.5">
+                      {/* Fixed width so both rows' reset times start in one column. */}
+                      <span className="w-6 shrink-0 text-end">
+                        {clampPercent(window.usedPercent)}%
+                      </span>
+                      <span>{resetsIn(window, now)}</span>
+                    </span>
+                  ))}
+                </span>
+              </span>
+            </span>
           </>
         )}
         {cacheMinutes !== null ? (
+          // Fork: the timer is the first part of the badge to hide (see DOCK_FOLD_ORDER).
           <span
-            className={cn(
-              "flex shrink-0 items-center gap-0.5 @max-[15rem]/composer-surface:hidden",
-              cacheMinutes === 0 && "opacity-50",
-            )}
+            data-strip-fold="timer"
+            className="flex max-w-12 shrink-0 overflow-hidden transition-opacity duration-180 ease-drawer group-data-[fold-timer]/composer-context:max-w-0 group-data-[fold-timer]/composer-context:opacity-0 motion-reduce:transition-none"
           >
-            <TimerIcon className="size-3" aria-hidden />
-            {cacheMinutes}m
+            <span
+              className={cn(
+                "flex shrink-0 items-center gap-0.5 whitespace-nowrap",
+                cacheMinutes === 0 && "opacity-50",
+              )}
+            >
+              <TimerIcon className="size-3" aria-hidden />
+              {cacheMinutes}m
+            </span>
           </span>
         ) : null}
       </PopoverTrigger>

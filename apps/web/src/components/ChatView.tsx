@@ -454,6 +454,7 @@ import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
+  contextStripFoldAttributes,
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
   shouldShowComposerContextStrip,
@@ -3318,7 +3319,7 @@ export default function ChatView(props: ChatViewProps) {
   const [composerModelStripElement, setComposerModelStripElement] = useState<HTMLDivElement | null>(
     null,
   );
-  const composerModelStripCompact = useLabelsOverflow(composerModelStripElement);
+  const composerModelStripFoldLevel = useLabelsOverflow(composerModelStripElement);
   // Sits at the end of whichever strip hosts the model controls.
   const composerUsageBadge = (
     <ComposerUsageStrip
@@ -8809,7 +8810,7 @@ export default function ChatView(props: ChatViewProps) {
                           {mountComposerModelStrip ? (
                             <ComposerSurface.ContextStrip
                               ref={setComposerModelStripElement}
-                              data-compact={composerModelStripCompact ? "" : undefined}
+                              {...contextStripFoldAttributes(composerModelStripFoldLevel)}
                               data-composer-model-strip="true"
                               data-composer-model-strip-static="true"
                               aria-hidden={showComposerModelStrip ? undefined : true}

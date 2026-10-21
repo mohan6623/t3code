@@ -122,16 +122,17 @@ function Figures({ windows, now, compact }: Pick<SummaryProps, "windows" | "now"
 }
 
 /**
- * Badge figures fold away when the composer strip runs short of room, before the
- * model controls have to give way. The strip reads this label's natural width
- * (`data-composer-label-fixed`) to decide, the same way it folds its Git labels.
+ * Badge figures fold away when the composer strip runs short of room, at the
+ * "usage-figures" step of DOCK_FOLD_ORDER. The strip reads this label's natural
+ * width to decide, the same way it folds its Git labels.
  */
 export function FoldingLabel({ children }: { children: ReactNode }) {
   return (
     <span
       data-composer-label
       data-composer-label-fixed
-      className="flex max-w-60 min-w-0 shrink-0 overflow-hidden transition-opacity duration-180 ease-drawer group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+      data-strip-fold="figures"
+      className="flex max-w-60 min-w-0 shrink-0 overflow-hidden transition-opacity duration-180 ease-drawer group-data-[fold-figures]/composer-context:max-w-0 group-data-[fold-figures]/composer-context:opacity-0 motion-reduce:transition-none"
     >
       {children}
     </span>

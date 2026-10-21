@@ -93,6 +93,100 @@ export function resolveContextStripLabelsCompact(input: {
     : input.neededWidth > input.availableWidth;
 }
 
+/**
+ * Fork: the dock's priority table. As the composer narrows, each step yields in this order,
+ * the first step first. These never yield: the model logo and name (they only truncate, as
+ * the last resort), the "…" menu, the usage bars, and the account initials.
+ */
+export const DOCK_FOLD_ORDER = [
+  // Branch, PR and environment chips: the text folds, the icon stays.
+  "context-labels",
+  // Effort, access, mode, Build: label to icon, then into the "…" menu, last control first.
+  "composer-controls",
+  // The prompt-cache timer hides.
+  "cache-timer",
+  // The usage limits move to one row each, which stacks their figures.
+  "usage-rows",
+  // The % and reset figures fold; the bars stay.
+  "usage-figures",
+  // Last resort: the model name truncates with an ellipsis. It never hides.
+  "model-name",
+] as const;
+
+export type DockFoldStep = (typeof DOCK_FOLD_ORDER)[number];
+
+/** The steps the context strip applies itself; the controls host handles the other two. */
+export const CONTEXT_STRIP_FOLD_STEPS: readonly DockFoldStep[] = DOCK_FOLD_ORDER.filter(
+  (step) => step !== "composer-controls" && step !== "model-name",
+);
+
+/** 0 shows everything; level n applies the first n strip steps. */
+export type ContextStripFoldLevel = 0 | 1 | 2 | 3 | 4;
+
+export function contextStripFoldStepLevel(step: DockFoldStep): ContextStripFoldLevel {
+  return (CONTEXT_STRIP_FOLD_STEPS.indexOf(step) + 1) as ContextStripFoldLevel;
+}
+
+/**
+ * Whether the strip may move past `level` only after the composer controls are all in the
+ * "…" menu. Before that, the controls keep their natural width in the strip's sums.
+ */
+export function contextStripFoldUsesCollapsedControls(level: number): boolean {
+  const next = CONTEXT_STRIP_FOLD_STEPS[level];
+  return (
+    next !== undefined &&
+    DOCK_FOLD_ORDER.indexOf("composer-controls") < DOCK_FOLD_ORDER.indexOf(next)
+  );
+}
+
+/** The strip levels each folding part shows on, first and last, keyed by its fold name. */
+export const CONTEXT_STRIP_PART_LEVELS: Record<string, readonly [number, number]> = {
+  // A chip label (`data-composer-label` with no fold name).
+  label: [0, contextStripFoldStepLevel("context-labels") - 1],
+  timer: [0, contextStripFoldStepLevel("cache-timer") - 1],
+  // The one-line figures, until the limits move to rows.
+  line: [0, contextStripFoldStepLevel("usage-rows") - 1],
+  // The stacked figures, from the move to rows until the figures fold.
+  rows: [contextStripFoldStepLevel("usage-rows"), contextStripFoldStepLevel("usage-figures") - 1],
+  // Figures that keep one layout: a split-rows style the user picked.
+  figures: [0, contextStripFoldStepLevel("usage-figures") - 1],
+};
+
+/** The strip's fold level as the data attributes its children's styles read. */
+export function contextStripFoldAttributes(level: ContextStripFoldLevel) {
+  const at = (step: DockFoldStep) => (level >= contextStripFoldStepLevel(step) ? "" : undefined);
+  const [firstRowsLevel, lastRowsLevel] = CONTEXT_STRIP_PART_LEVELS.rows!;
+  return {
+    "data-compact": at("context-labels"),
+    "data-fold-timer": at("cache-timer"),
+    "data-usage-rows": at("usage-rows"),
+    // One attribute for the stacked figures, so a single element shows them on their levels.
+    "data-usage-row-figures": level >= firstRowsLevel && level <= lastRowsLevel ? "" : undefined,
+    "data-fold-figures": at("usage-figures"),
+  };
+}
+
+/**
+ * `neededWidths[level]` is the width the strip needs at that level, measured from natural
+ * widths that do not depend on the current level, so a fold cannot undo itself. Unfolding needs
+ * the same slack as the labels above.
+ */
+export function resolveContextStripFoldLevel(input: {
+  level: ContextStripFoldLevel;
+  neededWidths: readonly number[];
+  availableWidth: number;
+}): ContextStripFoldLevel {
+  const last = CONTEXT_STRIP_FOLD_STEPS.length as ContextStripFoldLevel;
+  for (let level = 0; level < last; level += 1) {
+    const slack = level < input.level ? CONTEXT_STRIP_COMPACT_EXPAND_HYSTERESIS_PX : 0;
+    const needed = input.neededWidths[level];
+    if (needed !== undefined && needed <= input.availableWidth - slack) {
+      return level as ContextStripFoldLevel;
+    }
+  }
+  return last;
+}
+
 export function resolveEnvModeLabel(mode: EnvMode): string {
   return mode === "worktree" ? "New worktree" : "Current checkout";
 }

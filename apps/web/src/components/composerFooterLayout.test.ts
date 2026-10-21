@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveContextStripLabelsCompact } from "./BranchToolbar.logic";
+import {
+  CONTEXT_STRIP_FOLD_STEPS,
+  CONTEXT_STRIP_PART_LEVELS,
+  DOCK_FOLD_ORDER,
+  contextStripFoldAttributes,
+  contextStripFoldStepLevel,
+  contextStripFoldUsesCollapsedControls,
+  resolveContextStripFoldLevel,
+  resolveContextStripLabelsCompact,
+} from "./BranchToolbar.logic";
 import {
   COMPOSER_FOOTER_COMPACT_BREAKPOINT_PX,
   COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX,
@@ -9,7 +18,9 @@ import {
   overlayComposerIsResting,
   resolveComposerTimelineInset,
   resolveScrollToEndClearance,
+  resolveRestingComposerControlsCollapsedWidth,
   resolveRestingComposerControlsLayout,
+  resolveRestingComposerControlsMinimumWidth,
   resolveRestingComposerControlsNaturalWidth,
   shouldAnimateComposerRestingTransition,
   shouldUseCompactComposerPrimaryActions,
@@ -260,69 +271,70 @@ describe("resolveRestingComposerControlsLayout", () => {
   it("shows everything when the host has room", () => {
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 357 })).toEqual({
       hiddenCount: 0,
-      visible: true,
     });
   });
 
   it("moves trailing blocks into the overflow menu until the rest fits", () => {
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 356 })).toEqual({
       hiddenCount: 1,
-      visible: true,
     });
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 241 })).toEqual({
       hiddenCount: 1,
-      visible: true,
     });
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 240 })).toEqual({
       hiddenCount: 2,
-      visible: true,
     });
   });
 
   it("shrinks the picker after moving every trailing block into overflow", () => {
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 176 })).toEqual({
       hiddenCount: 2,
-      visible: true,
     });
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 133 })).toEqual({
       hiddenCount: 2,
-      visible: true,
     });
   });
 
-  it("hides the whole cluster below the picker's minimum readable width", () => {
+  it("never hides the cluster below the picker's minimum readable width", () => {
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 132 })).toEqual({
       hiddenCount: 2,
-      visible: false,
     });
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 0 })).toEqual({
       hiddenCount: 2,
-      visible: false,
     });
+  });
+
+  it("reserves the truncated model name and the overflow menu as the minimum width", () => {
+    expect(resolveRestingComposerControlsMinimumWidth(base)).toBe(133);
+    expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 0 })).toEqual({
+      hiddenCount: 2,
+    });
+  });
+
+  it("measures the collapsed controls with the whole model name", () => {
+    expect(resolveRestingComposerControlsCollapsedWidth(base)).toBe(177);
   });
 
   it("uses the same thresholds while shrinking and growing", () => {
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 240 })).toEqual({
       hiddenCount: 2,
-      visible: true,
     });
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 241 })).toEqual({
       hiddenCount: 1,
-      visible: true,
     });
   });
 
   it("supports a single leading control without overflow blocks", () => {
-    expect(
-      resolveRestingComposerControlsLayout({
-        ...base,
-        naturalFixedWidth: 140,
-        minimumFixedWidth: 140,
-        blockWidths: [],
-        overflowWidth: 0,
-        hostWidth: 139,
-      }),
-    ).toEqual({ hiddenCount: 0, visible: false });
+    const single = {
+      ...base,
+      naturalFixedWidth: 140,
+      minimumFixedWidth: 140,
+      blockWidths: [],
+      overflowWidth: 0,
+    };
+    expect(resolveRestingComposerControlsLayout({ ...single, hostWidth: 139 })).toEqual({
+      hiddenCount: 0,
+    });
   });
 });
 
@@ -348,7 +360,7 @@ describe("context strip labels and resting composer controls", () => {
       ...measurement,
       hostWidth: hostWidth(true),
     });
-    expect(layout).toEqual({ hiddenCount: 0, visible: true });
+    expect(layout).toEqual({ hiddenCount: 0 });
 
     const compact = resolveContextStripLabelsCompact({
       compact: true,
@@ -372,7 +384,7 @@ describe("context strip labels and resting composer controls", () => {
     expect(expands).toBe(true);
     expect(
       resolveRestingComposerControlsLayout({ ...measurement, hostWidth: hostWidth(false) }),
-    ).toEqual({ hiddenCount: 2, visible: true });
+    ).toEqual({ hiddenCount: 2 });
   });
 });
 
@@ -390,9 +402,9 @@ describe("resolveRestingComposerControlsLayout hysteresis", () => {
       resolveRestingComposerControlsLayout({
         ...base,
         hostWidth: 357,
-        previous: { hiddenCount: 1, visible: true },
+        previous: { hiddenCount: 1 },
       }),
-    ).toEqual({ hiddenCount: 1, visible: true });
+    ).toEqual({ hiddenCount: 1 });
   });
 
   it("re-shows a block once the host clears the slack margin", () => {
@@ -400,41 +412,39 @@ describe("resolveRestingComposerControlsLayout hysteresis", () => {
       resolveRestingComposerControlsLayout({
         ...base,
         hostWidth: 358,
-        previous: { hiddenCount: 1, visible: true },
+        previous: { hiddenCount: 1 },
       }),
-    ).toEqual({ hiddenCount: 0, visible: true });
+    ).toEqual({ hiddenCount: 0 });
   });
 
   it("restores the blocks that fit when the full cluster has no slack", () => {
     const partlyRestored = resolveRestingComposerControlsLayout({
       ...base,
       hostWidth: 357,
-      previous: { hiddenCount: 2, visible: true },
+      previous: { hiddenCount: 2 },
     });
-    expect(partlyRestored).toEqual({ hiddenCount: 1, visible: true });
+    expect(partlyRestored).toEqual({ hiddenCount: 1 });
     expect(
       resolveRestingComposerControlsLayout({ ...base, hostWidth: 357, previous: partlyRestored }),
     ).toEqual(partlyRestored);
     expect(
       resolveRestingComposerControlsLayout({ ...base, hostWidth: 358, previous: partlyRestored }),
-    ).toEqual({ hiddenCount: 0, visible: true });
+    ).toEqual({ hiddenCount: 0 });
   });
 
   it("requires slack before partially restoring a cluster", () => {
-    const previous = { hiddenCount: 2, visible: true };
+    const previous = { hiddenCount: 2 };
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 241, previous })).toEqual(
       previous,
     );
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 242, previous })).toEqual({
       hiddenCount: 1,
-      visible: true,
     });
   });
 
   it("still resolves from scratch when there is no previous layout", () => {
     expect(resolveRestingComposerControlsLayout({ ...base, hostWidth: 357 })).toEqual({
       hiddenCount: 0,
-      visible: true,
     });
   });
 
@@ -442,7 +452,7 @@ describe("resolveRestingComposerControlsLayout hysteresis", () => {
     // The composer re-measures on every render, so the picker's recovered
     // natural width can land a fraction of a pixel apart between renders.
     // Without hysteresis that flips hiddenCount forever.
-    let layout = { hiddenCount: 0, visible: true };
+    let layout: { hiddenCount: number } = { hiddenCount: 0 };
     const settled: string[] = [];
     for (let index = 0; index < 10; index += 1) {
       layout = resolveRestingComposerControlsLayout({
@@ -451,26 +461,9 @@ describe("resolveRestingComposerControlsLayout hysteresis", () => {
         hostWidth: 357,
         previous: layout,
       });
-      if (index >= 2) settled.push(`${layout.hiddenCount}:${layout.visible}`);
+      if (index >= 2) settled.push(`${layout.hiddenCount}`);
     }
     expect(new Set(settled).size).toBe(1);
-  });
-
-  it("keeps the cluster hidden until its minimum width clears the slack", () => {
-    expect(
-      resolveRestingComposerControlsLayout({
-        ...base,
-        hostWidth: 133,
-        previous: { hiddenCount: 2, visible: false },
-      }),
-    ).toEqual({ hiddenCount: 2, visible: false });
-    expect(
-      resolveRestingComposerControlsLayout({
-        ...base,
-        hostWidth: 134,
-        previous: { hiddenCount: 2, visible: false },
-      }),
-    ).toEqual({ hiddenCount: 2, visible: true });
   });
 });
 
@@ -521,28 +514,15 @@ describe("progressive composer controls", () => {
       expect(resolveRestingComposerControlsLayout({ ...measurement, hostWidth })).toEqual({
         hiddenCount,
         iconOnlyCount,
-        visible: true,
       });
     }
   });
 
   it("requires slack to restore labels and controls", () => {
     for (const [hostWidth, previous, promoted] of [
-      [
-        368,
-        { hiddenCount: 0, iconOnlyCount: 1, visible: true },
-        { hiddenCount: 0, iconOnlyCount: 0, visible: true },
-      ],
-      [
-        288,
-        { hiddenCount: 0, iconOnlyCount: 2, visible: true },
-        { hiddenCount: 0, iconOnlyCount: 1, visible: true },
-      ],
-      [
-        248,
-        { hiddenCount: 1, iconOnlyCount: 2, visible: true },
-        { hiddenCount: 0, iconOnlyCount: 2, visible: true },
-      ],
+      [368, { hiddenCount: 0, iconOnlyCount: 1 }, { hiddenCount: 0, iconOnlyCount: 0 }],
+      [288, { hiddenCount: 0, iconOnlyCount: 2 }, { hiddenCount: 0, iconOnlyCount: 1 }],
+      [248, { hiddenCount: 1, iconOnlyCount: 2 }, { hiddenCount: 0, iconOnlyCount: 2 }],
     ] as const) {
       expect(resolveRestingComposerControlsLayout({ ...measurement, hostWidth, previous })).toEqual(
         previous,
@@ -570,6 +550,95 @@ describe("progressive composer controls", () => {
         if (index > 1) expect(next).toEqual(previous);
         previous = next;
       }
+    }
+  });
+});
+
+describe("dock priority order", () => {
+  it("folds the context labels, then the controls, the timer, the rows, the figures, the name", () => {
+    expect(DOCK_FOLD_ORDER).toEqual([
+      "context-labels",
+      "composer-controls",
+      "cache-timer",
+      "usage-rows",
+      "usage-figures",
+      "model-name",
+    ]);
+    expect(CONTEXT_STRIP_FOLD_STEPS).toEqual([
+      "context-labels",
+      "cache-timer",
+      "usage-rows",
+      "usage-figures",
+    ]);
+  });
+
+  it("sets each fold attribute from its step's level on", () => {
+    const attributes = [0, 1, 2, 3, 4].map((level) =>
+      Object.entries(contextStripFoldAttributes(level as 0 | 1 | 2 | 3 | 4))
+        .filter(([, value]) => value !== undefined)
+        .map(([name]) => name),
+    );
+    expect(attributes).toEqual([
+      [],
+      ["data-compact"],
+      ["data-compact", "data-fold-timer"],
+      ["data-compact", "data-fold-timer", "data-usage-rows", "data-usage-row-figures"],
+      ["data-compact", "data-fold-timer", "data-usage-rows", "data-fold-figures"],
+    ]);
+  });
+
+  it("lets the composer controls fold before the timer and after the context labels", () => {
+    expect(contextStripFoldUsesCollapsedControls(0)).toBe(false);
+    expect(contextStripFoldUsesCollapsedControls(contextStripFoldStepLevel("context-labels"))).toBe(
+      true,
+    );
+    expect(contextStripFoldUsesCollapsedControls(contextStripFoldStepLevel("usage-figures"))).toBe(
+      false,
+    );
+  });
+
+  it("shows every badge part on the levels between its steps", () => {
+    expect(CONTEXT_STRIP_PART_LEVELS).toEqual({
+      label: [0, 0],
+      timer: [0, 1],
+      line: [0, 2],
+      rows: [3, 3],
+      figures: [0, 3],
+    });
+  });
+});
+
+describe("resolveContextStripFoldLevel", () => {
+  const neededWidths = [600, 500, 420, 300] as const;
+
+  it("folds in order as the strip narrows", () => {
+    for (const [availableWidth, level] of [
+      [600, 0],
+      [599, 1],
+      [500, 1],
+      [499, 2],
+      [420, 2],
+      [419, 3],
+      [300, 3],
+      [299, 4],
+      [0, 4],
+    ] as const) {
+      expect(resolveContextStripFoldLevel({ level: 0, neededWidths, availableWidth })).toBe(level);
+    }
+  });
+
+  it("needs slack before it unfolds a level", () => {
+    expect(resolveContextStripFoldLevel({ level: 4, neededWidths, availableWidth: 315 })).toBe(4);
+    expect(resolveContextStripFoldLevel({ level: 4, neededWidths, availableWidth: 316 })).toBe(3);
+    expect(resolveContextStripFoldLevel({ level: 3, neededWidths, availableWidth: 435 })).toBe(3);
+    expect(resolveContextStripFoldLevel({ level: 3, neededWidths, availableWidth: 436 })).toBe(2);
+  });
+
+  it("does not flip between levels within a few pixels of a threshold", () => {
+    let level = resolveContextStripFoldLevel({ level: 0, neededWidths, availableWidth: 296 });
+    for (const availableWidth of [296, 300, 304, 300, 296, 304]) {
+      level = resolveContextStripFoldLevel({ level, neededWidths, availableWidth });
+      expect(level).toBe(4);
     }
   });
 });

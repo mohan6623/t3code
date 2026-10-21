@@ -216,6 +216,8 @@ import {
 import {
   getRestingComposerImagePreviewCounts,
   resolveRestingComposerControlsLayout,
+  resolveRestingComposerControlsMinimumWidth,
+  type RestingComposerControlsLayout,
   shouldAnimateComposerRestingTransition,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
@@ -1165,6 +1167,11 @@ const extendReplacementRangeForTrailingSpace = (
   return text[rangeEnd] === " " ? rangeEnd + 1 : rangeEnd;
 };
 
+function reserveHostMinWidth(host: HTMLElement, width: number) {
+  const minWidth = `${String(width)}px`;
+  if (host.style.minWidth !== minWidth) host.style.minWidth = minWidth;
+}
+
 function useRestingComposerControlsLayout(host: HTMLDivElement | null, useControlsAsHost = false) {
   const [controls, setControls] = useState<HTMLDivElement | null>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -1172,11 +1179,7 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
     controlsRef.current = element;
     setControls(element);
   };
-  const [layout, setLayout] = useState<{
-    hiddenCount: number;
-    iconOnlyCount?: number;
-    visible: boolean;
-  }>({ hiddenCount: 0, visible: true });
+  const [layout, setLayout] = useState<RestingComposerControlsLayout>({ hiddenCount: 0 });
 
   const measure = () => {
     const currentHost = useControlsAsHost ? controls : host;
@@ -1185,10 +1188,18 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
     const measurement = measureRestingComposerControls(controls);
     if (!measurement) return;
     const style = getComputedStyle(currentHost);
-    const hostWidth =
-      currentHost.clientWidth -
-      (Number.parseFloat(style.paddingInlineStart) || 0) -
+    const padding =
+      (Number.parseFloat(style.paddingInlineStart) || 0) +
       (Number.parseFloat(style.paddingInlineEnd) || 0);
+    const hostWidth = currentHost.clientWidth - padding;
+    // Fork: the strip keeps room for the model logo, a truncated name and the "…" menu, so
+    // the controls never vanish. The usage badge beside them clips first.
+    if (!useControlsAsHost) {
+      reserveHostMinWidth(
+        currentHost,
+        Math.ceil(resolveRestingComposerControlsMinimumWidth(measurement) + padding),
+      );
+    }
 
     setLayout((current) => {
       const next = resolveRestingComposerControlsLayout({
@@ -1197,8 +1208,7 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
         previous: current,
       });
       return next.hiddenCount === current.hiddenCount &&
-        next.iconOnlyCount === current.iconOnlyCount &&
-        next.visible === current.visible
+        next.iconOnlyCount === current.iconOnlyCount
         ? current
         : next;
     });
@@ -1238,7 +1248,6 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
     attachControls,
     hiddenBlockCount: layout.hiddenCount,
     iconOnlyBlockCount: layout.iconOnlyCount ?? 0,
-    controlsVisible: layout.visible,
   };
 }
 
@@ -2944,7 +2953,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     attachControls: attachRestingComposerControls,
     hiddenBlockCount: restingControlsHiddenBlockCount,
     iconOnlyBlockCount: restingControlsIconOnlyBlockCount,
-    controlsVisible: restingControlsVisible,
   } = useRestingComposerControlsLayout(restingControlsHost ?? inlineRestingControlsHost);
   const {
     attachControls: attachExpandedComposerControls,
@@ -4917,10 +4925,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     restingLayout ? promptRowElement : null,
     controlsInStrip && !isComposerResting,
   );
-  const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
-  if (composerControlsHidden && isComposerModelPickerOpen) {
-    setIsComposerModelPickerOpen(false);
-  }
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
   }, [isComposerResting, onRestingChange]);
@@ -5145,7 +5149,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,
     size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
+    hidden: restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
     ...(providerTraitsPicker
@@ -5170,7 +5174,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           runtimeMode={compatibleRuntimeMode}
           runtimeModeOptions={compatibleRuntimeModeOptions}
           size={composerControlsCollapsed ? "xs" : "sm"}
-          hidden={composerControlsHidden || restingHiddenBlockCount > 0}
+          hidden={restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
         />
@@ -5264,11 +5268,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         size={composerControlsCollapsed ? "xs" : "sm"}
         triggerClassName={
           composerControlsCollapsed
-            ? cn(
-                "min-w-13 shrink text-xs!",
-                !showInlineRestingControls &&
-                  "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
-              )
+            ? // Fork: the model name always shows. It truncates only as the last resort.
+              "min-w-13 shrink text-xs!"
             : "-ms-2.5 min-w-13"
         }
         terminalOpen={terminalOpen}
@@ -5328,7 +5329,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             runtimeMode={compatibleRuntimeMode}
             runtimeModeOptions={compatibleRuntimeModeOptions}
             size={composerControlsCollapsed ? "xs" : "sm"}
-            hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
+            hidden={hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
@@ -6130,14 +6131,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, []);
 
   const openModelPicker = () => {
-    if (composerControlsHidden) {
-      if (composerBlurFrameRef.current !== null) {
-        window.cancelAnimationFrame(composerBlurFrameRef.current);
-        composerBlurFrameRef.current = null;
-      }
-      setIsComposerScrollCollapsed(false);
-      setIsComposerFocused(true);
-    }
     setIsComposerModelPickerOpen(true);
   };
   const openModelPickerStable = useStableCallback(openModelPicker);
@@ -6516,12 +6509,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <div
               ref={attachRestingComposerControls}
               data-chat-composer-resting-controls="true"
-              aria-hidden={restingControlsVisible ? undefined : true}
-              inert={restingControlsVisible ? undefined : true}
-              className={cn(
-                "relative flex w-max min-w-0 max-w-full items-center gap-1 font-normal text-muted-foreground/70 [&_button]:text-xs!",
-                !restingControlsVisible && "invisible",
-              )}
+              className="relative flex w-max min-w-0 max-w-full items-center gap-1 font-normal text-muted-foreground/70 [&_button]:text-xs!"
             >
               {composerControls}
             </div>,
@@ -7489,12 +7477,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <div
                     ref={restingComposerControlsRef}
                     data-chat-composer-resting-controls="true"
-                    aria-hidden={restingControlsVisible ? undefined : true}
-                    inert={restingControlsVisible ? undefined : true}
-                    className={cn(
-                      "relative flex w-max min-w-0 max-w-full items-center gap-1 text-muted-foreground/70 [&_button]:text-xs!",
-                      !restingControlsVisible && "invisible",
-                    )}
+                    className="relative flex w-max min-w-0 max-w-full items-center gap-1 text-muted-foreground/70 [&_button]:text-xs!"
                   >
                     {composerControls}
                   </div>

@@ -102,11 +102,18 @@ export function shouldUseCompactComposerPrimaryActions(
 
 export interface RestingComposerControlsMeasurement {
   gap: number;
+  /** The model picker with its whole label, plus the separator before it. */
   naturalFixedWidth: number;
+  /** The model picker at its minimum truncated width, plus the separator. */
   minimumFixedWidth: number;
   blockWidths: readonly number[];
   overflowWidth: number;
   iconOnlyBlockWidths?: readonly number[];
+}
+
+export interface RestingComposerControlsLayout {
+  hiddenCount: number;
+  iconOnlyCount?: number;
 }
 
 function restingComposerControlsWidth(
@@ -146,14 +153,35 @@ export function resolveRestingComposerControlsNaturalWidth(
   return restingComposerControlsWidth(input, 0);
 }
 
+/**
+ * Fork: the controls with every block in the "…" menu and the model name whole. The strip
+ * folds its own later steps (see DOCK_FOLD_ORDER) only once even this does not fit.
+ */
+export function resolveRestingComposerControlsCollapsedWidth(
+  input: RestingComposerControlsMeasurement,
+): number {
+  return restingComposerControlsWidth(input, input.blockWidths.length);
+}
+
+/**
+ * Fork: the narrowest the controls ever get: the model logo, the name truncated to its
+ * minimum, and the "…" menu that holds every other control. The strip keeps this much for
+ * them, so they never vanish.
+ */
+export function resolveRestingComposerControlsMinimumWidth(
+  input: RestingComposerControlsMeasurement,
+): number {
+  return restingComposerControlsWidth(input, input.blockWidths.length, input.minimumFixedWidth);
+}
+
 const RESTING_CONTROLS_SLACK_PX = 1;
 
 export function resolveRestingComposerControlsLayout(
   input: RestingComposerControlsMeasurement & {
     hostWidth: number;
-    previous?: { hiddenCount: number; iconOnlyCount?: number; visible: boolean };
+    previous?: RestingComposerControlsLayout;
   },
-): { hiddenCount: number; iconOnlyCount?: number; visible: boolean } {
+): RestingComposerControlsLayout {
   const { blockWidths, hostWidth, previous } = input;
   const iconSteps = input.iconOnlyBlockWidths ? blockWidths.length : 0;
   const previousStep = previous
@@ -180,12 +208,9 @@ export function resolveRestingComposerControlsLayout(
   }
   const hiddenCount = Math.max(0, step - iconSteps);
   const iconOnlyCount = Math.min(step, iconSteps);
-  const minimumWidth = widthAtStep(step, input.minimumFixedWidth);
-  const visible =
-    previous && !previous.visible
-      ? minimumWidth <= hostWidth - RESTING_CONTROLS_SLACK_PX
-      : minimumWidth <= hostWidth;
-  return { hiddenCount, ...(input.iconOnlyBlockWidths ? { iconOnlyCount } : {}), visible };
+  // Fork: the controls never hide as a whole. Below this, the model name truncates in the
+  // host, and the strip keeps room for its minimum (resolveRestingComposerControlsMinimumWidth).
+  return { hiddenCount, ...(input.iconOnlyBlockWidths ? { iconOnlyCount } : {}) };
 }
 
 export function resolveScrollToEndClearance(input: {

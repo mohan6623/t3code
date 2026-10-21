@@ -5284,14 +5284,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
             : "var(--contrast-input)"
         }
-        {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
-          ? {
-              activeProviderIconClassName: cn(
-                composerProviderState.modelPickerIconClassName,
-                composerControlsCollapsed &&
-                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
-              ),
-            }
+        // Fork: the logo keeps its own colours in the strip below the composer too.
+        {...(composerProviderState.modelPickerIconClassName
+          ? { activeProviderIconClassName: composerProviderState.modelPickerIconClassName }
           : {})}
         onOpenChange={setIsComposerModelPickerOpen}
         getModelDisabledReason={getModelDisabledReason}

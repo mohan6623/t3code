@@ -13,7 +13,6 @@ import { Atom } from "effect/reactivity";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
-import { makeSideChatListingFilter } from "./threadWorkflows.ts";
 import {
   arrayElementsEqual,
   parseProjectRefCollectionKey,
@@ -394,19 +393,10 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
-      const threads = get(environmentThreadsAtom(environmentId)).map((thread) =>
-        scopedThread(environmentId, thread, subagentRequests),
-      );
-      // Side chats live in their parent's side panel, not in thread lists.
-      const listable = makeSideChatListingFilter(threads);
-      for (const thread of threads) {
-        if (
-          thread.archivedAt !== null ||
-          thread.lineage.relationshipToParent === "subagent" ||
-          !listable(thread)
-        )
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
+        if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent")
           continue;
-        next.push(thread);
+        next.push(scopedThread(environmentId, thread, subagentRequests));
       }
     }
     if (arrayElementsEqual(previousNavigationShells, next)) return previousNavigationShells;

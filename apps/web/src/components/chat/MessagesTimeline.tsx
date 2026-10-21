@@ -241,7 +241,6 @@ import type { ThreadFindPositionReader } from "./threadFind";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Spinner } from "../ui/spinner";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger, TooltipScrollDismissArea } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import {
@@ -349,12 +348,6 @@ interface TimelineRowSharedState {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
   }) => Promise<void>;
-  /** Present when side chats are available: "Ask about this response" in the fork menu. */
-  onAskAboutResponse:
-    | ((input: { readonly sourceThreadId: ThreadId; readonly runId: RunId }) => Promise<void>)
-    | undefined;
-  /** Why "Ask about this response" cannot share history yet; null when it can. */
-  askAboutResponseDisabledReason: string | null;
   onRollbackCheckpoint: (input: {
     readonly checkpointId: string;
     readonly scopeId: string;
@@ -464,8 +457,6 @@ interface MessagesTimelineProps {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
-  /** Ask a selection in a side chat. Offered next to Cite when set. */
-  onAskAssistantText?: (citation: AssistantCitation) => boolean;
   isWorking: boolean;
   runlessWorkActive?: boolean;
   activeTurnInProgress: boolean;
@@ -501,13 +492,6 @@ interface MessagesTimelineProps {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
   }) => Promise<void>;
-  /** Present when side chats are available: "Ask about this response" in the fork menu. */
-  onAskAboutResponse?: (input: {
-    readonly sourceThreadId: ThreadId;
-    readonly runId: RunId;
-  }) => Promise<void>;
-  /** Why "Ask about this response" cannot share history yet; null when it can. */
-  askAboutResponseDisabledReason?: string | null;
   onRollbackCheckpoint: (input: {
     readonly checkpointId: string;
     readonly scopeId: string;
@@ -581,7 +565,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationRequest = null,
   citationHistoryLoading = false,
   onCiteAssistantText,
-  onAskAssistantText,
   isWorking,
   runlessWorkActive = false,
   activeTurnInProgress,
@@ -614,8 +597,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   parentThreadLink = null,
   workflowOpening = null,
   onForkFromRun,
-  onAskAboutResponse,
-  askAboutResponseDisabledReason = null,
   onRollbackCheckpoint,
   supportsConversationRollback,
   threadStartCheckpointReady = false,
@@ -1342,8 +1323,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onOpenThread,
     workflowOpening,
     onForkFromRun,
-    onAskAboutResponse,
-    askAboutResponseDisabledReason,
     onRollbackCheckpoint,
     onToggleTurnFold,
     onToggleAttemptFold,
@@ -1547,7 +1526,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
               onCite={onCiteAssistantText}
-              {...(onAskAssistantText ? { onAsk: onAskAssistantText } : {})}
             />
           ) : null}
           <LegendList<MessagesTimelineRow>
@@ -2804,49 +2782,6 @@ function AssistantForkButton({
 
   if (!canFork || projectedItem.item.runId === null) return null;
   const runId = projectedItem.item.runId;
-  const fork = () => {
-    setBusy(true);
-    void ctx
-      .onForkFromRun({ sourceThreadId: projectedItem.sourceThreadId, runId })
-      .finally(() => setBusy(false));
-  };
-  // A side chat hangs off this thread, so only this thread's own responses can
-  // seed one. Inherited ones (from before a fork) keep the plain fork button.
-  const onAskAboutResponse =
-    projectedItem.sourceThreadId === ctx.threadRef?.threadId ? ctx.onAskAboutResponse : undefined;
-  const ask = () => {
-    if (!onAskAboutResponse) return;
-    setBusy(true);
-    void onAskAboutResponse({ sourceThreadId: projectedItem.sourceThreadId, runId }).finally(() =>
-      setBusy(false),
-    );
-  };
-
-  if (onAskAboutResponse) {
-    return (
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button
-              type="button"
-              size="xs"
-              variant="ghost"
-              disabled={busy}
-              aria-label="Fork or ask about this response"
-            />
-          }
-        >
-          <GitForkIcon className={cn("size-3", busy && "animate-pulse")} />
-        </MenuTrigger>
-        <MenuPopup align="start" className="min-w-52">
-          <MenuItem onClick={fork}>Fork to new thread</MenuItem>
-          <MenuItem disabled={ctx.askAboutResponseDisabledReason !== null} onClick={ask}>
-            {ctx.askAboutResponseDisabledReason ?? "Ask about this response"}
-          </MenuItem>
-        </MenuPopup>
-      </Menu>
-    );
-  }
 
   return (
     <Tooltip>
@@ -2857,7 +2792,12 @@ function AssistantForkButton({
             size="xs"
             variant="ghost"
             disabled={busy}
-            onClick={fork}
+            onClick={() => {
+              setBusy(true);
+              void ctx
+                .onForkFromRun({ sourceThreadId: projectedItem.sourceThreadId, runId })
+                .finally(() => setBusy(false));
+            }}
             aria-label="Fork from this response"
           />
         }

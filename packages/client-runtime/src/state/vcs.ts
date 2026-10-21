@@ -17,6 +17,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
@@ -277,6 +278,12 @@ export function createVcsEnvironmentAtoms<R, E>(
 
   return {
     listRefs,
+    listRepositories: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:list-repositories",
+      tag: WS_METHODS.vcsListRepositories,
+      staleTimeMs: 30_000,
+      idleTtlMs: 5 * 60_000,
+    }),
     // An uncached read for decisions that must match the repository now, not
     // the persisted list a picker renders from.
     readRefs: createEnvironmentRpcCommand(runtime, {

@@ -148,6 +148,39 @@ export const VcsListRefsInput = Schema.Struct({
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
 
+export const VcsListRepositoriesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsListRepositoriesInput = typeof VcsListRepositoriesInput.Type;
+
+export const VcsRepository = Schema.Struct({
+  /** Path from the queried cwd, using `/` separators; `.` is the cwd's own repository. */
+  relativePath: TrimmedNonEmptyStringSchema,
+  name: TrimmedNonEmptyStringSchema,
+});
+export type VcsRepository = typeof VcsRepository.Type;
+
+export const ROOT_WORKSPACE_REPOSITORY_PATH = ".";
+
+export const isRootWorkspaceRepository = (repository: VcsRepository): boolean =>
+  repository.relativePath === ROOT_WORKSPACE_REPOSITORY_PATH;
+
+/**
+ * A root repository means the workspace folder is a checkout that also holds other
+ * repositories. It keeps single-repository behavior for branches and New worktree.
+ */
+export const hasRootWorkspaceRepository = (repositories: ReadonlyArray<VcsRepository>): boolean =>
+  repositories.some(isRootWorkspaceRepository);
+
+export const VcsListRepositoriesResult = Schema.Struct({
+  /**
+   * Empty when the cwd is a plain repository, sits below a repository's root, or holds no
+   * repositories. A repository root that holds others lists itself first as `.`.
+   */
+  repositories: Schema.Array(VcsRepository),
+});
+export type VcsListRepositoriesResult = typeof VcsListRepositoriesResult.Type;
+
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,

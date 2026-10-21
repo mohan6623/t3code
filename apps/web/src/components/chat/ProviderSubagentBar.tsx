@@ -6,8 +6,10 @@ import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 
+import type { ContextWindowSnapshot } from "~/lib/contextWindow";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { Button } from "../ui/button";
+import { ContextWindowMeter } from "./ContextWindowMeter";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 export function ProviderSubagentBar(props: {
@@ -17,6 +19,8 @@ export function ProviderSubagentBar(props: {
   readonly effortLabel: string | null;
   readonly status: ProviderSubagentStatus | null;
   readonly onOpenParent: (() => void) | null;
+  /** Fork: the subagent's own context use, when its provider reports one. */
+  readonly contextWindow?: ContextWindowSnapshot | null | undefined;
 }) {
   const statusRef = useRef<HTMLSpanElement>(null);
   const { status } = props;
@@ -72,6 +76,9 @@ export function ProviderSubagentBar(props: {
         {`${modelDescription} subagent: ${announcement}`}
       </span>
       <span className="ms-auto shrink-0 text-muted-foreground max-sm:hidden">Runs on its own</span>
+      {props.contextWindow ? (
+        <ContextWindowMeter usage={props.contextWindow} modelDisplayName={props.modelLabel} />
+      ) : null}
       {props.onOpenParent ? (
         <Button size="sm" variant="ghost" onClick={props.onOpenParent}>
           <ArrowUpLeftIcon />

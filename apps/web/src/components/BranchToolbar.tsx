@@ -96,6 +96,8 @@ interface BranchToolbarProps {
   worktreePath: string | null;
   isServerThread: boolean;
   showGitControls: boolean;
+  /** Defaults to `showGitControls`; a multi-repo workspace has no single branch to pick. */
+  showBranchSelector?: boolean;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   envMode: EnvMode;
@@ -648,6 +650,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   worktreePath,
   isServerThread,
   showGitControls,
+  showBranchSelector = showGitControls,
   draftId,
   onEnvModeChange,
   envMode,
@@ -873,7 +876,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       ) : null}
       {trailingContent}
 
-      {showGitControls ? (
+      {showBranchSelector ? (
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}

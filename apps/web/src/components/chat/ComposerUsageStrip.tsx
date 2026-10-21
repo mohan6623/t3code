@@ -35,6 +35,7 @@ import {
   clampPercent,
   resetsIn,
 } from "./UsageSummaryStyles";
+import { cacheMinutesLeft } from "./ComposerUsageStrip.logic";
 
 const MINUTE = 60_000;
 /** Badge layout: one text line beside stacked bars, or one row per window. */
@@ -57,13 +58,6 @@ function useMinuteClock(): number {
 function usableLimits(provider: ServerProvider): ServerProviderUsageLimits | null {
   const limits = provider.usageLimits;
   return limits && limitsNotice(limits) === null ? limits : null;
-}
-
-/** Cursor bills its own models (Composer, Grok, Auto) from a separate pool. */
-function isCursorOwnModel(slug: string | undefined): boolean {
-  if (!slug) return false;
-  const model = slug.toLowerCase();
-  return model === "default" || model.startsWith("composer") || model.startsWith("grok");
 }
 
 /**
@@ -96,38 +90,6 @@ function panelWindows(
     return index < 0 ? CURSOR_PANEL_ORDER.length : index;
   };
   return limits.windows.toSorted((left, right) => rank(left.id) - rank(right.id));
-}
-
-/**
- * Prompt-cache lifetime in minutes, by provider. Claude subscriptions get a
- * 1-hour cache; Codex keeps roughly 10 idle minutes; Cursor uses the
- * upstream default of 5 minutes for most models. Estimates, not reported.
- */
-function cacheTtlMinutes(provider: ServerProvider, modelSlug: string | undefined): number | null {
-  switch (provider.driver) {
-    case "claudeAgent":
-      return 60;
-    case "codex":
-      return 10;
-    case "cursor":
-      return isCursorOwnModel(modelSlug) ? null : 5;
-    default:
-      return null;
-  }
-}
-
-/** Whole minutes until the cache from the last turn goes cold; full while a turn runs. */
-function cacheMinutesLeft(
-  provider: ServerProvider,
-  modelSlug: string | undefined,
-  lastRun: { readonly completedAt: string | null } | null | undefined,
-  now: number,
-): number | null {
-  const ttl = cacheTtlMinutes(provider, modelSlug);
-  if (ttl === null || !lastRun) return null;
-  if (lastRun.completedAt === null) return ttl;
-  const elapsed = (now - Date.parse(lastRun.completedAt)) / MINUTE;
-  return Number.isFinite(elapsed) ? Math.max(0, Math.ceil(ttl - elapsed)) : null;
 }
 
 /**
@@ -336,12 +298,15 @@ export function ComposerUsageStrip({
   providers,
   environmentId,
   modelSlug,
+  promptCacheTtlMs,
   lastRun,
 }: {
   readonly provider: ServerProvider | null;
   readonly providers: readonly ServerProvider[];
   readonly environmentId: EnvironmentId;
   readonly modelSlug?: string | undefined;
+  /** The cache lifetime the provider reported for the thread's latest turn. */
+  readonly promptCacheTtlMs?: number | undefined;
   /** The thread's latest run; null before the first turn. */
   readonly lastRun?: { readonly completedAt: string | null } | null | undefined;
 }) {
@@ -379,7 +344,7 @@ export function ComposerUsageStrip({
   if (windows.length === 0) return null;
 
   const color = barColor(provider.driver);
-  const cacheMinutes = cacheMinutesLeft(provider, modelSlug, lastRun, now);
+  const cacheMinutes = cacheMinutesLeft(provider, modelSlug, promptCacheTtlMs, lastRun, now);
   // One bar per window the plan has: the 5-hour session above the weekly
   // limit, or a single bar for plans with only one of them.
   const rows = badgeWindows(windows);

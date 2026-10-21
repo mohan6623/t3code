@@ -238,6 +238,7 @@ it("keeps workspace controls after expanding and collapsing 70 linked pull reque
         projectId={ProjectId.make("project")}
         worktreePath={null}
         isServerThread
+        workspaceRepositories={[]}
         anchor={{ current: null }}
         handle={PopoverCreateHandle()}
         onPresentationChange={vi.fn()}

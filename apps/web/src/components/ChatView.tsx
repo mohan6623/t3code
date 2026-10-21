@@ -378,9 +378,14 @@ import {
 import { threadEnvironment } from "../state/threads";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
+import { useWorkspaceRepositories } from "../hooks/useWorkspaceRepositories";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
-import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
+import {
+  hasRootWorkspaceRepository,
+  projectCloneDisplayName,
+  projectCloneProgressSummary,
+} from "@t3tools/contracts";
 import { dismissProjectFileCopy, useProjectFileCopy } from "../lib/addProjectToMachine";
 import {
   type EnvironmentPresentation,
@@ -1377,7 +1382,6 @@ export default function ChatView(props: ChatViewProps) {
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
-  const [restingComposerControlsVisible, setRestingComposerControlsVisible] = useState(false);
   const citeAssistantText = (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -3257,6 +3261,14 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  const workspaceRepositories = useWorkspaceRepositories({
+    environmentId,
+    cwd: gitStatusCwd,
+    isRepo: liveIsGitRepo,
+  });
+  // A multi-repo workspace folder is not a repository, but its repositories get the Git
+  // surfaces: worktree runs, diffs and per-repository source control.
+  const hasGitSurfaces = isGitRepo || workspaceRepositories.length > 0;
   // A provider-native subagent cannot take messages: a status bar replaces the
   // composer and its strips. Its approvals and questions are asked on the
   // top-level parent thread.
@@ -3289,18 +3301,14 @@ export default function ChatView(props: ChatViewProps) {
     isDraftHeroState,
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo,
+    isGitRepo: hasGitSurfaces,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
-  const showComposerContextStrip = shouldShowComposerContextStrip({
-    isDraftHeroState,
-    persistInActiveThreads: settings.persistComposerContextStrip,
-    hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo,
-    showEnvironmentIndicator: showComposerEnvironmentIndicator,
-    hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
-  });
+  // Fork: shown whenever mounted, like the model strip, since it always holds
+  // the usage badge. Hiding it when the model controls did not fit changed the
+  // composer's width, which made them fit again, and the strip flickered.
+  const showComposerContextStrip = mountComposerContextStrip;
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   // The strip holds the model controls and usage badge in every composer state.
@@ -3318,6 +3326,7 @@ export default function ChatView(props: ChatViewProps) {
       providers={providerStatuses as ServerProvider[]}
       environmentId={environmentId}
       modelSlug={activeThread?.modelSelection.model ?? activeProjectDefaultModelSelection?.model}
+      promptCacheTtlMs={activeThreadLiveTokenUsage?.promptCacheTtlMs}
       lastRun={activeLatestRun}
     />
   );
@@ -3886,13 +3895,16 @@ export default function ChatView(props: ChatViewProps) {
   };
   const createBrowserSurfaceStable = useStableCallback(createBrowserSurface);
   const addDiffSurface = () => {
-    if (!activeThreadRef || !isServerThread || !isGitRepo) return;
+    if (!activeThreadRef || !isServerThread || !hasGitSurfaces) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   };
   const addDiffSurfaceStable = useStableCallback(addDiffSurface);
-  const openChangesFromThreadPanel = () => {
+  const openChangesFromThreadPanel = (repositoryPath?: string) => {
+    if (activeThreadRef && repositoryPath !== undefined) {
+      useDiffPanelStore.getState().selectRepository(activeThreadRef, repositoryPath);
+    }
     addDiffSurface();
   };
   const openChangesFromThreadPanelStable = useStableCallback(openChangesFromThreadPanel);
@@ -4943,7 +4955,7 @@ export default function ChatView(props: ChatViewProps) {
       : false;
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
-    isGitRepo,
+    isGitRepo: hasGitSurfaces,
   });
   const localCheckoutBranchMismatch = isServerThread
     ? resolveLocalCheckoutBranchMismatch({
@@ -6698,16 +6710,19 @@ export default function ChatView(props: ChatViewProps) {
     }
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !sendQueuesBehindSetup && (!isServerThread || activeMessageCount === 0);
-    const baseBranchForWorktree =
-      isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
-        ? activeThreadBranch
-        : null;
+    const shouldCreateWorktree =
+      isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
+    // The server starts each repository of a multi-repo workspace folder from its own default
+    // branch, so there is no base branch to pick. A root repository isolates as a single one.
+    const baseBranchForWorktree = shouldCreateWorktree
+      ? workspaceRepositories.length > 0 && !hasRootWorkspaceRepository(workspaceRepositories)
+        ? (activeThreadBranch ?? "HEAD")
+        : activeThreadBranch
+      : null;
 
     // In worktree mode, require an explicit base branch so we don't silently
     // fall back to local execution when branch selection is missing.
-    const shouldCreateWorktree =
-      isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
-    if (shouldCreateWorktree && !activeThreadBranch) {
+    if (shouldCreateWorktree && !baseBranchForWorktree) {
       setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
       return;
     }
@@ -8595,6 +8610,9 @@ export default function ChatView(props: ChatViewProps) {
                               modelLabel={providerSubagentModelLabel}
                               effortLabel={providerSubagentEffortLabel}
                               status={providerSubagentStatus}
+                              contextWindow={
+                                settings.contextWindowMeterEnabled ? activeContextWindow : null
+                              }
                               onOpenParent={
                                 parentThreadLink
                                   ? () => onOpenRelatedThread(parentThreadLink.threadId)
@@ -8731,9 +8749,8 @@ export default function ChatView(props: ChatViewProps) {
                               restingControlsHost={restingComposerControlsHost}
                               restingControlsHaveLeadingContext={
                                 mountComposerContextStrip &&
-                                (isGitRepo || showComposerEnvironmentIndicator)
+                                (hasGitSurfaces || showComposerEnvironmentIndicator)
                               }
-                              onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                               getTimelineScrollableNode={getTimelineScrollableNodeStable}
                               isTimelineAtLogicalEnd={isTimelineAtLogicalEndStable}
                               timelineOverflows={timelineOverflows}
@@ -8821,7 +8838,8 @@ export default function ChatView(props: ChatViewProps) {
                                 projectId={activeThread.projectId}
                                 worktreePath={activeThread.worktreePath}
                                 isServerThread={isServerThread}
-                                showGitControls={isGitRepo}
+                                showGitControls={hasGitSurfaces}
+                                showBranchSelector={isGitRepo}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChangeStable}
                                 startFromOrigin={startFromOrigin}
@@ -8919,6 +8937,7 @@ export default function ChatView(props: ChatViewProps) {
               }
               gitCwd={gitCwd}
               isGitRepo={isGitRepo}
+              workspaceRepositories={workspaceRepositories}
               envLocked={envLocked}
               availableEnvironments={logicalProjectEnvironments}
               autoEnvironmentLabel={autoEnvironmentLabel}
@@ -8945,7 +8964,7 @@ export default function ChatView(props: ChatViewProps) {
                 ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
                 : {})}
               onComposerFocusRequest={scheduleComposerFocusStable}
-              {...(isServerThread && isGitRepo
+              {...(isServerThread && hasGitSurfaces
                 ? { onOpenChanges: openChangesFromThreadPanelStable }
                 : {})}
               onRunProjectScript={runProjectScriptStable}
@@ -9025,7 +9044,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddDevice={addDeviceSurfaceStable}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
-          diffAvailable={isServerThread && isGitRepo}
+          diffAvailable={isServerThread && hasGitSurfaces}
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
@@ -9079,7 +9098,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddDevice={addDeviceSurfaceStable}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
-            diffAvailable={isServerThread && isGitRepo}
+            diffAvailable={isServerThread && hasGitSurfaces}
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}

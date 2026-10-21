@@ -96,6 +96,7 @@ import {
   type RunId,
   type ThreadId,
   type TurnItemId,
+  type VcsRepository,
 } from "@t3tools/contracts";
 
 import * as Cause from "effect/Cause";
@@ -1249,6 +1250,7 @@ export function makeClaudeQueryOptions(input: {
   readonly resume: boolean;
   readonly resumeSessionAt?: string;
   readonly cwd: string | null;
+  readonly repositories?: ReadonlyArray<VcsRepository> | undefined;
   readonly attachmentsDir?: string;
   readonly settings?: ClaudeSettings;
   readonly sdkSettings?: string | ClaudeSdkSettings;
@@ -1355,7 +1357,7 @@ export function makeClaudeQueryOptions(input: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append: [
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
+        buildRuntimeInstructions({ harness: "Claude Code", repositories: input.repositories }) +
           (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
@@ -9313,6 +9315,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             resume: shouldResume,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
             cwd: turnInput.runtimePolicy.cwd,
+            repositories: turnInput.runtimePolicy.repositories,
             attachmentsDir,
             settings: adapterOptions.settings,
             environment: adapterOptions.environment,

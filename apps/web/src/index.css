@@ -169,8 +169,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono:
     ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-  /* Fork: the composer runner mascot, the gold of Monocode's runner. */
-  --color-runner: #f2bf2a;
 }
 
 @theme inline {
@@ -2478,6 +2476,8 @@ code {
    without JavaScript, layout or paint. ComposerRunner sets the --runner-*
    sizes so each sprite pixel and each walk step lands on whole screen pixels. */
 .t3-runner-track {
+  /* One walk cycle: four frames. */
+  --runner-cycle: 520ms;
   /* Clip only below the composer's top edge, so the exit drops into it. */
   clip-path: inset(-120px -120px 0 -120px);
 }
@@ -2486,7 +2486,7 @@ code {
   left: var(--runner-nudge-x, 0px);
   bottom: calc(0px - var(--runner-nudge-y, 0px));
   width: var(--runner-size, 16px);
-  height: var(--runner-size, 16px);
+  height: var(--runner-height, 16px);
   will-change: transform;
   animation: t3-runner-walk var(--runner-lap, 8s) infinite;
   animation-timing-function: steps(var(--runner-steps, 400), end);
@@ -2497,26 +2497,35 @@ code {
   height: 100%;
   filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.45));
   will-change: transform;
-  animation: t3-runner-hop 460ms steps(1, end) infinite;
+  /* Up on the two passing frames of each cycle. */
+  animation: t3-runner-hop calc(var(--runner-cycle) / 2) steps(1, end) infinite;
 }
-.t3-runner-frame-a,
-.t3-runner-frame-b {
+.t3-runner-body[data-runner-motion="float"] {
+  animation: t3-runner-float 1.6s steps(1, end) infinite;
+}
+.t3-runner-frame,
+.t3-runner-blink-eyes,
+.t3-runner-blink-cursor {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  opacity: 0;
   will-change: opacity;
 }
-.t3-runner-frame-a {
-  animation: t3-runner-frame-a 460ms steps(1, end) infinite;
+.t3-runner-frame {
+  animation: t3-runner-frame var(--runner-cycle) steps(1, end) infinite;
 }
-.t3-runner-frame-b {
-  opacity: 0;
-  animation: t3-runner-frame-b 460ms steps(1, end) infinite;
+.t3-runner-blink-eyes {
+  animation: t3-runner-blink 3.7s steps(1, end) infinite;
+}
+.t3-runner-blink-cursor {
+  animation: t3-runner-cursor 1.06s steps(1, end) infinite;
 }
 [data-composer-runner="leaving"] .t3-runner-walk,
-[data-composer-runner="leaving"] .t3-runner-frame-a,
-[data-composer-runner="leaving"] .t3-runner-frame-b {
+[data-composer-runner="leaving"] .t3-runner-frame,
+[data-composer-runner="leaving"] .t3-runner-blink-eyes,
+[data-composer-runner="leaving"] .t3-runner-blink-cursor {
   animation-play-state: paused;
 }
 [data-composer-runner="leaving"] .t3-runner-body {
@@ -2544,15 +2553,41 @@ code {
     transform: translateY(var(--runner-hop, -1px));
   }
 }
-@keyframes t3-runner-frame-a {
+/* A slow bob of whole sprite pixels, never touching the edge. */
+@keyframes t3-runner-float {
+  0% {
+    transform: translateY(calc(-1 * var(--runner-cell, 2px)));
+  }
+  25% {
+    transform: translateY(calc(-2 * var(--runner-cell, 2px)));
+  }
+  50% {
+    transform: translateY(calc(-3 * var(--runner-cell, 2px)));
+  }
+  75% {
+    transform: translateY(calc(-2 * var(--runner-cell, 2px)));
+  }
+}
+@keyframes t3-runner-frame {
   0% {
     opacity: 1;
   }
-  50% {
+  25% {
     opacity: 0;
   }
 }
-@keyframes t3-runner-frame-b {
+@keyframes t3-runner-blink {
+  0% {
+    opacity: 0;
+  }
+  93% {
+    opacity: 1;
+  }
+  96% {
+    opacity: 0;
+  }
+}
+@keyframes t3-runner-cursor {
   0% {
     opacity: 0;
   }
@@ -2571,6 +2606,6 @@ code {
     animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
   }
   100% {
-    transform: translateY(calc(var(--runner-size, 16px) + 4px));
+    transform: translateY(calc(var(--runner-height, 16px) + 4px));
   }
 }

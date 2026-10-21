@@ -981,6 +981,12 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           }
         }
 
+        // Git rejects an exclude pathspec that names an ignored folder, and an ignored folder is
+        // left out anyway, so only the nested repositories the root still sees are excluded.
+        const excludedRepositories = (yield* filterIgnoredPaths(
+          input.cwd,
+          (input.excludePaths ?? []).map((folder) => `${folder.replace(/\/+$/, "")}/`),
+        )).map((folder) => `:(exclude,literal)${folder}`);
         const workspaceIgnored = (yield* filterIgnoredPaths(input.cwd, ["."])).length === 0;
         if (workspaceIgnored) {
           // HEAD omits staged-only paths. Seed just this workspace's additions, keeping
@@ -1053,6 +1059,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
               workspaceIgnored ? "-u" : "-A",
               "--",
               ".",
+              ...excludedRepositories,
               ...exclusions,
             ],
             env: commitEnv,

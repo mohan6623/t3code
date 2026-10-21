@@ -1,11 +1,13 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 
 import { observeResize } from "~/lib/observeResize";
 
-import { runnerSprite } from "./composerRunnerSprites";
+import type { RunnerLayer, RunnerSprite } from "./composerRunnerSprites";
 
 /** Walking speed in CSS px per second, as in Monocode. */
 const RUNNER_SPEED = 160;
+/** Mascots are drawn about this many CSS px per sprite pixel. */
+const RUNNER_PIXEL = 2;
 /** Gap between the walk and the composer's rounded corners, in CSS px. */
 const RUNNER_INSET = 20;
 
@@ -26,13 +28,17 @@ const RUNNER_INSET = 20;
  * Nothing renders while no turn runs, a hidden window pauses CSS animations,
  * and reduced motion hides the runner.
  */
-export function ComposerRunner(props: { readonly running: boolean; readonly seed: string }) {
+export function ComposerRunner(props: {
+  readonly running: boolean;
+  readonly sprite: RunnerSprite;
+}) {
   const [shown, setShown] = useState(props.running);
   // Show at once when a turn starts; hide only after the exit jump ends.
   if (props.running && !shown) setShown(true);
   const leaving = shown && !props.running;
   const trackRef = useRef<HTMLDivElement>(null);
-  const sprite = runnerSprite(props.seed);
+  const { sprite } = props;
+  const { width, height } = sprite;
 
   useLayoutEffect(() => {
     const track = trackRef.current;
@@ -40,8 +46,8 @@ export function ComposerRunner(props: { readonly running: boolean; readonly seed
     let scaleQuery: MediaQueryList | null = null;
     const fit = () => {
       const scale = window.devicePixelRatio || 1;
-      const cell = Math.max(1, Math.round(2 * scale));
-      const size = (8 * cell) / scale;
+      const cell = Math.max(1, Math.round(RUNNER_PIXEL * scale));
+      const size = (width * cell) / scale;
       const box = track.getBoundingClientRect();
       // Snap the walk's start to a screen pixel.
       const nudgeX = (Math.ceil(box.left * scale) - box.left * scale) / scale;
@@ -49,6 +55,8 @@ export function ComposerRunner(props: { readonly running: boolean; readonly seed
       const travel = Math.max(0, Math.floor((box.width - nudgeX - size) * scale));
       const style = track.style;
       style.setProperty("--runner-size", `${size}px`);
+      style.setProperty("--runner-height", `${(height * cell) / scale}px`);
+      style.setProperty("--runner-cell", `${cell / scale}px`);
       style.setProperty("--runner-nudge-x", `${nudgeX}px`);
       style.setProperty("--runner-nudge-y", `${nudgeY}px`);
       style.setProperty("--runner-travel", `${travel / scale}px`);
@@ -67,7 +75,7 @@ export function ComposerRunner(props: { readonly running: boolean; readonly seed
       stopObserving();
       scaleQuery?.removeEventListener("change", fit);
     };
-  }, [shown]);
+  }, [shown, width, height]);
 
   if (!shown) return null;
   return (
@@ -80,19 +88,67 @@ export function ComposerRunner(props: { readonly running: boolean; readonly seed
     >
       <div className="t3-runner-walk">
         <div
-          className="t3-runner-body text-runner"
+          className="t3-runner-body"
+          data-runner-motion={sprite.motion}
           onAnimationEnd={(event) => {
             if (event.animationName === "t3-runner-exit") setShown(false);
           }}
         >
-          <svg viewBox="0 0 8 8" shapeRendering="crispEdges" className="t3-runner-frame-a">
-            <path d={sprite.restPath} fill="currentColor" />
-          </svg>
-          <svg viewBox="0 0 8 8" shapeRendering="crispEdges" className="t3-runner-frame-b">
-            <path d={sprite.stepPath} fill="currentColor" />
-          </svg>
+          {sprite.frames.map((frame, index) => (
+            <RunnerFrame
+              // oxlint-disable-next-line react/no-array-index-key -- a fixed cycle; frames never reorder
+              key={index}
+              layers={frame}
+              width={width}
+              height={height}
+              className="t3-runner-frame"
+              // Frame i shows for the i-th quarter of each cycle.
+              style={{ animationDelay: `calc(var(--runner-cycle) * ${-((4 - index) % 4) / 4})` }}
+            />
+          ))}
+          {sprite.blink ? (
+            <RunnerFrame
+              layers={sprite.blink.layers}
+              width={width}
+              height={height}
+              className={`t3-runner-blink-${sprite.blink.kind}`}
+            />
+          ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+/** A mascot standing still, for pickers. */
+export function MascotPreview(props: { readonly sprite: RunnerSprite }) {
+  return (
+    <RunnerFrame
+      layers={props.sprite.frames[0]!}
+      width={props.sprite.width}
+      height={props.sprite.height}
+      className="h-4 w-5 shrink-0"
+    />
+  );
+}
+
+function RunnerFrame(props: {
+  readonly layers: readonly RunnerLayer[];
+  readonly width: number;
+  readonly height: number;
+  readonly className: string;
+  readonly style?: CSSProperties;
+}) {
+  return (
+    <svg
+      viewBox={`0 0 ${props.width} ${props.height}`}
+      shapeRendering="crispEdges"
+      className={props.className}
+      style={props.style}
+    >
+      {props.layers.map((layer) => (
+        <path key={layer.color} d={layer.path} fill={layer.color} />
+      ))}
+    </svg>
   );
 }

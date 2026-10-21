@@ -1,6 +1,7 @@
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { ComposerRunner } from "./ComposerRunner";
+import { runnerSprite } from "./composerRunnerSprites";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
@@ -1610,7 +1611,6 @@ export interface ChatComposerProps {
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
-  onRestingControlsVisibilityChange: (visible: boolean) => void;
   getTimelineScrollableNode: () => HTMLElement | null;
   isTimelineAtLogicalEnd: () => boolean;
   timelineOverflows: boolean;
@@ -1978,7 +1978,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     threadPullRequests,
     restingControlsHost,
     restingControlsHaveLeadingContext,
-    onRestingControlsVisibilityChange,
     getTimelineScrollableNode,
     isTimelineAtLogicalEnd,
     timelineOverflows,
@@ -4918,15 +4917,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     restingLayout ? promptRowElement : null,
     controlsInStrip && !isComposerResting,
   );
-  const composerControlsVisibleInStrip =
-    composerControlsCollapsed && restingControlsHost !== null && restingControlsVisible;
   const composerControlsHidden = composerControlsCollapsed && !restingControlsVisible;
   if (composerControlsHidden && isComposerModelPickerOpen) {
     setIsComposerModelPickerOpen(false);
   }
-  useLayoutEffect(() => {
-    onRestingControlsVisibilityChange(composerControlsVisibleInStrip);
-  }, [composerControlsVisibleInStrip, onRestingControlsVisibilityChange]);
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
   }, [isComposerResting, onRestingChange]);
@@ -6437,6 +6431,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
+  const composerRunner = runnerSprite(
+    selectedProvider,
+    // The project folder name, as Monocode picks its mascot.
+    gitCwd?.split(/[\\/]/).findLast((part) => part.length > 0) ?? activeThread?.projectId ?? "",
+    settings.composerMascots[selectedInstanceId],
+  );
+
   return (
     <form
       ref={composerFormRef}
@@ -6636,15 +6637,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ) : null}
       </ComposerBanner.Dock>
       <div className="relative">
-        <ComposerRunner
-          running={phase === "running"}
-          // The project folder name, as Monocode picks its mascot.
-          seed={
-            gitCwd?.split(/[\\/]/).findLast((part) => part.length > 0) ??
-            activeThread?.projectId ??
-            ""
-          }
-        />
+        {composerRunner ? (
+          <ComposerRunner running={phase === "running"} sprite={composerRunner} />
+        ) : null}
         <ComposerSurface.Main
           ref={composerMainSurfaceRef}
           data-inline-resting-controls={restingControlsHost === null ? "true" : undefined}

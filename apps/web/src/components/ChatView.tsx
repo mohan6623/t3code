@@ -266,7 +266,7 @@ import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.lo
 import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { useDeviceState } from "~/state/device";
-import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import { BranchToolbar, type BranchToolbarHandle, useLabelsOverflow } from "./BranchToolbar";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
@@ -3305,6 +3305,12 @@ export default function ChatView(props: ChatViewProps) {
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
   // The strip holds the model controls and usage badge in every composer state.
   const showComposerModelStrip = mountComposerModelStrip;
+  // Fork: the model strip folds its labels (the usage figures) before the model
+  // controls run out of room, the same way the Git strip does.
+  const [composerModelStripElement, setComposerModelStripElement] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const composerModelStripCompact = useLabelsOverflow(composerModelStripElement);
   // Sits at the end of whichever strip hosts the model controls.
   const composerUsageBadge = (
     <ComposerUsageStrip
@@ -8785,6 +8791,8 @@ export default function ChatView(props: ChatViewProps) {
                         >
                           {mountComposerModelStrip ? (
                             <ComposerSurface.ContextStrip
+                              ref={setComposerModelStripElement}
+                              data-compact={composerModelStripCompact ? "" : undefined}
                               data-composer-model-strip="true"
                               data-composer-model-strip-static="true"
                               aria-hidden={showComposerModelStrip ? undefined : true}
@@ -8797,6 +8805,7 @@ export default function ChatView(props: ChatViewProps) {
                             >
                               <div
                                 ref={setRestingComposerControlsHost}
+                                data-chat-resting-composer-controls-host="true"
                                 className="min-w-0 flex-1"
                               />
                               {composerUsageBadge}

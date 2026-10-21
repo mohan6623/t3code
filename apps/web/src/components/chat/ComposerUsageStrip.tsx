@@ -11,7 +11,7 @@ import {
   providersWithLimits,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
-import { ChevronDownIcon, TimerIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, PaletteIcon, TimerIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { useEffect, useState } from "react";
 
@@ -25,12 +25,24 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Switch } from "../ui/switch";
 import { ResetCredits, barColor } from "../usage/UsageLimits";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import {
+  BADGE_STYLES,
+  Bar,
+  FoldingLabel,
+  USAGE_SUMMARY_STYLES,
+  UsageSummary,
+  UsageSummaryStyle,
+  clampPercent,
+  resetsIn,
+} from "./UsageSummaryStyles";
 
 const MINUTE = 60_000;
 /** Badge layout: one text line beside stacked bars, or one row per window. */
 const SPLIT_ROWS_STORAGE_KEY = "t3code:usage-badge-split-rows";
 /** Whether the panel shows the account in use opened or folded. */
 const CURRENT_OPEN_STORAGE_KEY = "t3code:usage-panel-current-open";
+/** How folded account cards draw their limits. */
+const SUMMARY_STYLE_STORAGE_KEY = "t3code:usage-panel-summary-style";
 
 /** Re-renders once a minute so reset countdowns stay current without animating. */
 function useMinuteClock(): number {
@@ -40,16 +52,6 @@ function useMinuteClock(): number {
     return () => window.clearInterval(id);
   }, []);
   return now;
-}
-
-function clampPercent(value: number): number {
-  return Math.round(Math.max(0, Math.min(100, value)));
-}
-
-function resetsIn(window: ServerProviderUsageWindow, now: number): string | null {
-  if (window.resetsAt === undefined) return null;
-  const at = Date.parse(window.resetsAt);
-  return Number.isFinite(at) && at > now ? formatDuration(at - now) : null;
 }
 
 function usableLimits(provider: ServerProvider): ServerProviderUsageLimits | null {
@@ -160,25 +162,6 @@ function ProviderIcon({ provider, className }: { provider: ServerProvider; class
   );
 }
 
-function Bar({
-  percent,
-  color,
-  className,
-}: {
-  percent: number;
-  color: string;
-  className?: string;
-}) {
-  return (
-    <span className={cn("block h-1 overflow-hidden rounded-full bg-muted", className)}>
-      <span
-        className="block h-full rounded-full"
-        style={{ width: `${clampPercent(percent)}%`, backgroundColor: color }}
-      />
-    </span>
-  );
-}
-
 /** One limit inside an account card: name, bar, what is left, and when it resets. */
 function WindowRow({
   window,
@@ -264,6 +247,7 @@ function AccountCard({
   inUse,
   open,
   onOpenChange,
+  summaryStyle,
 }: {
   provider: ServerProvider;
   limits: ServerProviderUsageLimits;
@@ -272,6 +256,7 @@ function AccountCard({
   inUse: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  summaryStyle: UsageSummaryStyle;
 }) {
   const color = barColor(provider.driver);
   const windows = panelWindows(provider, limits);
@@ -299,24 +284,14 @@ function AccountCard({
             <span className="truncate text-2xs text-muted-foreground">{provider.auth.label}</span>
           ) : null}
         </span>
-        {/* Folded: the badge's bars and figures; reset times wait until the card opens. */}
         {open ? null : (
-          <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
-            <span className="flex w-10 shrink-0 flex-col gap-0.75">
-              {summaryWindows.map((window) => (
-                <Bar
-                  key={window.id}
-                  percent={window.usedPercent}
-                  color={color}
-                  {...(inUse ? {} : { className: "bg-foreground/15" })}
-                />
-              ))}
-            </span>
-            {/* Fixed width, so every card's bars start in one column whatever the figures. */}
-            <span className="w-18 text-end">
-              {summaryWindows.map((window) => `${clampPercent(window.usedPercent)}%`).join(" · ")}
-            </span>
-          </span>
+          <UsageSummary
+            style={summaryStyle}
+            windows={summaryWindows}
+            color={color}
+            inUse={inUse}
+            now={now}
+          />
         )}
         <ChevronDownIcon
           className={cn("size-3.5 shrink-0 text-muted-foreground", open && "rotate-180")}
@@ -345,6 +320,7 @@ function OtherAccount(props: {
   limits: ServerProviderUsageLimits;
   environmentId: EnvironmentId;
   now: number;
+  summaryStyle: UsageSummaryStyle;
 }) {
   const [open, setOpen] = useState(false);
   return <AccountCard {...props} inUse={false} open={open} onOpenChange={setOpen} />;
@@ -377,6 +353,13 @@ export function ComposerUsageStrip({
     true,
     Schema.Boolean,
   );
+  const [summaryStyle, setSummaryStyle] = useLocalStorage(
+    SUMMARY_STYLE_STORAGE_KEY,
+    "bars",
+    UsageSummaryStyle,
+  );
+  // The panel shows the accounts, or the picker for how folded cards look.
+  const [pickingStyle, setPickingStyle] = useState(false);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -423,6 +406,7 @@ export function ComposerUsageStrip({
     <Popover
       onOpenChange={(open) => {
         if (open) {
+          setPickingStyle(false);
           void refreshUsageLimits(
             environmentId,
             () => refreshProviders({ environmentId, input: {} }),
@@ -453,31 +437,39 @@ export function ComposerUsageStrip({
         >
           {providerName(provider)}
         </span>
-        {splitRows ? (
-          <span className="flex min-w-0 flex-col text-2xs leading-3">
-            {rows.map((window, index) => {
-              const reset = resetsIn(window, now);
-              return (
-                <span key={window.id} className="flex items-center gap-1.5">
-                  {/* With two rows, each bar leans toward the other so the pair reads as one. */}
-                  <Bar
-                    percent={window.usedPercent}
-                    color={color}
-                    className={cn(
-                      "w-10 shrink-0",
-                      rows.length > 1 && (index === 0 ? "translate-y-px" : "-translate-y-px"),
-                    )}
-                  />
-                  {/* Fixed width so both rows' reset times start in one column. */}
-                  <span className="w-6 shrink-0 text-end @max-[34rem]/composer-surface:hidden">
-                    {clampPercent(window.usedPercent)}%
+        {/* With one row per limit, the badge draws the cards' style when it fits the dock's
+            height; taller styles leave the badge as bars. */}
+        {splitRows && BADGE_STYLES.has(summaryStyle) ? (
+          <UsageSummary
+            style={summaryStyle}
+            windows={rows}
+            color={color}
+            inUse={false}
+            now={now}
+            compact
+          />
+        ) : splitRows ? (
+          <span className="flex min-w-0 items-center gap-1.5 text-2xs leading-3">
+            {/* One bar per row; the pair leans together so it reads as one gauge. */}
+            <span className="flex w-10 shrink-0 flex-col gap-1.5">
+              {rows.map((window) => (
+                <Bar key={window.id} percent={window.usedPercent} color={color} />
+              ))}
+            </span>
+            {/* The figures fold away first when the strip runs out of room. */}
+            <FoldingLabel>
+              <span className="flex shrink-0 flex-col whitespace-nowrap">
+                {rows.map((window) => (
+                  <span key={window.id} className="flex gap-1.5">
+                    {/* Fixed width so both rows' reset times start in one column. */}
+                    <span className="w-6 shrink-0 text-end">
+                      {clampPercent(window.usedPercent)}%
+                    </span>
+                    <span>{resetsIn(window, now)}</span>
                   </span>
-                  {reset ? (
-                    <span className="truncate @max-[34rem]/composer-surface:hidden">{reset}</span>
-                  ) : null}
-                </span>
-              );
-            })}
+                ))}
+              </span>
+            </FoldingLabel>
           </span>
         ) : (
           <>
@@ -488,7 +480,9 @@ export function ComposerUsageStrip({
                 <Bar key={window.id} percent={window.usedPercent} color={color} />
               ))}
             </span>
-            <span className="truncate @max-[34rem]/composer-surface:hidden">{summary}</span>
+            <FoldingLabel>
+              <span className="shrink-0 whitespace-nowrap">{summary}</span>
+            </FoldingLabel>
           </>
         )}
         {cacheMinutes !== null ? (
@@ -506,52 +500,119 @@ export function ComposerUsageStrip({
       <PopoverPopup side="top" align="end" width="md" padding="compact">
         <div className="flex max-h-[min(70vh,36rem)] flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex items-center gap-2 px-0.5 pb-1">
-            <span className="flex-1 text-sm font-semibold text-foreground">Usage limits</span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {checkedAgo} ago
+            {pickingStyle ? (
+              <button
+                type="button"
+                aria-label="Back to usage limits"
+                onClick={() => setPickingStyle(false)}
+                className="-ms-1 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <ChevronLeftIcon className="size-3.5" />
+              </button>
+            ) : null}
+            <span className="flex-1 text-sm font-semibold text-foreground">
+              {pickingStyle ? "Card style" : "Usage limits"}
             </span>
-            <button
-              type="button"
-              aria-label="Refresh usage limits"
-              disabled={refreshing}
-              onClick={refresh}
-              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-            >
-              <RefreshIcon size="sm" refreshing={refreshing} />
-            </button>
+            {pickingStyle ? null : (
+              <>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {checkedAgo} ago
+                </span>
+                <button
+                  type="button"
+                  aria-label="Choose how folded cards look"
+                  onClick={() => setPickingStyle(true)}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <PaletteIcon className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Refresh usage limits"
+                  disabled={refreshing}
+                  onClick={refresh}
+                  className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  <RefreshIcon size="sm" refreshing={refreshing} />
+                </button>
+              </>
+            )}
           </div>
-          <AccountCard
-            provider={provider}
-            limits={limits}
-            environmentId={environmentId}
-            now={now}
-            inUse
-            open={currentOpen}
-            onOpenChange={setCurrentOpen}
-          />
-          {others.length > 0 ? (
-            <>
-              <span className="px-0.5 pt-1 text-xs font-medium text-muted-foreground">
-                Other subscriptions
-              </span>
-              {others.map((other) => {
-                const otherLimits = usableLimits(other);
-                return otherLimits ? (
-                  <OtherAccount
-                    key={other.instanceId}
-                    provider={other}
-                    limits={otherLimits}
-                    environmentId={environmentId}
-                    now={now}
-                  />
-                ) : null;
+          {pickingStyle ? (
+            // Each choice previews this account's own limits, as a folded card would show them.
+            <div role="radiogroup" aria-label="Folded card style" className="flex flex-col gap-1.5">
+              {USAGE_SUMMARY_STYLES.map((option) => {
+                const selected = option.id === summaryStyle;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setSummaryStyle(option.id)}
+                    className={cn(
+                      "flex min-h-11 w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-start text-xs",
+                      selected
+                        ? "border-foreground/25 bg-muted/60"
+                        : "bg-muted/30 hover:bg-muted/50",
+                    )}
+                  >
+                    <CheckIcon
+                      className={cn(
+                        "size-3.5 shrink-0",
+                        selected ? "text-foreground" : "invisible",
+                      )}
+                    />
+                    <span className="flex-1 font-medium text-foreground">{option.label}</span>
+                    <UsageSummary
+                      style={option.id}
+                      windows={rows}
+                      color={color}
+                      inUse={false}
+                      now={now}
+                    />
+                  </button>
+                );
               })}
+            </div>
+          ) : (
+            <>
+              <AccountCard
+                provider={provider}
+                limits={limits}
+                environmentId={environmentId}
+                now={now}
+                inUse
+                open={currentOpen}
+                onOpenChange={setCurrentOpen}
+                summaryStyle={summaryStyle}
+              />
+              {others.length > 0 ? (
+                <>
+                  <span className="px-0.5 pt-1 text-xs font-medium text-muted-foreground">
+                    Other subscriptions
+                  </span>
+                  {others.map((other) => {
+                    const otherLimits = usableLimits(other);
+                    return otherLimits ? (
+                      <OtherAccount
+                        key={other.instanceId}
+                        provider={other}
+                        limits={otherLimits}
+                        environmentId={environmentId}
+                        now={now}
+                        summaryStyle={summaryStyle}
+                      />
+                    ) : null;
+                  })}
+                </>
+              ) : null}
+              <label className="flex cursor-pointer items-center justify-between gap-2 px-0.5 pt-1 text-xs text-muted-foreground">
+                Show each limit on its own row
+                <Switch size="sm" checked={splitRows} onCheckedChange={setSplitRows} />
+              </label>
             </>
-          ) : null}
-          <label className="flex cursor-pointer items-center justify-between gap-2 px-0.5 pt-1 text-xs text-muted-foreground">
-            Show each limit on its own row
-            <Switch size="sm" checked={splitRows} onCheckedChange={setSplitRows} />
-          </label>
+          )}
         </div>
       </PopoverPopup>
     </Popover>

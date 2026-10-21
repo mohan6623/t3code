@@ -474,6 +474,9 @@ const COMPOSER_CONTEXT_LABEL_SELECTOR = "[data-composer-label]";
  * squeezed, and the strip then flips between labels and icons on every measure.
  */
 function labelTextWidth(label: HTMLElement, range: Range): number {
+  // Fork: a label of fixed-width columns (the usage badge's figures) keeps its
+  // natural width inside the collapsed box, so its scroll width is exact.
+  if (label.hasAttribute("data-composer-label-fixed")) return label.scrollWidth;
   const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
   let width = 0;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -485,7 +488,7 @@ function labelTextWidth(label: HTMLElement, range: Range): number {
   return Number.isFinite(maxWidth) ? Math.min(width, maxWidth) : width;
 }
 
-function useLabelsOverflow(element: HTMLDivElement | null): boolean {
+export function useLabelsOverflow(element: HTMLDivElement | null): boolean {
   const [overflows, setOverflows] = useState(false);
   const pendingLabelRectsRef = useRef<Map<HTMLElement, DOMRect> | null>(null);
   const labelAnimationsRef = useRef(new Map<HTMLElement, Animation>());
@@ -501,8 +504,13 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
       (Number.parseFloat(stripStyle.paddingInlineStart) || 0) -
       (Number.parseFloat(stripStyle.paddingInlineEnd) || 0);
     const contentWidth = (parent: Element): number => {
-      const gap = Number.parseFloat(getComputedStyle(parent).columnGap) || 0;
-      let width = 0;
+      const parentStyle = getComputedStyle(parent);
+      const gap = Number.parseFloat(parentStyle.columnGap) || 0;
+      // Fork: a padded item (the usage badge) needs its padding too, or the strip
+      // stays expanded while the item already squeezes the composer controls.
+      let width =
+        (Number.parseFloat(parentStyle.paddingInlineStart) || 0) +
+        (Number.parseFloat(parentStyle.paddingInlineEnd) || 0);
       let counted = 0;
       for (const child of parent.children) {
         if (!(child instanceof HTMLElement)) continue;

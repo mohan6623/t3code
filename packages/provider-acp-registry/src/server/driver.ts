@@ -637,6 +637,8 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: () => checkProvider,
       checkProvider,
+      // A manual refresh re-asks the agent, so a new sign-in shows its models at once.
+      beforeExplicitRefresh: liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache),
       enrichSnapshot: ({ snapshot, getSnapshot, publishSnapshot }) => {
         if (!snapshot.installed) return Effect.void;
         const publishEnrichment = (

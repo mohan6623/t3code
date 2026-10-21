@@ -63,6 +63,8 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   accentColor?: string | undefined;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
+  /** Fork: a logo the user picked in provider settings; wins over the driver glyph. */
+  customLogoUrl?: string | undefined;
   showBadge?: boolean;
   badgeContent?: "initials" | "none";
   size?: "default" | "compact";
@@ -100,7 +102,15 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
       style={accentStyle}
       data-provider-accent-color={accentColor}
     >
-      {isAcpRegistry ? (
+      {props.customLogoUrl ? (
+        <img
+          src={props.customLogoUrl}
+          alt=""
+          draggable={false}
+          className={cn("size-5 shrink-0 object-contain", iconClassName)}
+          aria-hidden
+        />
+      ) : isAcpRegistry ? (
         <AcpRegistryAgentIcon
           className={cn("size-5 rounded-none bg-transparent", iconClassName)}
           fallbackClassName="size-full"

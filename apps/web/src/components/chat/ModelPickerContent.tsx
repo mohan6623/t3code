@@ -1,5 +1,6 @@
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
+  AuthOrchestrationReadScope,
   type ProviderInstanceId,
   type EnvironmentId,
   type ProviderDriverKind,
@@ -41,7 +42,9 @@ import {
 } from "../ui/combobox";
 import { ModelEsque } from "./providerIconUtils";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
-import { primaryServerKeybindingsAtom } from "../../state/server";
+import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
+import { useAtomCommand } from "../../state/use-atom-command";
 import {
   modelPickerJumpCommandForIndex,
   modelPickerJumpIndexFromCommand,
@@ -75,6 +78,7 @@ type ModelPickerItem = {
   instanceAccentColor?: string | undefined;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
+  customLogoUrl?: string | undefined;
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
@@ -341,6 +345,29 @@ function WindowKeyDownListener({ onKeyDown }: { onKeyDown: (event: KeyboardEvent
   return null;
 }
 
+/** Fork: the picker's refresh button re-asks every provider for status and models. */
+function useProviderRefresh(environmentId: EnvironmentId | null) {
+  const canRefresh = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
+  const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const refresh = () => {
+    if (environmentId === null || refreshingRef.current) return;
+    if (!readEnvironmentScope(environmentId, AuthOrchestrationReadScope)) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    void refreshServerProviders({ environmentId, input: { refreshModels: true } }).finally(() => {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    });
+  };
+  return { canRefresh: environmentId !== null && canRefresh, refreshing, refresh };
+}
+
+const PICKER_MAX_HEIGHT = "min(36rem, calc(var(--available-height, 36rem) - 2px))";
+
 export const ModelPickerContent = memo(function ModelPickerContent(props: {
   environmentId: EnvironmentId | null;
   activeInstanceId: ProviderInstanceId;
@@ -442,6 +469,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
   const keybindings = providedKeybindings ?? serverKeybindings;
   const [searchHeight, setSearchHeight] = useState(0);
+  const providerRefresh = useProviderRefresh(props.environmentId);
   const toggleFavorite = useToggleEnvironmentModelFavorite(props.environmentId);
 
   const focusSearchInput = () => {
@@ -575,6 +603,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           ...(entry.accentColor ? { instanceAccentColor: entry.accentColor } : {}),
           ...(entry.acpRegistryAgentId ? { acpRegistryAgentId: entry.acpRegistryAgentId } : {}),
           ...(entry.acpRegistryIconUrl ? { acpRegistryIconUrl: entry.acpRegistryIconUrl } : {}),
+          ...(entry.customLogoUrl ? { customLogoUrl: entry.customLogoUrl } : {}),
           ...(entry.continuationGroupKey
             ? { continuationGroupKey: entry.continuationGroupKey }
             : {}),
@@ -798,8 +827,14 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       <WindowKeyDownListener onKeyDown={onWindowKeyDown} />
       <div
         ref={pickerContentRef}
-        className="relative flex max-h-86.5 w-screen max-w-90 flex-row overflow-hidden"
-        style={isSearching ? { height: searchHeight } : undefined}
+        className="relative flex w-screen max-w-90 flex-row overflow-hidden"
+        // Fork: grow into the room the popover has (up to 36rem) so every provider in the
+        // sidebar is reachable without scrolling; the old fixed cap was 21.625rem.
+        style={
+          isSearching
+            ? { maxHeight: PICKER_MAX_HEIGHT, height: searchHeight }
+            : { maxHeight: PICKER_MAX_HEIGHT }
+        }
         data-model-picker-content="true"
       >
         {showSidebar && (
@@ -809,6 +844,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             onFocusSearch={focusSearchInput}
             instanceEntries={sidebarInstanceEntries}
             showFavorites
+            {...(providerRefresh.canRefresh
+              ? { onRefresh: providerRefresh.refresh, refreshing: providerRefresh.refreshing }
+              : {})}
             {...(selectableUnavailableInstanceIds ? { selectableUnavailableInstanceIds } : {})}
             {...(lockedDisabledInstanceIds
               ? {
@@ -977,6 +1015,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     providerAccentColor={model.instanceAccentColor}
                     acpRegistryAgentId={model.acpRegistryAgentId}
                     acpRegistryIconUrl={model.acpRegistryIconUrl}
+                    customLogoUrl={model.customLogoUrl}
                     isFavorite={favoritesSet.has(providerModelKey(model.instanceId, model.slug))}
                     isSelected={
                       selectedModelKeys !== undefined

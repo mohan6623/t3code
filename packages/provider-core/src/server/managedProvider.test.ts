@@ -407,6 +407,41 @@ describe("makeManagedServerProvider", () => {
     ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
   );
 
+  it.effect("runs the explicit-refresh hook only for explicit refreshes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const hookCalls = yield* Ref.make(0);
+        const checkCalls = yield* Ref.make(0);
+        const initialCheckDone = yield* Deferred.make<void>();
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap((count) =>
+              count === 1
+                ? Deferred.succeed(initialCheckDone, undefined).pipe(Effect.ignore)
+                : Effect.void,
+            ),
+            Effect.as(refreshedSnapshot),
+          ),
+          refreshInterval: "1 minute",
+          beforeExplicitRefresh: Ref.update(hookCalls, (count) => count + 1),
+        });
+
+        yield* Deferred.await(initialCheckDone);
+        yield* TestClock.adjust("3 minutes");
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(hookCalls), 0);
+
+        yield* provider.refresh;
+        assert.strictEqual(yield* Ref.get(hookCalls), 1);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(layerAlwaysRunTest, TestClock.layer()))),
+  );
+
   it.effect("wakes a sleeping provider refresh loop when its interval changes", () =>
     Effect.scoped(
       Effect.gen(function* () {

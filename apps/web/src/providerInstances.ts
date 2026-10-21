@@ -36,6 +36,8 @@ export interface ProviderInstanceEntry {
   readonly accentColor?: string | undefined;
   readonly acpRegistryAgentId?: string | undefined;
   readonly acpRegistryIconUrl?: string | undefined;
+  /** Fork: the logo the user picked in provider settings (an image data URL). */
+  readonly customLogoUrl?: string | undefined;
   readonly continuationGroupKey?: string | undefined;
   readonly enabled: boolean;
   readonly installed: boolean;
@@ -154,6 +156,14 @@ export function applyProviderInstanceSettings(
   });
 }
 
+/** Fork: logos are limited to image data URLs so settings never point the app at a remote host. */
+export function readProviderInstanceLogo(
+  instance: { readonly logo?: string | undefined } | undefined,
+): string | undefined {
+  const logo = instance?.logo?.trim();
+  return logo && /^data:image\/[a-z0-9.+-]+[;,]/i.test(logo) ? logo : undefined;
+}
+
 function applyProviderInstanceBranding(
   entry: ProviderInstanceEntry,
   settings: Pick<ServerSettings, "providerInstances">,
@@ -161,18 +171,21 @@ function applyProviderInstanceBranding(
   const explicitInstance = Object.hasOwn(settings.providerInstances, entry.instanceId)
     ? settings.providerInstances[entry.instanceId]
     : undefined;
-  if (entry.driverKind !== "acpRegistry" || explicitInstance === undefined) return entry;
+  if (explicitInstance === undefined) return entry;
+  const customLogoUrl = readProviderInstanceLogo(explicitInstance);
+  const branded = customLogoUrl ? { ...entry, customLogoUrl } : entry;
+  if (entry.driverKind !== "acpRegistry") return branded;
   const config =
     explicitInstance.config !== null && typeof explicitInstance.config === "object"
       ? (explicitInstance.config as Readonly<Record<string, unknown>>)
       : null;
   if (config?.source === "local") {
-    return { ...entry, acpRegistryAgentId: undefined, acpRegistryIconUrl: undefined };
+    return { ...branded, acpRegistryAgentId: undefined, acpRegistryIconUrl: undefined };
   }
   const agentId = config?.agentId;
   const iconUrl = config?.registryIconUrl;
   return {
-    ...entry,
+    ...branded,
     ...(typeof agentId === "string" && agentId.trim()
       ? { acpRegistryAgentId: agentId.trim() }
       : {}),

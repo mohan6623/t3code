@@ -1272,6 +1272,7 @@ function OpenCommandPaletteDialog(props: {
           }
           acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
           acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
+          customLogoUrl={providerEntry?.customLogoUrl}
         />
       );
     },

@@ -5,6 +5,7 @@ import { SparklesIcon, StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { RefreshIcon } from "../ui/refresh-icon";
 import {
   isProviderInstancePickerReady,
   shouldShowInstanceBadge,
@@ -44,6 +45,9 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
   selectableUnavailableInstanceIds?: ReadonlySet<ProviderInstanceId>;
   getDisabledInstanceTooltip?: (entry: ProviderInstanceEntry) => string;
   newBadgeInstanceIds?: ReadonlySet<ProviderInstanceId>;
+  /** Fork: re-asks every provider for its status and models. */
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }) {
   const handleSelect = (instanceId: ProviderInstanceId | "favorites") => {
     props.onSelectInstance(instanceId);
@@ -185,6 +189,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                   accentColor={entry.accentColor}
                   acpRegistryAgentId={entry.acpRegistryAgentId}
                   acpRegistryIconUrl={entry.acpRegistryIconUrl}
+                  customLogoUrl={entry.customLogoUrl}
                   showBadge={showInstanceBadge}
                   className="size-6 z-30"
                   iconClassName="size-5"
@@ -230,6 +235,34 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
               </div>
             );
           })}
+          {props.onRefresh ? (
+            <div className="mt-auto w-full pt-1" data-model-picker-refresh="true">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Toolbar.Button
+                      className="flex w-full cursor-pointer aspect-square items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:bg-foreground/10 focus-visible:outline-none disabled:cursor-default"
+                      onClick={() => props.onRefresh?.()}
+                      disabled={props.refreshing === true}
+                      focusableWhenDisabled
+                      aria-busy={props.refreshing === true}
+                      aria-label="Refresh providers and models"
+                      type="button"
+                    >
+                      <RefreshIcon refreshing={props.refreshing === true} size="md" />
+                    </Toolbar.Button>
+                  }
+                />
+                <TooltipPopup
+                  side={PICKER_TOOLTIP_SIDE}
+                  sideOffset={PICKER_TOOLTIP_SIDE_OFFSET}
+                  align="center"
+                >
+                  {props.refreshing ? "Refreshing providers" : "Refresh providers and models"}
+                </TooltipPopup>
+              </Tooltip>
+            </div>
+          ) : null}
         </div>
       </div>
     </Toolbar.Root>

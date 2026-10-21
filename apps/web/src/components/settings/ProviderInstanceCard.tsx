@@ -40,7 +40,7 @@ import {
 import { cn } from "../../lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { normalizeProviderAccentColor } from "../../providerInstances";
+import { normalizeProviderAccentColor, readProviderInstanceLogo } from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -58,6 +58,7 @@ import { deriveProviderSettingsFields, ProviderSettingsForm } from "./ProviderSe
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
+import { ProviderLogoPicker } from "./ProviderLogoPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { AcpSessionManagementSection } from "./AcpSessionManagementSection";
@@ -690,6 +691,7 @@ export function ProviderInstanceCard({
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
+  const customLogoUrl = readProviderInstanceLogo(instance);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
       toastManager.add({
@@ -754,6 +756,15 @@ export function ProviderInstanceCard({
     );
   };
 
+  const updateLogo = (value: string | undefined) => {
+    const { logo: _omit, ...rest } = instance;
+    onUpdate(
+      value
+        ? ({ ...rest, logo: value } as ProviderInstanceConfig)
+        : (rest as ProviderInstanceConfig),
+    );
+  };
+
   const updateConfig = (nextConfig: Record<string, unknown> | undefined) => {
     const { config: _omit, ...rest } = instance;
     onUpdate(
@@ -808,6 +819,7 @@ export function ProviderInstanceCard({
       driverKind={driverKind ?? instance.driver}
       displayName={displayName}
       accentColor={accentColor}
+      customLogoUrl={customLogoUrl}
       acpRegistryAgentId={
         readConfigString(instance.config, "source") === "local"
           ? undefined
@@ -1166,6 +1178,11 @@ export function ProviderInstanceCard({
                 value={accentColor}
                 onCommit={updateAccentColor}
                 commitDelayMs={120}
+              />
+              <ProviderLogoPicker
+                displayName={displayName}
+                value={customLogoUrl}
+                onCommit={updateLogo}
               />
               <DraftInput
                 id={`provider-instance-${instanceId}-display-name`}

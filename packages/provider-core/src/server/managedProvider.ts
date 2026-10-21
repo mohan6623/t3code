@@ -52,6 +52,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   }) => Effect.Effect<void>;
   readonly refreshInterval?: Duration.Input;
   readonly refreshOnInterval?: boolean;
+  /** Runs before an explicit refresh (not the periodic one), e.g. to drop cached probe results. */
+  readonly beforeExplicitRefresh?: Effect.Effect<void>;
   readonly checkProviderOnSettingsChange?: (previous: Settings, next: Settings) => boolean;
 }): Effect.fn.Return<
   ManagedServerProvider,
@@ -302,7 +304,12 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     getSnapshot: Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot)),
     refresh: input
       .resolveMaintenance({ fresh: true })
-      .pipe(Effect.andThen(refreshSnapshot), Effect.tapError(Effect.logError), Effect.orDie),
+      .pipe(
+        Effect.andThen(input.beforeExplicitRefresh ?? Effect.void),
+        Effect.andThen(refreshSnapshot),
+        Effect.tapError(Effect.logError),
+        Effect.orDie,
+      ),
     applyUsageLimits,
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);

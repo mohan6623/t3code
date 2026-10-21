@@ -40,6 +40,7 @@ export function ThreadCommandSubtitle(props: {
   providerDisplayName?: string | null;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
+  customLogoUrl?: string | undefined;
   variant?: ThreadCommandSubtitleVariant;
   className?: string;
 }) {
@@ -95,6 +96,7 @@ export function ThreadCommandSubtitle(props: {
             displayName={props.providerDisplayName ?? props.driverKind}
             acpRegistryAgentId={props.acpRegistryAgentId}
             acpRegistryIconUrl={props.acpRegistryIconUrl}
+            customLogoUrl={props.customLogoUrl}
             iconClassName="size-3 shrink-0 opacity-70"
           />
         </>

@@ -667,6 +667,7 @@ function HandoffEndpoint(props: {
               accentColor={entry?.accentColor}
               acpRegistryAgentId={entry?.acpRegistryAgentId}
               acpRegistryIconUrl={entry?.acpRegistryIconUrl}
+              customLogoUrl={entry?.customLogoUrl}
               showBadge={showBadge}
               size="compact"
               iconClassName={cn(showBadge && "opacity-60")}

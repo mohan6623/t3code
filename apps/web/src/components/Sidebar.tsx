@@ -317,6 +317,7 @@ type SidebarProviderEntry = Pick<
   | "accentColor"
   | "acpRegistryAgentId"
   | "acpRegistryIconUrl"
+  | "customLogoUrl"
   | "models"
 >;
 
@@ -335,6 +336,7 @@ function sameSidebarProviderEntries(
       other.accentColor !== entry.accentColor ||
       other.acpRegistryAgentId !== entry.acpRegistryAgentId ||
       other.acpRegistryIconUrl !== entry.acpRegistryIconUrl ||
+      other.customLogoUrl !== entry.customLogoUrl ||
       other.models !== entry.models
     ) {
       return false;
@@ -939,6 +941,7 @@ function SidebarProviderStack(props: {
       accentColor={currentEntry.accentColor}
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
+      customLogoUrl={currentEntry.customLogoUrl}
       showBadge={showInstanceBadge}
       size="compact"
       iconClassName="opacity-60"
@@ -959,6 +962,7 @@ function SidebarProviderStack(props: {
             displayName={entry.displayName}
             acpRegistryAgentId={entry.acpRegistryAgentId}
             acpRegistryIconUrl={entry.acpRegistryIconUrl}
+            customLogoUrl={entry.customLogoUrl}
             iconClassName="size-3 opacity-35 grayscale"
           />
         );
@@ -1056,6 +1060,7 @@ function SidebarThreadTooltip({
               accentColor={providerEntry?.accentColor}
               acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
               acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
+              customLogoUrl={providerEntry?.customLogoUrl}
               showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
               badgeContent="none"
               badgeClassName="h-2 min-w-2 px-0"

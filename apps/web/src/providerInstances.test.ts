@@ -266,6 +266,38 @@ describe("applyProviderInstanceSettings", () => {
   });
 });
 
+describe("custom provider logos", () => {
+  const settingsWithLogo = (logo: string) => ({
+    providerInstances: {
+      [ProviderInstanceId.make("kiro")]: {
+        driver: ProviderDriverKind.make("acpRegistry"),
+        logo,
+        config: { source: "local", commandPath: "kiro-cli" },
+      },
+    },
+    projectSettingsOverrides: {},
+  });
+  const entries = () =>
+    deriveProviderInstanceEntries([
+      provider({ provider: ProviderDriverKind.make("acpRegistry"), instanceId: "kiro" }),
+    ]);
+
+  it("shows an image data URL logo, even for a local ACP command", () => {
+    const logo = "data:image/svg+xml;base64,PHN2Zy8+";
+    const [entry] = applyProviderInstanceSettings(entries(), settingsWithLogo(logo), null);
+    expect(entry?.customLogoUrl).toBe(logo);
+  });
+
+  it("ignores a logo that is not an image data URL", () => {
+    const [entry] = applyProviderInstanceSettings(
+      entries(),
+      settingsWithLogo("https://example.com/logo.png"),
+      null,
+    );
+    expect(entry?.customLogoUrl).toBeUndefined();
+  });
+});
+
 describe("deriveProviderInstanceEntries", () => {
   it("uses explicit instance id and driver kind from the snapshot", () => {
     const snapshot = provider({

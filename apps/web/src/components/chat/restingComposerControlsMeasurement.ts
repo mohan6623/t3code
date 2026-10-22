@@ -81,7 +81,9 @@ export function measureRestingComposerControls(
   const separator = controls.querySelector<HTMLElement>("[data-resting-controls-separator]");
   const separatorWidth = separator ? elementOuterWidth(separator) : 0;
   const overflow = controls.querySelector<HTMLElement>("[data-resting-controls-overflow]");
-  const separatorAndGapWidth = separatorWidth > 0 ? separatorWidth + gap : 0;
+  // The separator's negative margins can make its outer width negative while it still takes a gap.
+  const separatorShown = separator !== null && separator.getBoundingClientRect().width > 0;
+  const separatorAndGapWidth = separatorShown ? Math.max(0, separatorWidth + gap) : 0;
   const blocks = Array.from(controls.querySelectorAll<HTMLElement>("[data-resting-block]"));
   const widths = blocks.map(controlBlockWidths);
   return {

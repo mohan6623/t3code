@@ -75,7 +75,8 @@ export function ComposerControlSeparator({
   return (
     <Separator
       orientation="vertical"
-      className={cn("mx-0.5 hidden sm:block", size === "xs" ? "h-3.5!" : "h-4", className)}
+      // Fork: the line borrows half of each neighbouring gap, so the dock spends less width on it.
+      className={cn("-mx-0.5 hidden sm:block", size === "xs" ? "h-3.5!" : "h-4", className)}
       {...props}
     />
   );

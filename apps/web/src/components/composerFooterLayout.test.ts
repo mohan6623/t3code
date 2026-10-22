@@ -193,26 +193,20 @@ describe("progressive composer controls", () => {
 });
 
 describe("dock priority order", () => {
-  it("folds the context labels, then the controls, the timer, the rows, the figures, the name", () => {
+  it("folds the context labels, then the controls, the timer, the figures, the name", () => {
     expect(DOCK_FOLD_ORDER).toEqual([
       "context-labels",
       "composer-controls",
       "cache-timer",
-      "usage-rows",
       "usage-figures",
       "model-name",
     ]);
-    expect(CONTEXT_STRIP_FOLD_STEPS).toEqual([
-      "context-labels",
-      "cache-timer",
-      "usage-rows",
-      "usage-figures",
-    ]);
+    expect(CONTEXT_STRIP_FOLD_STEPS).toEqual(["context-labels", "cache-timer", "usage-figures"]);
   });
 
   it("sets each fold attribute from its step's level on", () => {
-    const attributes = [0, 1, 2, 3, 4].map((level) =>
-      Object.entries(contextStripFoldAttributes(level as 0 | 1 | 2 | 3 | 4))
+    const attributes = [0, 1, 2, 3].map((level) =>
+      Object.entries(contextStripFoldAttributes(level as 0 | 1 | 2 | 3))
         .filter(([, value]) => value !== undefined)
         .map(([name]) => name),
     );
@@ -220,8 +214,7 @@ describe("dock priority order", () => {
       [],
       ["data-compact"],
       ["data-compact", "data-fold-timer"],
-      ["data-compact", "data-fold-timer", "data-usage-rows", "data-usage-row-figures"],
-      ["data-compact", "data-fold-timer", "data-usage-rows", "data-fold-figures"],
+      ["data-compact", "data-fold-timer", "data-fold-figures"],
     ]);
   });
 
@@ -239,15 +232,13 @@ describe("dock priority order", () => {
     expect(CONTEXT_STRIP_PART_LEVELS).toEqual({
       label: [0, 0],
       timer: [0, 1],
-      line: [0, 2],
-      rows: [3, 3],
-      figures: [0, 3],
+      figures: [0, 2],
     });
   });
 });
 
 describe("resolveContextStripFoldLevel", () => {
-  const neededWidths = [600, 500, 420, 300] as const;
+  const neededWidths = [600, 500, 420] as const;
 
   it("folds in order as the strip narrows", () => {
     for (const [availableWidth, level] of [
@@ -257,26 +248,24 @@ describe("resolveContextStripFoldLevel", () => {
       [499, 2],
       [420, 2],
       [419, 3],
-      [300, 3],
-      [299, 4],
-      [0, 4],
+      [0, 3],
     ] as const) {
       expect(resolveContextStripFoldLevel({ level: 0, neededWidths, availableWidth })).toBe(level);
     }
   });
 
   it("needs slack before it unfolds a level", () => {
-    expect(resolveContextStripFoldLevel({ level: 4, neededWidths, availableWidth: 315 })).toBe(4);
-    expect(resolveContextStripFoldLevel({ level: 4, neededWidths, availableWidth: 316 })).toBe(3);
     expect(resolveContextStripFoldLevel({ level: 3, neededWidths, availableWidth: 435 })).toBe(3);
     expect(resolveContextStripFoldLevel({ level: 3, neededWidths, availableWidth: 436 })).toBe(2);
+    expect(resolveContextStripFoldLevel({ level: 2, neededWidths, availableWidth: 515 })).toBe(2);
+    expect(resolveContextStripFoldLevel({ level: 2, neededWidths, availableWidth: 516 })).toBe(1);
   });
 
   it("does not flip between levels within a few pixels of a threshold", () => {
-    let level = resolveContextStripFoldLevel({ level: 0, neededWidths, availableWidth: 296 });
-    for (const availableWidth of [296, 300, 304, 300, 296, 304]) {
+    let level = resolveContextStripFoldLevel({ level: 0, neededWidths, availableWidth: 416 });
+    for (const availableWidth of [416, 420, 424, 420, 416, 424]) {
       level = resolveContextStripFoldLevel({ level, neededWidths, availableWidth });
-      expect(level).toBe(4);
+      expect(level).toBe(3);
     }
   });
 });

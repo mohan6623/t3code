@@ -850,7 +850,9 @@ export const BranchToolbar = memo(function BranchToolbar({
       {showGitControls || showEnvironmentIndicator ? (
         <div
           className={cn(
-            "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
+            // Fork: once the machine name folds, the icon alone is narrower than min-w-10, which
+            // would leave a gap before the divider.
+            "min-h-7 min-w-10 items-center gap-1 sm:min-h-6 [[data-compact]_&]:min-w-0",
             showGitControls ? "hidden @3xl/composer-surface:flex" : "flex",
             composerControlsHostRef ? "shrink" : "flex-1",
           )}
@@ -869,7 +871,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               {showGitControls ? (
                 <Separator
                   orientation="vertical"
-                  className="mx-0.5 h-3.5!"
+                  className="-mx-0.5 h-3.5!"
                   data-composer-context-control
                 />
               ) : null}

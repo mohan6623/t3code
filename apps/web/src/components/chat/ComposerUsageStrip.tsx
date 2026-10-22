@@ -386,10 +386,7 @@ export function ComposerUsageStrip({
             aria-label={`${providerName(provider)} usage limits`}
             className={cn(
               "flex min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground",
-              // Fork: the strip moves the limits to rows when it runs short of room.
-              splitRows
-                ? "min-h-6"
-                : "py-0.5 group-data-[usage-rows]/composer-context:min-h-6 group-data-[usage-rows]/composer-context:py-0",
+              splitRows ? "min-h-6" : "py-0.5",
             )}
           />
         }
@@ -422,34 +419,22 @@ export function ComposerUsageStrip({
             <span
               className={cn(
                 "flex w-10 shrink-0 flex-col",
-                splitRows
-                  ? "gap-1.5"
-                  : "translate-y-px gap-0.5 group-data-[usage-rows]/composer-context:translate-y-0 group-data-[usage-rows]/composer-context:gap-1.5",
+                splitRows ? "gap-1.5" : "translate-y-px gap-0.5",
               )}
             >
               {rows.map((window) => (
                 <Bar key={window.id} percent={window.usedPercent} color={color} />
               ))}
             </span>
-            {/* The figures: on one line, or one row per limit (see DOCK_FOLD_ORDER). */}
-            <span className="flex shrink-0">
-              {splitRows ? null : (
-                <span
-                  data-strip-fold="line"
-                  className="flex max-w-60 min-w-0 shrink-0 overflow-hidden transition-opacity duration-180 ease-drawer group-data-[usage-rows]/composer-context:max-w-0 group-data-[usage-rows]/composer-context:opacity-0 motion-reduce:transition-none"
-                >
-                  <span className="shrink-0 whitespace-nowrap">{summary}</span>
-                </span>
+            {/* The figures fold away when the dock runs short of room (see DOCK_FOLD_ORDER). */}
+            <span
+              data-strip-fold="figures"
+              className={cn(
+                "flex max-w-60 min-w-0 shrink-0 overflow-hidden transition-opacity duration-180 ease-drawer group-data-[fold-figures]/composer-context:max-w-0 group-data-[fold-figures]/composer-context:opacity-0 motion-reduce:transition-none",
+                splitRows && "text-2xs leading-3",
               )}
-              <span
-                data-strip-fold={splitRows ? "figures" : "rows"}
-                className={cn(
-                  "flex min-w-0 shrink-0 overflow-hidden text-2xs leading-3 transition-opacity duration-180 ease-drawer motion-reduce:transition-none",
-                  splitRows
-                    ? "max-w-60 group-data-[fold-figures]/composer-context:max-w-0 group-data-[fold-figures]/composer-context:opacity-0"
-                    : "max-w-0 opacity-0 group-data-[usage-row-figures]/composer-context:max-w-60 group-data-[usage-row-figures]/composer-context:opacity-100",
-                )}
-              >
+            >
+              {splitRows ? (
                 <span className="flex shrink-0 flex-col whitespace-nowrap">
                   {rows.map((window) => (
                     <span key={window.id} className="flex gap-1.5">
@@ -461,7 +446,9 @@ export function ComposerUsageStrip({
                     </span>
                   ))}
                 </span>
-              </span>
+              ) : (
+                <span className="shrink-0 whitespace-nowrap">{summary}</span>
+              )}
             </span>
           </>
         )}

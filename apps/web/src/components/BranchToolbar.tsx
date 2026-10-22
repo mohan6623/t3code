@@ -217,7 +217,11 @@ const RunContextSelector = memo(function RunContextSelector({
         ? resolveEnvModeLabel("worktree")
         : resolveCurrentWorkspaceLabel(activeWorktreePath);
   const isPanel = displayMode === "panel";
-  const isLocked = envLocked || (envModeLocked && (!isPanel || !showEnvironmentPicker));
+  // Fork: a started thread cannot switch machines or workspaces, but while its project can be
+  // added to another machine the menu stays open for that, with the locked choices disabled.
+  const isLocked =
+    (envLocked || (envModeLocked && (!isPanel || !showEnvironmentPicker))) &&
+    addTargets.length === 0;
   const workspacePath =
     forceNewWorktree || (effectiveEnvMode === "worktree" && !activeWorktreePath)
       ? null

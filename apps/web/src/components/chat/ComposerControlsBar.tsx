@@ -260,7 +260,8 @@ export function ComposerControlsBar(props: {
       {showLeadingSeparator ? (
         <ComposerControlSeparator
           size="xs"
-          className="@max-[400px]/composer-surface:hidden"
+          // Fork: first in the clipped controls host, so a negative start margin would hide it.
+          className="ms-0 @max-[400px]/composer-surface:hidden"
           data-resting-controls-separator="true"
         />
       ) : null}

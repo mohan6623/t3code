@@ -1,6 +1,6 @@
 // Fork: upstream is "pingdotgg/t3code". Fork builds carry their own version
 // numbers, which upstream has no release for, so the archives come from the
-// fork's releases (attached by .github/workflows/fork-desktop-windows.yml).
+// fork's releases (attached by .github/workflows/fork-desktop.yml).
 const CLI_RELEASE_REPOSITORY = "mohan6623/t3code";
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";

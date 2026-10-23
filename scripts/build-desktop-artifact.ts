@@ -2880,6 +2880,16 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
+    // Fork: the fork has no Apple Developer ID, so its builds are signed with one
+    // self-signed certificate, named by its SHA-1 fingerprint. Squirrel.Mac only
+    // installs an update whose signature satisfies the running app's designated
+    // requirement, which an ad hoc signature changes on every build. electron-builder
+    // only finds identities the keychain trusts, and CI cannot trust one, so it is
+    // asked for an ad hoc signature that the hook signs with the certificate instead.
+    // Hardened runtime and timestamps only serve notarization.
+    const selfSignIdentity = signed
+      ? Option.none<string>()
+      : yield* Config.String("T3CODE_MACOS_SELF_SIGN_IDENTITY").pipe(Config.option);
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
@@ -2918,6 +2928,14 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      ...(Option.isSome(selfSignIdentity)
+        ? {
+            identity: "-",
+            sign: path.join(repoRoot, "scripts/sign-macos-self-signed.ts"),
+            hardenedRuntime: false,
+            timestamp: "none",
+          }
+        : {}),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,

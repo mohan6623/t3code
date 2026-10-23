@@ -2,7 +2,7 @@ name: Fork Upstream Sync
 
 # Once a day, merges the newest official nightly into the fork branch.
 # - A clean merge that typechecks is pushed straight to the branch, which
-#   triggers "Fork Desktop Windows" to build and publish the update.
+#   triggers "Fork Desktop" to build and publish the update.
 # - A conflicting merge is resolved by Claude Code, typechecked, opened as a
 #   pull request, and merged right away. The pull request stays as the record
 #   of how each conflict was resolved. Its merge publishes the update.

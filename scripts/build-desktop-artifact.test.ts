@@ -1519,6 +1519,34 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
+  it.effect("signs fork macOS builds with the self-signed identity unless release-signed", () =>
+    Effect.gen(function* () {
+      const macConfig = (signed: boolean) =>
+        createBuildConfig("mac", "dmg", "1.2.3", signed, false, undefined, undefined).pipe(
+          Effect.map((config) => config.mac as Record<string, unknown>),
+        );
+
+      const selfSigned = yield* macConfig(false);
+      assert.equal(selfSigned.identity, "-");
+      assert.match(selfSigned.sign as string, /scripts[\\/]sign-macos-self-signed\.ts$/);
+      assert.isFalse(selfSigned.hardenedRuntime);
+      assert.equal(selfSigned.timestamp, "none");
+
+      const releaseSigned = yield* macConfig(true);
+      assert.notProperty(releaseSigned, "identity");
+      assert.notProperty(releaseSigned, "hardenedRuntime");
+      assert.match(releaseSigned.sign as string, /scripts[\\/]sign-macos\.ts$/);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: { T3CODE_MACOS_SELF_SIGN_IDENTITY: "F572E9DB488E42DF676B0EED6BBD6DFCF3E8285F" },
+          }),
+        ),
+      ),
+    ),
+  );
+
   it("parses Windows bsdtar member listings with CRLF line endings", () => {
     assert.deepStrictEqual(
       parseWslRuntimeArchiveMembers("./t3-1.2.3-linux-x64/t3\r\nt3-1.2.3-linux-x64/client/\r\n"),

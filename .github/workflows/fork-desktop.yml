@@ -295,7 +295,8 @@ jobs:
             echo "::error::The designated requirement does not pin the signing certificate, so updates would not install."
             exit 1
           fi
-          codesign --verify --deep --strict -R "$requirement" "$app"
+          # A leading "=" makes codesign read the requirement as text, not a file path.
+          codesign --verify --deep --strict -R "=$requirement" "$app"
 
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v7

@@ -41,7 +41,7 @@ import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 import { FolderTree, Globe2, WrapTextIcon } from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -53,6 +53,8 @@ import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "~/hooks/useResizableWidth";
+import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
@@ -143,6 +145,11 @@ interface FilePreviewPanelProps {
 }
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
+// Fork: the explorer beside a preview is resizable; its width is kept across sessions.
+const FILE_EXPLORER_WIDTH_STORAGE_KEY = "t3code.fileExplorerWidth";
+const FILE_EXPLORER_DEFAULT_WIDTH = 352;
+const FILE_EXPLORER_MIN_WIDTH = 200;
+const FILE_EXPLORER_MAX_WIDTH = 720;
 const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
 const RENDER_BROWSER_FILE_STORAGE_KEY = "t3code.renderBrowserFile";
 const RENDER_TABLE_STORAGE_KEY = "t3code.renderTable";
@@ -1073,6 +1080,14 @@ export default function FilePreviewPanel({
     explorerOpen,
     attachmentOpen: attachment !== undefined,
   });
+  const explorerWidth = useResizableWidth({
+    storageKey: FILE_EXPLORER_WIDTH_STORAGE_KEY,
+    defaultWidth: FILE_EXPLORER_DEFAULT_WIDTH,
+    minWidth: FILE_EXPLORER_MIN_WIDTH,
+    maxWidth: FILE_EXPLORER_MAX_WIDTH,
+    // The handle sits on the explorer's left edge, facing the preview.
+    edge: "left",
+  });
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
     RENDER_MARKDOWN_STORAGE_KEY,
     false,
@@ -1462,11 +1477,18 @@ export default function FilePreviewPanel({
           <aside
             className={cn(
               "flex min-h-0 shrink-0 bg-background",
-              previewPath
-                ? "w-[min(22rem,46%)] min-w-64 border-l border-border/60"
-                : "min-w-0 flex-1",
+              previewPath ? "relative max-w-[70%] border-l border-border/60" : "min-w-0 flex-1",
             )}
+            style={
+              previewPath
+                ? ({
+                    [RESIZABLE_WIDTH_PROPERTY]: `${explorerWidth.width}px`,
+                    width: `var(${RESIZABLE_WIDTH_PROPERTY})`,
+                  } as CSSProperties)
+                : undefined
+            }
           >
+            {previewPath ? <RightPanelResizeHandle handlers={explorerWidth.handlers} /> : null}
             <FileBrowserPanel
               key={`${environmentId}:${hostFolderPath ?? cwd}`}
               environmentId={environmentId}

@@ -936,6 +936,10 @@ export function shouldShowPlanFollowUpPrompt(input: {
   );
 }
 
+// A typed `/compact`, with or without instructions, is already the compaction. Queueing a
+// bare one ahead of it would run an uninstructed compaction first and charge for two.
+const COMPACT_COMMAND_PATTERN = /^\/compact(?:\s|$)/i;
+
 const sessionDismissedBranchMismatchKeys = new Set<string>();
 
 export function dismissBranchMismatchForSession(key: string): void {
@@ -1548,7 +1552,7 @@ export function planComposerTurn(input: {
   const compactBeforeSend =
     input.resumeCompactionTokens !== null &&
     !input.keepFullHistory &&
-    input.messageText.toLowerCase() !== "/compact";
+    !COMPACT_COMMAND_PATTERN.test(input.messageText);
   // The server starts each repository of a multi-repo workspace folder from its own default
   // branch, so there is no base branch to pick. A root repository isolates as a single one.
   const repositories = input.workspaceRepositories ?? [];

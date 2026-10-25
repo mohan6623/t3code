@@ -235,11 +235,7 @@ const RunContextSelector = memo(function RunContextSelector({
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
         <WorkspaceIcon
-          className={
-            isPanel
-              ? THREAD_DETAILS_PANEL_ICON_CLASS
-              : cn("size-3 shrink-0", showEnvironmentIndicator && "mx-0!")
-          }
+          className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
         />
       </TooltipTrigger>
       <TooltipPopup>
@@ -251,52 +247,36 @@ const RunContextSelector = memo(function RunContextSelector({
       </TooltipPopup>
     </Tooltip>
   );
+  const environmentLabel = autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on";
   // Fork: in the composer strip the machine icon alone stands for the run
   // context; the folder or worktree shows in its tooltip and its menu.
-  const icon =
-    showEnvironmentIndicator && !isPanel ? (
-      <Tooltip>
-        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-          {autoEnvironmentLabel ? (
-            <ScaleIcon className="size-3 shrink-0 mx-0!" aria-hidden="true" />
-          ) : (
-            <EnvironmentMachineIcon
-              kind={activeEnvironment?.machine ?? "server"}
-              className="size-3 shrink-0 mx-0!"
-            />
-          )}
-        </TooltipTrigger>
-        <TooltipPopup>
-          {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"} · {workspaceLabel}
-        </TooltipPopup>
-      </Tooltip>
-    ) : showEnvironmentIndicator ? (
-      // Button's base styles apply `-mx-0.5` to descendant SVGs, which eats 4px
-      // out of whatever gap we set. mx-0! cancels that so gap-0.5 reads as 2px.
-      <span className="inline-flex shrink-0 items-center gap-0.5">
-        <Tooltip>
-          <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-            {autoEnvironmentLabel ? (
-              <ScaleIcon
-                className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-                aria-hidden="true"
-              />
-            ) : (
-              <EnvironmentMachineIcon
-                kind={activeEnvironment?.machine ?? "server"}
-                className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-              />
-            )}
-          </TooltipTrigger>
-          <TooltipPopup>
-            {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}
-          </TooltipPopup>
-        </Tooltip>
-        {workspaceIcon}
-      </span>
-    ) : (
-      workspaceIcon
-    );
+  const icon = !showEnvironmentIndicator ? (
+    workspaceIcon
+  ) : (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+        {autoEnvironmentLabel ? (
+          <ScaleIcon
+            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+            aria-hidden="true"
+          />
+        ) : (
+          <EnvironmentMachineIcon
+            kind={activeEnvironment?.machine ?? "server"}
+            // Wide machine glyphs need a little more box to match the square row icons.
+            className={
+              isPanel
+                ? cn(THREAD_DETAILS_PANEL_ICON_CLASS, "-mx-px size-4.5")
+                : "size-3 shrink-0 mx-0!"
+            }
+          />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup>
+        {isPanel ? environmentLabel : `${environmentLabel} · ${workspaceLabel}`}
+      </TooltipPopup>
+    </Tooltip>
+  );
   const triggerContent = (
     <>
       {icon}
@@ -304,6 +284,8 @@ const RunContextSelector = memo(function RunContextSelector({
         {autoEnvironmentLabel ??
           (showEnvironmentIndicator ? (activeEnvironment?.label ?? "Run on") : workspaceLabel)}
       </ComposerContextLabel>
+      {/* Trailing in the panel, so every row label starts on the same edge. */}
+      {isPanel && showEnvironmentIndicator ? workspaceIcon : null}
     </>
   );
 
@@ -311,7 +293,7 @@ const RunContextSelector = memo(function RunContextSelector({
     return (
       <span
         className={cn(
-          "inline-flex h-7 min-w-0 max-w-[48%] flex-initial items-center justify-start gap-1 rounded-md border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
+          "inline-flex h-7 min-w-0 max-w-[48%] flex-initial items-center justify-start gap-1 rounded-md border border-transparent px-1.75 font-normal text-foreground/70 text-xs sm:h-6 dark:text-muted-foreground",
           isPanel && "max-w-full",
           isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
         )}
@@ -476,10 +458,7 @@ const COMPOSER_CONTEXT_MOTION_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
 // Fork: every part that folds at some strip level (see DOCK_FOLD_ORDER).
 const COMPOSER_CONTEXT_FOLD_SELECTOR = "[data-composer-label], [data-strip-fold]";
 
-/**
- * Reading one element's scrollWidth drops the tail when the label is hidden or
- * squeezed, and the strip then flips between labels and icons on every measure.
- */
+/** A hidden or squeezed label's scrollWidth loses its tail, causing label/icon flapping. */
 function labelTextWidth(label: HTMLElement, range: Range): number {
   // Fork: a label of fixed-width columns (the usage badge's figures) keeps its
   // natural width inside the collapsed box, so its scroll width is exact.
@@ -540,11 +519,7 @@ export function useLabelsOverflow(element: HTMLDivElement | null): ContextStripF
     let groups = 0;
     for (const child of current.children) {
       if (!(child instanceof HTMLElement)) continue;
-      // Reserve the natural width of the controls inside it, blocks in overflow
-      // included, so Git labels compact before squeezing out the model picker.
-      // Reserving only the visible controls would let the labels expand into
-      // room the composer just freed, shrink the host, and hide the controls
-      // again.
+      // Reserve overflowed controls' width to prevent repeated hiding and expansion.
       const hostedControls = child.matches('[data-chat-resting-composer-controls-host="true"]')
         ? child.querySelector<HTMLElement>('[data-chat-composer-resting-controls="true"]')
         : null;
@@ -820,10 +795,8 @@ export const BranchToolbar = memo(function BranchToolbar({
       ref={setStripElement}
       {...contextStripFoldAttributes(stripFoldLevel)}
       className={cn(
-        "gap-1 text-xs font-normal text-muted-foreground/70",
-        // A non-Git strip with no visible composer controls should occupy no
-        // space, but its host must retain a prospective width so controls can
-        // become visible again when the chat view grows.
+        "gap-1 text-xs font-normal text-foreground/70 dark:text-muted-foreground",
+        // Hide empty non-Git strips while retaining host width so controls can reappear as the chat grows.
         !contextStripVisible && "pointer-events-none invisible absolute inset-x-0 top-full",
       )}
     >

@@ -162,12 +162,7 @@ export function ComposerControlsBar(props: {
       ? [
           {
             id: "traits",
-            content: (
-              <>
-                <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
-              </>
-            ),
+            content: restingProviderTraitsPicker,
           },
         ]
       : []),
@@ -222,7 +217,7 @@ export function ComposerControlsBar(props: {
         composerControlsCollapsed
           ? // Fork: the model name always shows. It truncates only as the last resort.
             "min-w-13 shrink text-xs!"
-          : "-ms-2.5 min-w-13"
+          : "-ms-2 min-w-13"
       }
       terminalOpen={terminalOpen}
       open={modelPickerOpen}

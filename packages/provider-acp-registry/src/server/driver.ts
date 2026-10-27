@@ -631,7 +631,11 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       checkProvider,
       // A manual refresh re-asks the agent, so a new sign-in shows its models at once.
       beforeExplicitRefresh: liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache),
-      enrichSnapshot: ({ snapshot, getSnapshot, publishSnapshot }) => {
+      enrichSnapshot: Effect.fn("enrichSnapshot")(function ({
+        snapshot,
+        getSnapshot,
+        publishSnapshot,
+      }) {
         if (!snapshot.installed) return Effect.void;
         const publishEnrichment = (
           Option.isSome(runtimeCoordinator)
@@ -641,7 +645,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                   : effectiveConfig.agentId,
                 enrichProviderCached(snapshot),
               )
-            : enrichProviderCached(snapshot).pipe(Effect.map(Option.some))
+            : enrichProviderCached(snapshot).pipe(Effect.asSome)
         ).pipe(
           Effect.flatMap(
             Option.match({
@@ -713,7 +717,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             discard: true,
           },
         );
-      },
+      }),
     }).pipe(
       Effect.mapError(
         (cause) =>

@@ -280,7 +280,15 @@ export function PullRequestPrimaryAction({
                   ) : (
                     <PullRequestGlyph.merged aria-hidden className="size-3.5" />
                   )}
-                  <AnimatedWidth className="@max-[30rem]/pr-header:hidden">
+                  {/* Fork: a narrow header hides the label, but never the confirm step,
+                      so a lone tick is not mistaken for a finished merge. */}
+                  <AnimatedWidth
+                    className={cn(
+                      pendingAction !== "enable-auto-merge" &&
+                        !inlineConfirm.isArmed("enable-auto-merge") &&
+                        "@max-[30rem]/pr-header:hidden",
+                    )}
+                  >
                     <span className="grid">
                       <span aria-hidden className="invisible col-start-1 row-start-1">
                         {pendingAutoMergeLabel}
@@ -346,7 +354,15 @@ export function PullRequestPrimaryAction({
                   ) : (
                     <PullRequestGlyph.merged aria-hidden className="size-3.5" />
                   )}
-                  <AnimatedWidth className="@max-[30rem]/pr-header:hidden">
+                  {/* Fork: a narrow header hides the label, but never the confirm step,
+                      so a lone tick is not mistaken for a finished merge. */}
+                  <AnimatedWidth
+                    className={cn(
+                      pendingAction !== "merge" &&
+                        !inlineConfirm.isArmed("merge") &&
+                        "@max-[30rem]/pr-header:hidden",
+                    )}
+                  >
                     <span className="grid">
                       <span aria-hidden className="invisible col-start-1 row-start-1">
                         {selectedMergeMethodLabel}

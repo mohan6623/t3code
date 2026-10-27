@@ -586,6 +586,25 @@ export function PullRequestDetailPanel({
     reportFailure: false,
   });
   const [pendingAction, setPendingAction] = useState<PullRequestAction | null>(null);
+  // Fork: set when a merge succeeds, until the host shows what it did.
+  const mergeSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mergeSentRef.current !== pullRequestKey || detail === null) return;
+    const outcome =
+      detail.state === "merged" ? "merged" : detail.autoMergeEnabled === true ? "queued" : null;
+    if (outcome === null) return;
+    mergeSentRef.current = null;
+    const term = terminology.singular;
+    toastManager.add(
+      outcome === "merged"
+        ? { type: "success", title: `${term.charAt(0).toUpperCase()}${term.slice(1)} merged` }
+        : {
+            type: "info",
+            title: "Queued to merge",
+            description: "The host merges it on its own once its checks pass.",
+          },
+    );
+  }, [detail, pullRequestKey, terminology.singular]);
   const actionPending = pendingAction !== null;
   const newThread = useNewThreadHandler();
   const { environments } = useEnvironments();
@@ -656,6 +675,18 @@ export function PullRequestDetailPanel({
     }
     if (action === "delete-branch") {
       toastManager.add({ type: "success", title: "Branch deleted" });
+    }
+    // Fork: say what the merge did once the host shows it. The host can be a
+    // moment late, so read it once more if the first read still shows it open.
+    if (action === "merge") {
+      const key = pullRequestKey;
+      mergeSentRef.current = key;
+      window.setTimeout(() => {
+        if (mergeSentRef.current === key) void refreshFromHost();
+      }, 3000);
+      window.setTimeout(() => {
+        if (mergeSentRef.current === key) mergeSentRef.current = null;
+      }, 30_000);
     }
     if (pullRequestActionNeedsHostRefresh(action)) {
       void refreshFromHost();

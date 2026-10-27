@@ -51,7 +51,10 @@ import {
   SquareIcon,
   UnplugIcon,
 } from "lucide-react";
+import * as Schema from "effect/Schema";
 import { useState, type ReactNode } from "react";
+
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -119,6 +122,9 @@ function ThreadLineageRowList(props: {
     </>
   );
 }
+
+/** Fork: whether the "Previous agents" section is open, kept across threads and restarts. */
+const PREVIOUS_AGENTS_OPEN_KEY = "t3code:thread-details:previous-agents-open";
 
 function ThreadLineageGroup(props: {
   readonly label: string | null;
@@ -247,6 +253,11 @@ export function ThreadRelationshipsPanel(props: {
   );
   const [busyAction, setBusyAction] = useState<"merge" | "detach" | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [previousAgentsOpen, setPreviousAgentsOpen] = useLocalStorage(
+    PREVIOUS_AGENTS_OPEN_KEY,
+    false,
+    Schema.Boolean,
+  );
   // These lookups and the graph walk every subagent and thread, so they sit below
   // the panel's hooks where the compiler can cache them.
   const providers = providersByEnvironment.get(props.environmentId);
@@ -318,10 +329,18 @@ export function ThreadRelationshipsPanel(props: {
       ? "previous"
       : "active";
   });
+  // Fork: with only finished agents to show, the section is one closed
+  // "Previous agents" row instead of an empty-looking "Lineage" heading.
+  const onlyPrevious = related.length === 0 && active.length === 0;
   const groups = [
     { id: "related", label: null, rows: related, expanded: true },
     { id: "active", label: null, rows: active, expanded: true },
-    { id: "previous", label: "Previous agents", rows: previous, expanded: false },
+    {
+      id: "previous",
+      label: onlyPrevious ? null : "Previous agents",
+      rows: previous,
+      expanded: onlyPrevious,
+    },
   ];
   const runningCount =
     (projection?.subagents.filter(
@@ -401,7 +420,19 @@ export function ThreadRelationshipsPanel(props: {
   return (
     <ThreadDetailsSection
       headingId="thread-details-lineage-heading"
-      title={runningCount > 0 ? `Lineage · ${runningCount} running` : "Lineage"}
+      title={
+        onlyPrevious && runningCount === 0
+          ? `Previous agents (${previous.length})`
+          : runningCount > 0
+            ? `Related threads · ${runningCount} running`
+            : "Related threads"
+      }
+      {...(onlyPrevious && runningCount === 0
+        ? {
+            collapsed: !previousAgentsOpen,
+            onCollapsedChange: (c: boolean) => setPreviousAgentsOpen(!c),
+          }
+        : {})}
       data-thread-relationships-panel
       actions={
         canDetach ? (

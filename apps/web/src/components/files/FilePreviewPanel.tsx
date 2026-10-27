@@ -1075,6 +1075,14 @@ export default function FilePreviewPanel({
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isFolder ? null : relativePath;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
+  const setExplorerOpenPersisted = (next: boolean) => {
+    setExplorerOpen(next);
+    try {
+      setLocalStorageItem(FILE_EXPLORER_STORAGE_KEY, next, Schema.Boolean);
+    } catch (error) {
+      console.error(error);
+    }
+  };
   const showExplorer = shouldShowFileExplorer({
     relativePath: previewPath,
     explorerOpen,
@@ -1087,6 +1095,7 @@ export default function FilePreviewPanel({
     maxWidth: FILE_EXPLORER_MAX_WIDTH,
     // The handle sits on the explorer's left edge, facing the preview.
     edge: "left",
+    onCollapse: () => setExplorerOpenPersisted(false),
   });
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
     RENDER_MARKDOWN_STORAGE_KEY,
@@ -1187,17 +1196,7 @@ export default function FilePreviewPanel({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new path or trail re-renders the crumbs, so the current one scrolls back into view.
   }, [breadcrumbPath, breadcrumbTrail]);
 
-  const toggleExplorer = () => {
-    setExplorerOpen((current) => {
-      const next = !current;
-      try {
-        setLocalStorageItem(FILE_EXPLORER_STORAGE_KEY, next, Schema.Boolean);
-      } catch (error) {
-        console.error(error);
-      }
-      return next;
-    });
-  };
+  const toggleExplorer = () => setExplorerOpenPersisted(!explorerOpen);
 
   const handleOpenInBrowser = () => {
     if (!canReadFiles || !canOperatePreview || !absolutePath || !environmentHttpBaseUrl) return;

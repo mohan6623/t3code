@@ -931,6 +931,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return duplicates;
   })();
+  // Fork: "Only" keeps one environment and turns every other one off.
+  const handleOnlyEnvironment = useStableCallback((environmentId: EnvironmentId) => {
+    setConfiguredDisabledEnvironmentIds(
+      new Set(
+        environments
+          .map((environment) => environment.environmentId)
+          .filter((id) => id !== environmentId),
+      ),
+    );
+  });
   const handleEnableAllEnvironments = useStableCallback(() => {
     setConfiguredDisabledEnvironmentIds((current) => (current.size === 0 ? current : new Set()));
   });
@@ -2998,13 +3008,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               isLastEnabled && "data-disabled:pointer-events-auto",
                             )}
                           >
-                            <span className="flex min-w-0 flex-col">
-                              <span className="truncate">{environment.label}</span>
-                              {duplicateEnvironmentLabels.has(environment.label) ? (
-                                <SidebarEnvironmentFilterUrl
-                                  environmentId={environment.environmentId}
-                                />
-                              ) : null}
+                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                              <span className="flex min-w-0 flex-1 flex-col">
+                                <span className="truncate">{environment.label}</span>
+                                {duplicateEnvironmentLabels.has(environment.label) ? (
+                                  <SidebarEnvironmentFilterUrl
+                                    environmentId={environment.environmentId}
+                                  />
+                                ) : null}
+                              </span>
+                              <EnvironmentOnlyButton
+                                label={environment.label}
+                                onSelect={() => handleOnlyEnvironment(environment.environmentId)}
+                              />
                             </span>
                           </MenuCheckboxItem>
                         );
@@ -3427,5 +3443,29 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       </SidebarContent>
       <SidebarChromeFooter />
     </>
+  );
+}
+
+/**
+ * Fork: shows only this environment's threads. The button shows on row
+ * hover or focus; its click does not reach the row's checkbox.
+ */
+function EnvironmentOnlyButton(props: { readonly label: string; readonly onSelect: () => void }) {
+  const stop = (event: { stopPropagation: () => void }) => event.stopPropagation();
+  return (
+    <button
+      type="button"
+      aria-label={`Show only ${props.label}`}
+      className="pointer-events-auto shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground opacity-0 in-data-highlighted:opacity-100 hover:bg-background/60 hover:text-foreground focus-visible:opacity-100"
+      onPointerDown={stop}
+      onPointerUp={stop}
+      onClick={(event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        props.onSelect();
+      }}
+    >
+      Only
+    </button>
   );
 }

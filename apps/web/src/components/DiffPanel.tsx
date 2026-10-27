@@ -229,6 +229,7 @@ export default function DiffPanel({
     maxWidth: DIFF_FILE_TREE_MAX_WIDTH,
     // The handle sits on the tree's left edge, facing the diff.
     edge: "left",
+    onCollapse: () => setFileTreeOpen(false),
   });
   const [baseRefQuery, setBaseRefQuery] = useState("");
   const [codeViewRevision, setCodeViewRevision] = useState(0);

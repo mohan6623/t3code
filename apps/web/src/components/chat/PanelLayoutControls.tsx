@@ -1,11 +1,4 @@
-import {
-  EllipsisVerticalIcon,
-  Maximize2Icon,
-  Minimize2Icon,
-  PanelBottomIcon,
-  PanelRightIcon,
-  SquareMenuIcon,
-} from "lucide-react";
+import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement, type ReactNode } from "react";
@@ -13,8 +6,6 @@ import { memo, type ReactElement, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
-import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -173,86 +164,46 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
 });
 
 /**
- * Fork: when the right panel is too narrow for its tabs, its maximize,
- * terminal drawer and right panel buttons fold into this one menu.
+ * The thread panel toggle on a header whose right side the inline right panel
+ * covers. Fork: when that panel is too narrow for its own buttons, the
+ * maximize, terminal drawer and right panel buttons sit here too.
  */
-export const RightPanelOverflowMenu = memo(function RightPanelOverflowMenu({
-  maximized,
-  onToggleMaximized,
-  terminalAvailable,
-  terminalOpen,
-  terminalShortcutLabel,
-  onToggleTerminal,
-  rightPanelShortcutLabel,
-  onToggleRightPanel,
-}: {
-  maximized: boolean;
-  onToggleMaximized: () => void;
-  terminalAvailable: boolean;
-  terminalOpen: boolean;
-  terminalShortcutLabel: string | null;
-  onToggleTerminal: () => void;
-  rightPanelShortcutLabel: string | null;
-  onToggleRightPanel: () => void;
-}) {
-  return (
-    <Menu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger
-              render={
-                <Button
-                  className="shrink-0 [-webkit-app-region:no-drag]"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Panel options"
-                />
-              }
-            />
-          }
-        >
-          <EllipsisVerticalIcon className="size-4" />
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">Panel options</TooltipPopup>
-      </Tooltip>
-      <MenuPopup side="bottom" align="end">
-        <MenuItem onClick={onToggleMaximized}>
-          {maximized ? <Minimize2Icon /> : <Maximize2Icon />}
-          {maximized ? "Restore panel size" : "Maximize panel"}
-        </MenuItem>
-        <MenuItem disabled={!terminalAvailable} onClick={onToggleTerminal}>
-          <PanelBottomIcon />
-          {terminalOpen ? "Hide terminal drawer" : "Show terminal drawer"}
-          {terminalShortcutLabel ? <MenuShortcut>{terminalShortcutLabel}</MenuShortcut> : null}
-        </MenuItem>
-        <MenuItem onClick={onToggleRightPanel}>
-          <PanelRightIcon />
-          Hide right panel
-          {rightPanelShortcutLabel ? <MenuShortcut>{rightPanelShortcutLabel}</MenuShortcut> : null}
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
-  );
-});
-
-/** The thread panel toggle on a header whose right side the inline right panel covers. */
-export function ThreadPanelHeaderControl(props: PanelLayoutControlsProps) {
+export function ThreadPanelHeaderControl(
+  props: PanelLayoutControlsProps & {
+    readonly panelControls?: {
+      readonly maximized: boolean;
+      readonly onToggleMaximized: () => void;
+    };
+  },
+) {
+  const { panelControls, ...controlProps } = props;
   return (
     <div
-      className="absolute top-[var(--workspace-controls-top)] right-[calc(env(safe-area-inset-right)+0.75rem)] z-50 flex h-[var(--workspace-topbar-height)] items-center [-webkit-app-region:no-drag]"
+      className="absolute top-[var(--workspace-controls-top)] right-[calc(env(safe-area-inset-right)+0.75rem)] z-50 flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
-      <PanelLayoutControls {...props} showTerminalControl={false} showRightPanelControl={false} />
+      <PanelLayoutControls
+        {...controlProps}
+        showTerminalControl={false}
+        showRightPanelControl={false}
+      />
+      {panelControls ? (
+        <>
+          <RightPanelMaximizeControl
+            maximized={panelControls.maximized}
+            onToggle={panelControls.onToggleMaximized}
+          />
+          <PanelLayoutControls {...controlProps} showThreadPanelControl={false} />
+        </>
+      ) : null}
     </div>
   );
 }
 
 /** The window's top-right panel controls, with the maximize toggle while the panel is open. */
 export function WorkspaceTitlebarControls(props: {
-  /** Fork: the open panel's tab bar is narrow, so the buttons fold into `overflowMenu`. */
+  /** Fork: the open panel's tab bar is narrow, so the buttons sit in the chat header. */
   readonly compact?: boolean;
-  readonly overflowMenu?: ReactNode;
   readonly showMaximizeControl: boolean;
   readonly rightPanelOpen: boolean;
   readonly animationsActive: boolean;
@@ -265,9 +216,6 @@ export function WorkspaceTitlebarControls(props: {
       className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
-      {props.compact && props.overflowMenu ? (
-        <span className="pointer-events-auto flex shrink-0">{props.overflowMenu}</span>
-      ) : null}
       {props.showMaximizeControl ? (
         <span
           aria-hidden={!props.rightPanelOpen}

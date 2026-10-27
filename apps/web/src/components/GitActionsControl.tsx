@@ -1399,57 +1399,61 @@ export default function GitActionsControl({
     });
   };
 
+  const runPull = () => {
+    void (async () => {
+      setInlineSuccess(null);
+      const result = await pullAction.run();
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) {
+          return;
+        }
+        const error = squashAtomCommandFailure(result);
+        const errorToastTiming = resolveGitActionResultToastTiming("error");
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Pull failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
+            timeout: errorToastTiming.timeout,
+            ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+          }),
+        );
+        return;
+      }
+
+      const pullResult = result.value;
+      const title = pullResult.status === "pulled" ? "Pulled" : "Already up to date";
+      const description =
+        pullResult.status === "pulled"
+          ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
+          : `${pullResult.refName} is already synchronized.`;
+      if (isPanel) {
+        setInlineSuccess({ title, description, scopeKey: successScopeKey });
+        return;
+      }
+      const successToastTiming = resolveGitActionResultToastTiming("success");
+      toastManager.add({
+        type: "success",
+        title,
+        description,
+        timeout: successToastTiming.timeout,
+        data: {
+          ...threadToastData,
+          ...(successToastTiming.dismissAfterVisibleMs !== null
+            ? { dismissAfterVisibleMs: successToastTiming.dismissAfterVisibleMs }
+            : {}),
+        },
+      });
+    })();
+  };
+
   const runQuickAction = () => {
     if (quickAction.kind === "open_publish") {
       setIsPublishDialogOpen(true);
       return;
     }
     if (quickAction.kind === "run_pull") {
-      void (async () => {
-        setInlineSuccess(null);
-        const result = await pullAction.run();
-        if (result._tag === "Failure") {
-          if (isAtomCommandInterrupted(result)) {
-            return;
-          }
-          const error = squashAtomCommandFailure(result);
-          const errorToastTiming = resolveGitActionResultToastTiming("error");
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Pull failed",
-              description: error instanceof Error ? error.message : "An error occurred.",
-              timeout: errorToastTiming.timeout,
-              ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-            }),
-          );
-          return;
-        }
-
-        const pullResult = result.value;
-        const title = pullResult.status === "pulled" ? "Pulled" : "Already up to date";
-        const description =
-          pullResult.status === "pulled"
-            ? `Updated ${pullResult.refName} from ${pullResult.upstreamRef ?? "upstream"}`
-            : `${pullResult.refName} is already synchronized.`;
-        if (isPanel) {
-          setInlineSuccess({ title, description, scopeKey: successScopeKey });
-          return;
-        }
-        const successToastTiming = resolveGitActionResultToastTiming("success");
-        toastManager.add({
-          type: "success",
-          title,
-          description,
-          timeout: successToastTiming.timeout,
-          data: {
-            ...threadToastData,
-            ...(successToastTiming.dismissAfterVisibleMs !== null
-              ? { dismissAfterVisibleMs: successToastTiming.dismissAfterVisibleMs }
-              : {}),
-          },
-        });
-      })();
+      runPull();
       return;
     }
     if (quickAction.kind === "show_hint") {
@@ -1600,6 +1604,22 @@ export default function GitActionsControl({
           </MenuItem>
         );
       })}
+      {/* Fork: Pull is always offered on a branch with an upstream, also with
+          local changes; Git refuses it when it would overwrite them. */}
+      {gitStatusForActions?.hasUpstream && gitStatusForActions.refName !== null ? (
+        <MenuItem
+          density={presentation === "menu" ? "touch" : "default"}
+          disabled={!canWriteSourceControl || isGitActionRunning}
+          onClick={runPull}
+        >
+          <CloudDownloadIcon />
+          <MenuItemLabel>
+            {gitStatusForActions.behindCount > 0
+              ? `Pull (${gitStatusForActions.behindCount} new)`
+              : "Pull"}
+          </MenuItemLabel>
+        </MenuItem>
+      ) : null}
       {canPublishRepository ? (
         <MenuItem
           density={presentation === "menu" ? "touch" : "default"}

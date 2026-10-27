@@ -2631,3 +2631,9 @@ code {
     transform: translateY(calc(var(--runner-height, 16px) + 4px));
   }
 }
+
+/* Fork: a side tree dragged past its minimum slides shut. Its contents keep
+   their width under the clip, so they slide out instead of squeezing. */
+[data-resizable-collapsing] > :not([role="separator"]) {
+  min-width: var(--resizable-slide-width);
+}

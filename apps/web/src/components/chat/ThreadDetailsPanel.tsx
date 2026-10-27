@@ -33,9 +33,12 @@ import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
-// Keyed by environment and repository path, so a repository stays collapsed in every thread.
-const COLLAPSED_REPOSITORIES_KEY = "t3code:thread-details:collapsed-repositories";
-const CollapsedRepositoriesSchema = Schema.Record(Schema.String, Schema.Boolean);
+// Fork: repository sections start closed. Each thread keeps the ones you
+// opened, keyed by environment, thread and repository path.
+const EXPANDED_REPOSITORIES_KEY = "t3code:thread-details:expanded-repositories";
+const ExpandedRepositoriesSchema = Schema.Record(Schema.String, Schema.Boolean);
+/** Oldest entries go first once the record grows past this. */
+const EXPANDED_REPOSITORIES_LIMIT = 300;
 
 /** Keeps a collapsed repository's changes visible in its heading. */
 function RepositoryChangesStat(props: { environmentId: EnvironmentId; cwd: string }) {
@@ -111,22 +114,26 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const nestedRepositories = props.workspaceRepositories.filter(
     (repository) => !isRootWorkspaceRepository(repository),
   );
-  const [collapsedRepositories, setCollapsedRepositories] = useLocalStorage(
-    COLLAPSED_REPOSITORIES_KEY,
+  const [expandedRepositories, setExpandedRepositories] = useLocalStorage(
+    EXPANDED_REPOSITORIES_KEY,
     {},
-    CollapsedRepositoriesSchema,
+    ExpandedRepositoriesSchema,
   );
   const repositorySectionProps = (gitCwd: string, repository: VcsRepository) => {
     const cwd = joinWorkspaceRepositoryPath(gitCwd, repository.relativePath);
-    const key = `${props.environmentId}:${cwd}`;
-    const collapsed = collapsedRepositories[key] === true;
+    const key = `${props.environmentId}:${props.threadId}:${repository.relativePath}`;
+    const collapsed = expandedRepositories[key] !== true;
     return {
       collapsed,
       onCollapsedChange: (nextCollapsed: boolean) =>
-        setCollapsedRepositories((current) => {
+        setExpandedRepositories((current) => {
           const next = { ...current };
-          if (nextCollapsed) next[key] = true;
-          else delete next[key];
+          delete next[key];
+          if (!nextCollapsed) next[key] = true;
+          const keys = Object.keys(next);
+          for (const old of keys.slice(0, Math.max(0, keys.length - EXPANDED_REPOSITORIES_LIMIT))) {
+            delete next[old];
+          }
           return next;
         }),
       ...(collapsed

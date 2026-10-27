@@ -276,7 +276,6 @@ import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
 import {
   PanelLayoutControls,
   type PanelLayoutControlsProps,
-  RightPanelOverflowMenu,
   ThreadPanelHeaderControl,
   WorkspaceTitlebarControls,
 } from "./chat/PanelLayoutControls";
@@ -3210,22 +3209,25 @@ export default function ChatView(props: ChatViewProps) {
       showThreadPanelControl={!inlineRightPanelOwnsTitleBar}
     />
   );
-  const threadPanelHeaderControl = <ThreadPanelHeaderControl {...panelToggleControlProps} />;
+  // Fork: a panel too narrow for its own buttons hands them to the chat header.
+  const panelControlsInChatHeader =
+    !shouldUsePlanSidebarSheet && rightPanelOpen && rightPanelCompact && !rightPanelMaximized;
+  const threadPanelHeaderControl = (
+    <ThreadPanelHeaderControl
+      {...panelToggleControlProps}
+      {...(panelControlsInChatHeader
+        ? {
+            panelControls: {
+              maximized: rightPanelMaximized,
+              onToggleMaximized: toggleRightPanelMaximizedStable,
+            },
+          }
+        : {})}
+    />
+  );
   const panelLayoutControls = (
     <WorkspaceTitlebarControls
-      compact={!shouldUsePlanSidebarSheet && rightPanelOpen && rightPanelCompact}
-      overflowMenu={
-        <RightPanelOverflowMenu
-          maximized={rightPanelMaximized}
-          onToggleMaximized={toggleRightPanelMaximizedStable}
-          terminalAvailable={panelToggleControlProps.terminalAvailable}
-          terminalOpen={panelToggleControlProps.terminalOpen}
-          terminalShortcutLabel={panelToggleControlProps.terminalShortcutLabel}
-          onToggleTerminal={toggleTerminalVisibilityStable}
-          rightPanelShortcutLabel={panelToggleControlProps.rightPanelShortcutLabel}
-          onToggleRightPanel={toggleRightPanelStable}
-        />
-      }
+      compact={panelControlsInChatHeader}
       showMaximizeControl={!shouldUsePlanSidebarSheet}
       rightPanelOpen={rightPanelOpen}
       animationsActive={panelAnimationsActive}
@@ -3293,6 +3295,7 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
+            panelControlsInHeader={panelControlsInChatHeader}
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }

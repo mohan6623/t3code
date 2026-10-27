@@ -1,4 +1,5 @@
 import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
@@ -26,6 +27,7 @@ import { claudeUsageReader } from "./claudeUsage.ts";
 import { makeClaudeScopedLimitNames } from "../claudeUsageLimits.ts";
 import * as ClaudeResetCredits from "../claudeResetCredits.ts";
 import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
+import { makeClaudeLoginAuth } from "../claudeLoginAuth.ts";
 import {
   checkClaudeProviderStatus,
   makePendingClaudeProvider,
@@ -161,13 +163,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         ? configDir
         : undefined,
     );
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey,
     });
+    // Fork: Claude signs in (and out) from provider settings; see claudeLoginAuth.ts.
+    const stampIdentity = (draft: ServerProviderDraft) =>
+      stampInstanceIdentity({
+        ...draft,
+        setup: { canInstall: false, ...draft.setup, canAuthenticate: true },
+        auth: { ...draft.auth, canLogout: true },
+      });
 
     const scopedLimitNames = yield* makeClaudeScopedLimitNames;
     const orchestrationAdapter = yield* createClaudeAdapterV2(
@@ -322,6 +331,18 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       ),
     );
 
+    const auth = yield* makeClaudeLoginAuth({
+      instanceId,
+      binaryPath: effectiveConfig.binaryPath,
+      configDir,
+      cwd: stateDir,
+      environment: processEnv,
+      onChanged: Cache.invalidateAll(capabilitiesProbeCache).pipe(
+        Effect.andThen(snapshot.refresh),
+        Effect.asVoid,
+      ),
+    }).pipe(Effect.provideService(Crypto.Crypto, yield* Crypto.Crypto));
+
     // Same rules as Codex: serialised on the config directory that holds the
     // login, one request id kept until Claude answers (a cooldown or rate
     // limit is an answer), then a re-probe.
@@ -395,6 +416,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       accentColor,
       enabled,
       snapshot,
+      auth,
       invalidateCaches: Cache.invalidateAll(capabilitiesProbeCache),
       snapshotForCwd: (cwd: string) =>
         snapshot.getSnapshot.pipe(

@@ -5,13 +5,16 @@ import type {
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
+import { formatDuration, limitsNotice, remainingPercent } from "@t3tools/shared/usageLimits";
+import { useNavigate } from "@tanstack/react-router";
 import {
-  formatDuration,
-  limitsNotice,
-  providersWithLimits,
-  remainingPercent,
-} from "@t3tools/shared/usageLimits";
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, PaletteIcon, TimerIcon } from "lucide-react";
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  PaletteIcon,
+  TimerIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import * as Schema from "effect/Schema";
 import { useEffect, useState } from "react";
 
@@ -34,7 +37,7 @@ import {
   clampPercent,
   resetsIn,
 } from "./UsageSummaryStyles";
-import { cacheMinutesLeft } from "./ComposerUsageStrip.logic";
+import { accountProblem, cacheMinutesLeft, otherUsageAccounts } from "./ComposerUsageStrip.logic";
 
 const MINUTE = 60_000;
 /** Badge layout: one text line beside stacked bars, or one row per window. */
@@ -47,6 +50,7 @@ const SUMMARY_STYLE_STORAGE_KEY = "t3code:usage-panel-summary-style";
 /** Re-renders once a minute so reset countdowns stay current without animating. */
 function useMinuteClock(): number {
   const [now, setNow] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/react-effect-budget -- A timer subscription with cleanup; nothing in render or a handler can drive it.
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), MINUTE);
     return () => window.clearInterval(id);
@@ -275,6 +279,48 @@ function AccountCard({
   );
 }
 
+/** Fork: an account that shows no usage: why, and the way back for a signed-out one. */
+function ProblemCard({ provider, inUse }: { provider: ServerProvider; inUse: boolean }) {
+  const navigate = useNavigate();
+  const problem = accountProblem(provider);
+  const detail =
+    provider.message ?? (provider.usageLimits ? limitsNotice(provider.usageLimits) : null);
+  return (
+    <div
+      className={cn("rounded-lg border bg-muted/30 p-2.5 text-xs", inUse && "border-foreground/15")}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <ProviderIcon provider={provider} />
+        <span className="truncate font-medium text-foreground">{providerName(provider)}</span>
+        {inUse ? (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 text-2xs text-muted-foreground">
+            In use
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            "ms-auto flex shrink-0 items-center gap-1 text-2xs",
+            problem ? "text-warning" : "text-muted-foreground",
+          )}
+        >
+          {problem ? <TriangleAlertIcon aria-hidden className="size-3" /> : null}
+          {problem ?? "No limits"}
+        </span>
+      </div>
+      {detail ? <p className="mt-1.5 text-2xs text-muted-foreground">{detail}</p> : null}
+      {problem === "Signed out" ? (
+        <button
+          type="button"
+          onClick={() => void navigate({ to: "/settings/providers" })}
+          className="mt-1.5 text-2xs font-medium text-foreground underline-offset-2 hover:underline"
+        >
+          Sign in again
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 /** Another subscription: folded until opened. */
 function OtherAccount(props: {
   provider: ServerProvider;
@@ -329,6 +375,7 @@ export function ComposerUsageStrip({
   });
   // Instances report limits only once probed; check them all up front so the
   // panel lists every subscription, not just the ones selected this session.
+  // oxlint-disable-next-line t3code/react-effect-budget -- One server fetch per environment when the badge mounts; no handler causes it.
   useEffect(() => {
     void refreshUsageLimits(
       environmentId,
@@ -337,10 +384,13 @@ export function ComposerUsageStrip({
     ).catch(() => undefined);
   }, [environmentId, refreshProviders]);
 
-  const limits = provider ? usableLimits(provider) : null;
-  if (!provider || !limits) return null;
-  const windows = relevantWindows(provider, limits);
-  if (windows.length === 0) return null;
+  if (!provider) return null;
+  const limits = usableLimits(provider);
+  // Fork: an account that goes down is marked, and the others' usage still shows.
+  const problem = limits ? null : accountProblem(provider);
+  const others = otherUsageAccounts(providers, provider, (other) => usableLimits(other) !== null);
+  const windows = limits ? relevantWindows(provider, limits) : [];
+  if (limits ? windows.length === 0 : problem === null && others.length === 0) return null;
 
   const color = barColor(provider.driver);
   const cacheMinutes = cacheMinutesLeft(provider, modelSlug, promptCacheTtlMs, lastRun, now);
@@ -353,10 +403,7 @@ export function ComposerUsageStrip({
       return `${clampPercent(window.usedPercent)}%${reset ? ` ${reset}` : ""}`;
     })
     .join(" · ");
-  const others = providersWithLimits(providers).filter(
-    (other) => other.instanceId !== provider.instanceId && usableLimits(other) !== null,
-  );
-  const checkedAgo = formatDuration(now - Date.parse(limits.checkedAt));
+  const checkedAgo = formatDuration(now - Date.parse(limits?.checkedAt ?? provider.checkedAt));
 
   const refresh = () => {
     if (refreshing) return;
@@ -403,7 +450,17 @@ export function ComposerUsageStrip({
           indicatorBackground="color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
           badgeClassName="-right-1 -bottom-1 h-3 min-w-3 px-0.5 text-5xs shadow-none"
         />
-        {splitRows && BADGE_STYLES.has(summaryStyle) ? (
+        {!limits ? (
+          <span
+            className={cn(
+              "flex shrink-0 items-center gap-1 whitespace-nowrap",
+              problem && "text-warning",
+            )}
+          >
+            {problem ? <TriangleAlertIcon aria-hidden className="size-3" /> : null}
+            {problem ?? "No limits"}
+          </span>
+        ) : splitRows && BADGE_STYLES.has(summaryStyle) ? (
           <UsageSummary
             style={summaryStyle}
             windows={rows}
@@ -550,16 +607,20 @@ export function ComposerUsageStrip({
             </div>
           ) : (
             <>
-              <AccountCard
-                provider={provider}
-                limits={limits}
-                environmentId={environmentId}
-                now={now}
-                inUse
-                open={currentOpen}
-                onOpenChange={setCurrentOpen}
-                summaryStyle={summaryStyle}
-              />
+              {limits ? (
+                <AccountCard
+                  provider={provider}
+                  limits={limits}
+                  environmentId={environmentId}
+                  now={now}
+                  inUse
+                  open={currentOpen}
+                  onOpenChange={setCurrentOpen}
+                  summaryStyle={summaryStyle}
+                />
+              ) : (
+                <ProblemCard provider={provider} inUse />
+              )}
               {others.length > 0 ? (
                 <>
                   <span className="px-0.5 pt-1 text-xs font-medium text-muted-foreground">
@@ -576,7 +637,9 @@ export function ComposerUsageStrip({
                         now={now}
                         summaryStyle={summaryStyle}
                       />
-                    ) : null;
+                    ) : (
+                      <ProblemCard key={other.instanceId} provider={other} inUse={false} />
+                    );
                   })}
                 </>
               ) : null}

@@ -1,7 +1,12 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { cacheMinutesLeft, cacheTtlMinutes } from "./ComposerUsageStrip.logic";
+import {
+  accountProblem,
+  cacheMinutesLeft,
+  cacheTtlMinutes,
+  otherUsageAccounts,
+} from "./ComposerUsageStrip.logic";
 
 const provider = (driver: string) => ({ driver: ProviderDriverKind.make(driver) });
 
@@ -35,5 +40,68 @@ describe("cacheMinutesLeft", () => {
     expect(cacheMinutesLeft(codex, "gpt-6.1", undefined, { completedAt }, at(10.5))).toBe(20);
     expect(cacheMinutesLeft(codex, "gpt-6.1", undefined, { completedAt }, at(45))).toBe(0);
     expect(cacheMinutesLeft(codex, "gpt-6.1", undefined, null, at(1))).toBeNull();
+  });
+});
+
+describe("accountProblem", () => {
+  const base = {
+    auth: { status: "authenticated" as const },
+    status: "ready" as const,
+    usageLimits: undefined,
+  };
+
+  it("names a signed-out, broken, or unreadable account", () => {
+    expect(accountProblem({ ...base, auth: { status: "unauthenticated" } })).toBe("Signed out");
+    expect(accountProblem({ ...base, status: "error" })).toBe("Not working");
+    expect(
+      accountProblem({
+        ...base,
+        usageLimits: {
+          checkedAt: "2026-10-27T00:00:00.000Z",
+          windows: [],
+          unavailable: { reason: "probeFailed" },
+        },
+      }),
+    ).toBe("Usage unreadable");
+  });
+
+  it("sees no problem in a working account, or one without subscription limits", () => {
+    expect(accountProblem(base)).toBeNull();
+    expect(
+      accountProblem({
+        ...base,
+        usageLimits: {
+          checkedAt: "2026-10-27T00:00:00.000Z",
+          windows: [],
+          unavailable: { reason: "unsupported" },
+        },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("otherUsageAccounts", () => {
+  const account = (instanceId: string, overrides: Record<string, unknown> = {}) => ({
+    instanceId: ProviderInstanceId.make(instanceId),
+    enabled: true,
+    installed: true,
+    auth: { status: "authenticated" as const },
+    status: "ready" as const,
+    usageLimits: undefined,
+    ...overrides,
+  });
+
+  it("keeps working accounts and marks broken ones, leaving out the one in use", () => {
+    const current = account("claude");
+    const working = account("codex");
+    const signedOut = account("claudeMaxx", { auth: { status: "unauthenticated" } });
+    const plain = account("opencode");
+    const disabled = account("cursor", { enabled: false, auth: { status: "unauthenticated" } });
+    const result = otherUsageAccounts(
+      [current, working, signedOut, plain, disabled],
+      current,
+      (provider) => provider === working,
+    );
+    expect(result.map((provider) => provider.instanceId)).toEqual(["codex", "claudeMaxx"]);
   });
 });

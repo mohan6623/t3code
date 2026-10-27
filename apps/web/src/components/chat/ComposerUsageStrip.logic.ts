@@ -60,3 +60,39 @@ export function cacheMinutesLeft(
   const elapsed = (now - Date.parse(lastRun.completedAt)) / MINUTE;
   return Number.isFinite(elapsed) ? Math.max(0, Math.ceil(ttl - elapsed)) : null;
 }
+
+/**
+ * Fork: why an account shows no usage. Null when the account is fine, or
+ * simply has no subscription limits (an API key), which is no problem.
+ */
+export function accountProblem(
+  provider: Pick<ServerProvider, "auth" | "status" | "usageLimits">,
+): "Signed out" | "Not working" | "Usage unreadable" | null {
+  if (provider.auth.status === "unauthenticated") return "Signed out";
+  if (provider.status === "error") return "Not working";
+  if (provider.usageLimits?.unavailable?.reason === "probeFailed") return "Usage unreadable";
+  return null;
+}
+
+/**
+ * Fork: the other accounts the usage panel lists. One account going down
+ * must not hide the rest; it shows marked instead.
+ */
+export function otherUsageAccounts<
+  Provider extends Pick<
+    ServerProvider,
+    "instanceId" | "enabled" | "installed" | "auth" | "status" | "usageLimits"
+  >,
+>(
+  providers: readonly Provider[],
+  current: Pick<ServerProvider, "instanceId">,
+  hasUsableLimits: (provider: Provider) => boolean,
+): readonly Provider[] {
+  return providers.filter(
+    (other) =>
+      other.instanceId !== current.instanceId &&
+      other.enabled &&
+      other.installed &&
+      (hasUsableLimits(other) || accountProblem(other) !== null),
+  );
+}

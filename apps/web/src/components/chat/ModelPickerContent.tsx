@@ -608,8 +608,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   // Inside one provider's tab the provider line repeats the selected rail icon on every row.
   const redesign = useClientSettings((s) => s.redesignEnabled);
   const rowsMixProviders = !redesign || isSearching || selectedInstanceId === "favorites";
-  // Fit the tallest tab so switching tabs never resizes the popup and moves the rail under the cursor.
-  const tallestTabUnits = (() => {
+  // Fork: fit the open tab, not the tallest one, so a short list leaves no empty space.
+  // The rail sits at the popup's anchored edge (see ModelPickerSidebar), so a tab
+  // switch that resizes the popup leaves the provider icons under the cursor.
+  const openTabUnits = (() => {
     const unitsByTab = new Map<ProviderInstanceId | "favorites", number>();
     const addRow = (tab: ProviderInstanceId | "favorites", twoLine: boolean) => {
       const rowUnits = twoLine
@@ -633,7 +635,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       }
     }
     for (const instanceId of tabsWithLegacyRow) addRow(instanceId, true);
-    return Math.max(0, ...unitsByTab.values());
+    return unitsByTab.get(selectedInstanceId) ?? 0;
   })();
   const lockedDisabledInstanceIds = (() => {
     if (!isLocked) {
@@ -664,6 +666,15 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     return [...available, ...disabled];
   })();
   const showSidebar = !isSearching && sidebarInstanceEntries.length > 0;
+  // Fork: the rail's own height in spacing units, so every provider icon stays
+  // reachable however short the open tab is. Icons are 9 units with 1-unit gaps
+  // and padding; favorites adds a 1px separator, refresh a 1-unit top pad.
+  const railUnits = (() => {
+    if (!showSidebar) return 0;
+    const items = 1 + sidebarInstanceEntries.length + (providerRefresh.canRefresh ? 1 : 0);
+    const children = items + 1;
+    return 2 + items * 9 + 0.25 + (providerRefresh.canRefresh ? 1 : 0) + (children - 1);
+  })();
   const instanceOrder = instanceEntries.map((entry) => entry.instanceId);
 
   const filteredModels = (() => {
@@ -863,7 +874,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             ? { maxHeight: PICKER_MAX_HEIGHT, height: searchHeight }
             : {
                 maxHeight: PICKER_MAX_HEIGHT,
-                minHeight: `min(calc(var(--spacing) * ${tallestTabUnits + LIST_CHROME_UNITS} + 1px), ${PICKER_MAX_HEIGHT})`,
+                minHeight: `min(calc(var(--spacing) * ${Math.max(openTabUnits + LIST_CHROME_UNITS, railUnits)} + 1px), ${PICKER_MAX_HEIGHT})`,
               }
         }
         data-model-picker-content="true"

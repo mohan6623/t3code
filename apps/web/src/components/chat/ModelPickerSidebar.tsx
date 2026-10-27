@@ -1,6 +1,7 @@
 import { Toolbar } from "@base-ui/react/toolbar";
 import { type ProviderInstanceId } from "@t3tools/contracts";
 import { memo, useLayoutEffect, useRef, useState } from "react";
+import { observeResize } from "~/lib/observeResize";
 import { SparklesIcon, StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -61,14 +62,18 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
     if (!content) {
       return;
     }
-    const selectedItem = Array.from(
-      content.querySelectorAll<HTMLElement>("[data-model-picker-provider]"),
-    ).find((item) => item.dataset.modelPickerProvider === props.selectedInstanceId);
-    if (!selectedItem) {
-      setSelectedIndicatorTop(null);
-      return;
-    }
-    setSelectedIndicatorTop(selectedItem.offsetTop + selectedItem.offsetHeight / 2 - 10);
+    const measure = () => {
+      const selectedItem = Array.from(
+        content.querySelectorAll<HTMLElement>("[data-model-picker-provider]"),
+      ).find((item) => item.dataset.modelPickerProvider === props.selectedInstanceId);
+      setSelectedIndicatorTop(
+        selectedItem ? selectedItem.offsetTop + selectedItem.offsetHeight / 2 - 10 : null,
+      );
+    };
+    measure();
+    // Fork: the icons sit at the rail's bottom, so a popup that changes height
+    // moves them inside the rail; the indicator follows.
+    return observeResize(content, measure);
   }, [
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Adding, removing or reordering providers moves the selected item, so the indicator re-measures.
     props.instanceEntries,
@@ -93,6 +98,9 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
     >
       <div className="h-full overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div ref={sidebarContentRef} className="relative flex min-h-full flex-col gap-1 p-1">
+          {/* Fork: above the composer the popup grows upward, so the icons sit at its
+              bottom edge and stay under the cursor when a tab changes its height. */}
+          <div aria-hidden className="hidden flex-1 in-data-[side=top]:block" />
           {selectedIndicatorTop !== null ? (
             <div
               data-model-picker-selected-indicator="true"

@@ -9,6 +9,7 @@ import {
   type ProviderInstanceId,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import { AcpRegistrySettings } from "../settings.ts";
 import * as Crypto from "effect/Crypto";
@@ -35,6 +36,7 @@ import {
 } from "@t3tools/provider-acp/server/sessionConfig";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { isKiroAcpAgent, readKiroUsageLimits } from "./kiroUsage.ts";
 
 const MAX_AUTH_METHODS = 32;
 const MAX_MODELS = 256;
@@ -308,6 +310,8 @@ export interface AcpRegistryConfigurationProbeResult {
   readonly probe: AcpRegistryProbeResult;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
+  /** Read on the probe's own session, so it costs no extra agent process. */
+  readonly usageLimits?: ServerProviderUsageLimits;
 }
 
 export type AcpRegistryConfigurationProbe<Requirements = never> = (
@@ -423,10 +427,20 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
         );
       }
       const started = startResult.success;
-      yield* Deferred.await(commandsAdvertised).pipe(
-        Effect.timeoutOption(COMMAND_ADVERTISEMENT_GRACE),
+      // Kiro answers its credit usage on any open session; asking this one
+      // while the commands settle spares a separate agent process.
+      const [usageLimits] = yield* Effect.all(
+        [
+          isKiroAcpAgent(input.settings, resolved.spawn.command)
+            ? readKiroUsageLimits(runtime.request, started.sessionId)
+            : Effect.succeed(undefined),
+          Deferred.await(commandsAdvertised).pipe(
+            Effect.timeoutOption(COMMAND_ADVERTISEMENT_GRACE),
+          ),
+        ],
+        { concurrency: "unbounded" },
       );
-      return { resolved, started, commands: yield* Ref.get(commandsRef) };
+      return { resolved, started, commands: yield* Ref.get(commandsRef), usageLimits };
     }).pipe(
       Effect.scoped,
       Effect.timeoutOrElse({
@@ -455,6 +469,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       ),
       slashCommands: result.commands.slashCommands,
       skills: result.commands.skills,
+      ...(result.usageLimits === undefined ? {} : { usageLimits: result.usageLimits }),
     };
   },
 );

@@ -19,12 +19,14 @@ import { readCustomModelEntries } from "@t3tools/shared/model";
 import { AcpRegistrySettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -40,6 +42,12 @@ import {
 } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
+import {
+  isKiroAcpAgent,
+  KIRO_METADATA_NOTIFICATION,
+  kiroMetadataReportsMetering,
+  readKiroUsageLimits,
+} from "./kiroUsage.ts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -111,6 +119,56 @@ export function registerMistralVibeAcpExtensions(context: AcpAdapterV2ExtensionC
         }),
       }),
   );
+}
+
+// A turn can send several metered notices; read once they settle, and at most
+// once a minute, on the session that is already open.
+const KIRO_LIVE_USAGE_SETTLE_MS = 3_000;
+const KIRO_LIVE_USAGE_MIN_INTERVAL_MS = 60_000;
+
+/**
+ * Kiro meters each turn in credits. After a metered turn, ask the live session
+ * for the account's credit usage (a free call) so the usage badge moves
+ * without spawning a probe.
+ */
+export function makeKiroLiveUsageExtension(
+  publish: (
+    usageLimits: Parameters<
+      AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator["Service"]["publishUsageLimits"]
+    >[1],
+  ) => Effect.Effect<void>,
+) {
+  const state = Ref.makeUnsafe({ scheduled: false, lastReadAt: 0 });
+  return (context: AcpAdapterV2ExtensionContext) =>
+    context.runtime.handleExtNotification(KIRO_METADATA_NOTIFICATION, Schema.Unknown, (params) =>
+      Effect.gen(function* () {
+        if (!kiroMetadataReportsMetering(params)) return;
+        const now = yield* Clock.currentTimeMillis;
+        const lastReadAt = yield* Ref.modify(state, (current) =>
+          current.scheduled
+            ? [null, current]
+            : [current.lastReadAt, { ...current, scheduled: true }],
+        );
+        if (lastReadAt === null) return;
+        const delay = Math.max(
+          KIRO_LIVE_USAGE_SETTLE_MS,
+          lastReadAt + KIRO_LIVE_USAGE_MIN_INTERVAL_MS - now,
+        );
+        yield* Effect.sleep(delay).pipe(
+          Effect.andThen(readKiroUsageLimits(context.runtime.request, params.sessionId)),
+          Effect.flatMap((usageLimits) =>
+            usageLimits.unavailable === undefined ? publish(usageLimits) : Effect.void,
+          ),
+          Effect.ensuring(
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((readAt) => Ref.set(state, { scheduled: false, lastReadAt: readAt })),
+            ),
+          ),
+          Effect.ignoreCause,
+          Effect.forkDetach,
+        );
+      }),
+    );
 }
 
 export function acpRegistryPromptFailure(agentId: string, cause: unknown) {
@@ -208,6 +266,12 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
       }
     : options;
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
+  const kiroLiveUsage =
+    runtimeCoordinator !== undefined && isKiroAcpAgent(options.settings)
+      ? makeKiroLiveUsageExtension((usageLimits) =>
+          runtimeCoordinator.publishUsageLimits(options.instanceId, usageLimits),
+        )
+      : undefined;
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
     capabilities: AcpProviderCapabilitiesV2,
@@ -246,6 +310,7 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
           normalizeSessionUpdate: copilotRouting.normalizeSessionUpdate,
           extractSubagentUpdate: extractCopilotSubagentUpdate,
         }),
+    ...(kiroLiveUsage === undefined ? {} : { registerExtensions: kiroLiveUsage }),
     makeRuntime: options.makeRuntime ?? makeAcpRegistryRuntime(runtimeOptions, catalog),
     ...(runtimeCoordinator === undefined
       ? {}

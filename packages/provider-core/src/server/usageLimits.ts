@@ -101,6 +101,20 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
   );
 }
 
+/**
+ * Picks the limits to keep when a second read arrives out of band: the newer
+ * read wins, except that a failed read never replaces good bars.
+ */
+export function preferNewerUsageLimits(
+  current: ServerProviderUsageLimits | undefined,
+  candidate: ServerProviderUsageLimits | undefined,
+): ServerProviderUsageLimits | undefined {
+  if (candidate === undefined || current === candidate) return current;
+  if (current === undefined) return candidate;
+  if (candidate.unavailable?.reason === "probeFailed" && !current.unavailable) return current;
+  return Date.parse(candidate.checkedAt) > Date.parse(current.checkedAt) ? candidate : current;
+}
+
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;
   readonly probed: ServerProviderUsageLimits | undefined;

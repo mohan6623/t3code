@@ -562,9 +562,21 @@ function PoolWindowCard({
   );
 }
 
+/**
+ * "ACP Registry" names the bridge, not the agent; an ACP pool whose accounts
+ * all name one agent (Kiro) is titled after it.
+ */
+function poolSectionLabel(pool: LimitPool): string {
+  const driverLabel = providerClients.get(pool.driver)?.label ?? String(pool.driver);
+  if (pool.driver !== "acpRegistry") return driverLabel;
+  const names = new Set(pool.accounts.map((account) => account.displayName));
+  const [name] = names;
+  return names.size === 1 && name ? name : driverLabel;
+}
+
 function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
   const color = barColor(pool.driver);
-  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
+  const label = poolSectionLabel(pool);
   const windows = displayLimitWindows(pool);
   return (
     <section className="flex flex-col gap-3">

@@ -16,7 +16,11 @@ import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ProviderHost from "./ProviderHost.ts";
-import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./usageLimits.ts";
+import {
+  applyUsageLimitsUpdate,
+  preferNewerUsageLimits,
+  resolveUsageLimitsAfterProbe,
+} from "./usageLimits.ts";
 import type { ManagedServerProvider } from "./snapshot.ts";
 
 interface ProviderSnapshotState {
@@ -85,8 +89,13 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         return [null, state] as const;
       }
       // Enrichment derives from the snapshot it was handed; a runtime usage
-      // update that landed since must not be reverted by it.
-      const merged = withUsageLimits(nextSnapshot, state.snapshot.usageLimits);
+      // update that landed since must not be reverted by it. An enrichment
+      // that read usage itself (ACP agents that report it on their discovery
+      // session) still lands when its read is the newer one.
+      const merged = withUsageLimits(
+        nextSnapshot,
+        preferNewerUsageLimits(state.snapshot.usageLimits, nextSnapshot.usageLimits),
+      );
       if (Equal.equals(state.snapshot, merged)) {
         return [null, state] as const;
       }

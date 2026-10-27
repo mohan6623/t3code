@@ -493,6 +493,32 @@ describe("makeManagedServerProvider", () => {
     ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
+  it.effect("publishes usage an enrichment read itself when it is the newer read", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const enrichedLimits = {
+          checkedAt: "2026-04-10T00:00:05.000Z",
+          windows: [{ id: "credits", kind: "monthly", label: "Credits", usedPercent: 11 }],
+        } as const;
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Effect.succeed(refreshedSnapshot),
+          enrichSnapshot: ({ snapshot, publishSnapshot }) =>
+            publishSnapshot({ ...snapshot, usageLimits: enrichedLimits }),
+          refreshInterval: "1 hour",
+        });
+        const [, enriched] = Array.from(
+          yield* Stream.take(provider.streamChanges, 2).pipe(Stream.runCollect),
+        );
+        assert.deepStrictEqual(enriched?.usageLimits, enrichedLimits);
+      }),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
+  );
+
   it.effect("keeps live usage windows across a failed probe and a stale enrichment", () =>
     Effect.scoped(
       Effect.gen(function* () {

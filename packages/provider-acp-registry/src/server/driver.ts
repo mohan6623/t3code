@@ -6,6 +6,7 @@ import {
   type AcpRegistryOperationError,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import { AcpRegistrySettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -33,6 +34,7 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { providerModelsFromSettings } from "@t3tools/provider-core/server/snapshotProbe";
+import { preferNewerUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
 import {
   haveProviderSnapshotSettingsChanged,
@@ -245,6 +247,7 @@ function baseSnapshot(
         }),
     slashCommands: input.probe?.slashCommands ?? [],
     skills: input.probe?.skills ?? [],
+    ...(input.probe?.usageLimits === undefined ? {} : { usageLimits: input.probe.usageLimits }),
   };
 }
 
@@ -479,10 +482,14 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     if (Option.isSome(runtimeCoordinator)) {
       yield* runtimeCoordinator.value.clearAvailableCommands(instanceId);
       yield* runtimeCoordinator.value.clearLiveConfiguration(instanceId);
+      yield* runtimeCoordinator.value.clearUsageLimits(instanceId);
       yield* Effect.addFinalizer(() =>
         runtimeCoordinator.value
           .clearAvailableCommands(instanceId)
-          .pipe(Effect.andThen(runtimeCoordinator.value.clearLiveConfiguration(instanceId))),
+          .pipe(
+            Effect.andThen(runtimeCoordinator.value.clearLiveConfiguration(instanceId)),
+            Effect.andThen(runtimeCoordinator.value.clearUsageLimits(instanceId)),
+          ),
       );
     }
     const crypto = yield* Crypto.Crypto;
@@ -535,6 +542,22 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         environment,
         processEnvironment,
       });
+    // The last usage any read produced (discovery probe or live session). The
+    // readiness check reads none, so each refresh carries this one forward.
+    const latestUsageLimits = yield* Ref.make<ServerProviderUsageLimits | undefined>(undefined);
+    const rememberUsageLimits = (usageLimits: ServerProviderUsageLimits | undefined) =>
+      Ref.updateAndGet(latestUsageLimits, (current) =>
+        preferNewerUsageLimits(current, usageLimits),
+      );
+    const withUsageLimits = Effect.fn("AcpRegistryDriver.withUsageLimits")(function* (
+      provider: ServerProvider,
+    ) {
+      if (!provider.enabled || !provider.installed) return provider;
+      const usageLimits = yield* rememberUsageLimits(provider.usageLimits);
+      return usageLimits === undefined || usageLimits === provider.usageLimits
+        ? provider
+        : { ...provider, usageLimits };
+    });
     const withLiveRuntimeState = Effect.fn("AcpRegistryDriver.withLiveRuntimeState")(function* (
       input: ServerProvider,
     ) {
@@ -547,12 +570,16 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           ? { ...input, auth: { ...input.auth, status: "authenticated" as const } }
           : input;
       return yield* Option.isNone(runtimeCoordinator)
-        ? Effect.succeed(provider)
+        ? withUsageLimits(provider)
         : Effect.all({
             commands: runtimeCoordinator.value.getAvailableCommands(instanceId),
             configuration: runtimeCoordinator.value.getLiveConfiguration(instanceId),
             authAction: runtimeCoordinator.value.getUrlAuthAction(instanceId),
+            liveUsageLimits: runtimeCoordinator.value.getUsageLimits(instanceId),
           }).pipe(
+            Effect.tap(({ liveUsageLimits }) =>
+              rememberUsageLimits(Option.getOrUndefined(liveUsageLimits)),
+            ),
             Effect.map(({ commands, configuration, authAction }) => {
               const withCommands = applyAcpRegistryAvailableCommands(provider, commands);
               const withConfiguration = Option.match(configuration, {
@@ -566,6 +593,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
               });
               return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
             }),
+            Effect.flatMap(withUsageLimits),
           );
     });
     const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
@@ -714,8 +742,31 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
               ),
             ),
         );
+        const publishLiveUsage = runtimeCoordinator.value.watchUsageLimits(
+          instanceId,
+          (usageLimits) =>
+            liveSnapshotSemaphore.withPermit(
+              getSnapshot.pipe(
+                Effect.flatMap((current) =>
+                  rememberUsageLimits(usageLimits).pipe(
+                    Effect.flatMap((latest) =>
+                      latest === undefined || latest === current.usageLimits
+                        ? Effect.void
+                        : publishSnapshot({ ...current, usageLimits: latest }),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        );
         return Effect.all(
-          [publishEnrichment, publishLiveCommands, publishLiveConfiguration, publishUrlAuthAction],
+          [
+            publishEnrichment,
+            publishLiveCommands,
+            publishLiveConfiguration,
+            publishUrlAuthAction,
+            publishLiveUsage,
+          ],
           {
             concurrency: "unbounded",
             discard: true,
@@ -758,11 +809,21 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         : provided;
     };
 
+    const clearUsageLimits = Ref.set(latestUsageLimits, undefined).pipe(
+      Effect.andThen(
+        Option.isSome(runtimeCoordinator)
+          ? runtimeCoordinator.value.clearUsageLimits(instanceId)
+          : Effect.void,
+      ),
+    );
     const clearLiveState = Option.isSome(runtimeCoordinator)
       ? runtimeCoordinator.value
           .clearLiveConfiguration(instanceId)
-          .pipe(Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)))
-      : Effect.void;
+          .pipe(
+            Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)),
+            Effect.andThen(clearUsageLimits),
+          )
+      : clearUsageLimits;
     const controller = yield* AcpRegistryAuth.makeAcpRegistryAuth({
       instanceId,
       settings: effectiveConfig,
@@ -880,10 +941,11 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                           [
                             runtimeCoordinator.value.clearAvailableCommands(instanceId),
                             runtimeCoordinator.value.clearLiveConfiguration(instanceId),
+                            clearUsageLimits,
                           ],
                           { concurrency: "unbounded", discard: true },
                         )
-                      : Effect.void,
+                      : clearUsageLimits,
                   ),
                 ),
               ),

@@ -2,6 +2,7 @@ import {
   type AcpRegistryAcceptUrlAuthInput,
   type AcpRegistryUrlAuthAction,
   type ProviderInstanceId,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -25,6 +26,11 @@ interface AvailableCommandsUpdate {
 interface LiveConfigurationUpdate {
   readonly instanceId: ProviderInstanceId;
   readonly configuration: AcpRegistryLiveConfiguration;
+}
+
+interface UsageLimitsUpdate {
+  readonly instanceId: ProviderInstanceId;
+  readonly usageLimits: ServerProviderUsageLimits;
 }
 
 interface UrlAuthActionUpdate {
@@ -78,6 +84,19 @@ export class AcpRegistryRuntimeCoordinator extends Context.Service<
       instanceId: ProviderInstanceId,
       onUpdate: (configuration: AcpRegistryLiveConfiguration) => Effect.Effect<void>,
     ) => Effect.Effect<void>;
+    readonly clearUsageLimits: (instanceId: ProviderInstanceId) => Effect.Effect<void>;
+    /** Usage a live session read for its instance (Kiro credits after a metered turn). */
+    readonly publishUsageLimits: (
+      instanceId: ProviderInstanceId,
+      usageLimits: ServerProviderUsageLimits,
+    ) => Effect.Effect<void>;
+    readonly getUsageLimits: (
+      instanceId: ProviderInstanceId,
+    ) => Effect.Effect<Option.Option<ServerProviderUsageLimits>>;
+    readonly watchUsageLimits: (
+      instanceId: ProviderInstanceId,
+      onUpdate: (usageLimits: ServerProviderUsageLimits) => Effect.Effect<void>,
+    ) => Effect.Effect<void>;
     readonly requestUrlAuthentication: (
       instanceId: ProviderInstanceId,
       action: AcpRegistryUrlAuthAction,
@@ -105,6 +124,10 @@ const make = Effect.gen(function* () {
   const liveConfigurationUpdates = yield* PubSub.unbounded<LiveConfigurationUpdate>();
   const liveConfigurationByInstance = yield* Ref.make(
     new Map<ProviderInstanceId, AcpRegistryLiveConfiguration>(),
+  );
+  const usageLimitsUpdates = yield* PubSub.unbounded<UsageLimitsUpdate>();
+  const usageLimitsByInstance = yield* Ref.make(
+    new Map<ProviderInstanceId, ServerProviderUsageLimits>(),
   );
   const urlAuthActionUpdates = yield* PubSub.unbounded<UrlAuthActionUpdate>();
   const pendingUrlAuthActions = yield* Ref.make(
@@ -249,6 +272,50 @@ const make = Effect.gen(function* () {
         }),
       );
 
+  const clearUsageLimits: AcpRegistryRuntimeCoordinator["Service"]["clearUsageLimits"] = (
+    instanceId,
+  ) =>
+    Ref.update(usageLimitsByInstance, (current) => {
+      const next = new Map(current);
+      next.delete(instanceId);
+      return next;
+    });
+
+  const publishUsageLimits: AcpRegistryRuntimeCoordinator["Service"]["publishUsageLimits"] = (
+    instanceId,
+    usageLimits,
+  ) =>
+    Ref.update(usageLimitsByInstance, (current) =>
+      new Map(current).set(instanceId, usageLimits),
+    ).pipe(
+      Effect.andThen(PubSub.publish(usageLimitsUpdates, { instanceId, usageLimits })),
+      Effect.asVoid,
+    );
+
+  const getUsageLimits: AcpRegistryRuntimeCoordinator["Service"]["getUsageLimits"] = Effect.fn(
+    "AcpRegistryRuntimeCoordinator.getUsageLimits",
+  )(function* (instanceId) {
+    return Option.fromNullishOr((yield* Ref.get(usageLimitsByInstance)).get(instanceId));
+  });
+
+  const watchUsageLimits: AcpRegistryRuntimeCoordinator["Service"]["watchUsageLimits"] = (
+    instanceId,
+    onUpdate,
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(usageLimitsUpdates);
+        const current = yield* getUsageLimits(instanceId);
+        if (Option.isSome(current)) {
+          yield* onUpdate(current.value);
+        }
+        yield* Stream.fromSubscription(subscription).pipe(
+          Stream.filter((update) => update.instanceId === instanceId),
+          Stream.runForEach((update) => onUpdate(update.usageLimits)),
+        );
+      }),
+    );
+
   const publishUrlAuthAction = (
     instanceId: ProviderInstanceId,
     action: AcpRegistryUrlAuthAction | null,
@@ -349,6 +416,10 @@ const make = Effect.gen(function* () {
     publishLiveConfiguration,
     getLiveConfiguration,
     watchLiveConfiguration,
+    clearUsageLimits,
+    publishUsageLimits,
+    getUsageLimits,
+    watchUsageLimits,
     requestUrlAuthentication,
     acceptUrlAuthentication,
     getUrlAuthAction,

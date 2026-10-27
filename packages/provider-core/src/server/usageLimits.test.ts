@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./usageLimits.ts";
+import {
+  applyUsageLimitsUpdate,
+  preferNewerUsageLimits,
+  resolveUsageLimitsAfterProbe,
+} from "./usageLimits.ts";
 
 const checkedAt = "2026-09-03T12:00:00.000Z";
 const session = {
@@ -120,5 +124,29 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published, probed: failed })).toBe(published);
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
+  });
+});
+
+describe("preferNewerUsageLimits", () => {
+  it("takes the newer read but never trades good bars for a failed one", () => {
+    const newer = { ...published, checkedAt: "2026-09-03T12:05:00.000Z" };
+    const failed = {
+      checkedAt: "2026-09-03T12:10:00.000Z",
+      windows: [],
+      unavailable: { reason: "probeFailed" as const },
+    };
+    expect(preferNewerUsageLimits(undefined, published)).toBe(published);
+    expect(preferNewerUsageLimits(published, undefined)).toBe(published);
+    expect(preferNewerUsageLimits(published, newer)).toBe(newer);
+    expect(preferNewerUsageLimits(newer, published)).toBe(newer);
+    expect(preferNewerUsageLimits(published, { ...published })).toBe(published);
+    expect(preferNewerUsageLimits(published, failed)).toBe(published);
+    expect(preferNewerUsageLimits(failed, newer)).toBe(failed);
+    expect(
+      preferNewerUsageLimits(failed, { ...newer, checkedAt: "2026-09-03T12:11:00.000Z" }),
+    ).toEqual({
+      ...newer,
+      checkedAt: "2026-09-03T12:11:00.000Z",
+    });
   });
 });

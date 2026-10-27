@@ -410,8 +410,7 @@ export function ThreadRelationshipsPanel(props: {
   return (
     <ThreadDetailsSection
       headingId="thread-details-lineage-heading"
-      // Fork: "Related threads" says what this lists: parent, forks, transfers, subagents.
-      title={runningCount > 0 ? `Related threads · ${runningCount} running` : "Related threads"}
+      title={runningCount > 0 ? `Lineage · ${runningCount} running` : "Lineage"}
       // A lone "Previous agents" row names itself; the heading returns for status or actions.
       showHeading={runningCount > 0 || canDetach || related.length > 0 || active.length > 0}
       data-thread-relationships-panel
@@ -432,15 +431,9 @@ export function ThreadRelationshipsPanel(props: {
               <MoreHorizontalIcon className="size-3.5" />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60 max-w-(--available-width)">
-              {/* Fork: plain words for what detaching does. */}
               <MenuItem onClick={() => void detach()}>
                 <UnplugIcon className="size-3.5" />
-                <span className="flex flex-col">
-                  <span>Stop the agent program</span>
-                  <span className="text-xs text-muted-foreground">
-                    Frees memory. Your next message starts it again.
-                  </span>
-                </span>
+                Disconnect agent session
               </MenuItem>
             </MenuPopup>
           </Menu>

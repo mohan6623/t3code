@@ -332,9 +332,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
     const pty = yield* Effect.serviceOption(PtyAdapter.PtyAdapter);
 
     const result = yield* Effect.gen(function* () {
-      // Resolution may install a missing registry package. Keep it inside the
-      // probe deadline so a provider refresh cannot inherit the installer's
-      // much longer timeout.
+      // Resolution may install packages; bound it by the probe deadline.
       const resolved = yield* catalog
         .resolve(input.settings, input.cwd, input.environment)
         .pipe(Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError));
@@ -429,18 +427,23 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       const started = startResult.success;
       // Kiro answers its credit usage on any open session; asking this one
       // while the commands settle spares a separate agent process.
-      const [usageLimits] = yield* Effect.all(
+      const [usageRead] = yield* Effect.all(
         [
           isKiroAcpAgent(input.settings, resolved.spawn.command)
-            ? readKiroUsageLimits(runtime.request, started.sessionId)
-            : Effect.succeed(undefined),
+            ? readKiroUsageLimits(runtime.request, started.sessionId).pipe(Effect.asSome)
+            : Effect.succeedNone,
           Deferred.await(commandsAdvertised).pipe(
             Effect.timeoutOption(COMMAND_ADVERTISEMENT_GRACE),
           ),
         ],
         { concurrency: "unbounded" },
       );
-      return { resolved, started, commands: yield* Ref.get(commandsRef), usageLimits };
+      return {
+        resolved,
+        started,
+        commands: yield* Ref.get(commandsRef),
+        usageLimits: Option.getOrUndefined(usageRead),
+      };
     }).pipe(
       Effect.scoped,
       Effect.timeoutOrElse({

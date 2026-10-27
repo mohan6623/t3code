@@ -1,14 +1,12 @@
 import * as Schema from "effect/Schema";
-import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useState } from "react";
 
 import { getLocalStorageItem, setLocalStorageItem } from "./useLocalStorage";
 import { useResizeDrag } from "./useResizeDrag";
 
 const WidthSchema = Schema.Finite;
 
-/**
- * Custom property the host element must size itself from.
- */
+/** The host must size itself from this custom property. */
 export const RESIZABLE_WIDTH_PROPERTY = "--resizable-width";
 
 export interface UseResizableWidthOptions {
@@ -31,6 +29,7 @@ const COLLAPSE_AT_MIN_WIDTH_SHARE = 0.5;
 const COLLAPSE_SLIDE_MS = 180;
 
 export interface ResizableWidthHandlers {
+  readonly ref: (node: HTMLElement | null) => (() => void) | undefined;
   readonly onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
   readonly onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -38,10 +37,7 @@ export interface ResizableWidthHandlers {
   readonly onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => void;
 }
 
-/**
- * Width is read on mount or storage-key changes and persisted on drag-end (not on every rAF tick
- * — would otherwise be ~60 writes/sec).
- */
+/** Persist on drag end to avoid a storage write on every animation frame. */
 export function useResizableWidth(options: UseResizableWidthOptions): {
   readonly width: number;
   readonly handlers: ResizableWidthHandlers;
@@ -69,17 +65,17 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   }
 
   const clampedWidth = clamp(widthState.width);
-  const latestOptions = useRef({ clamp, storageKey, width: clampedWidth, minWidth, onCollapse });
-  useLayoutEffect(() => {
-    latestOptions.current = { clamp, storageKey, width: clampedWidth, minWidth, onCollapse };
-  }, [clamp, clampedWidth, minWidth, onCollapse, storageKey]);
 
-  const { refresh, ...handlers } = useResizeDrag<HTMLElement>((event) => {
+  const drag = useResizeDrag<HTMLElement>((event) => {
     const host = event.currentTarget.parentElement;
-    // A collapsible host animates width; live drag writes must not. The host
-    // renders its own transition-duration, so override a property it leaves alone.
+    // Disable drag transitions through transition-property; the host renders transition-duration.
     host?.style.setProperty("transition-property", "none");
-    // Fork: the snap shut or open slides; plain drag moves stay instant.
+    // The drag commits to the key and width it started from, even if the panel
+    // switches keys before the pointer is released.
+    const startStorageKey = storageKey;
+    const startWidth = clampedWidth;
+    // Fork: a collapsible host lets the pointer go below the minimum, so
+    // `resize` can tell a drag past it; the width it draws still stops there.
     let collapsed = false;
     let slideTimer: number | null = null;
     const slide = () => {
@@ -93,30 +89,24 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
         host.style.setProperty("transition-property", "none");
       }, COLLAPSE_SLIDE_MS);
     };
-    const stopSlide = () => {
-      if (slideTimer !== null) window.clearTimeout(slideTimer);
-      slideTimer = null;
-      host?.style.removeProperty("transition-duration");
-      host?.style.removeProperty("transition-timing-function");
-    };
     if (host && onCollapse) {
       // The contents keep their width and slide out under the clip, not squeeze.
       host.style.setProperty("overflow", "hidden");
-      host.style.setProperty("--resizable-slide-width", `${clampedWidth}px`);
+      host.style.setProperty("--resizable-slide-width", `${startWidth}px`);
     }
     return {
-      width: clampedWidth,
+      width: startWidth,
       edge,
-      resize(value) {
-        const latest = latestOptions.current;
+      bounds: { min: onCollapse ? 0 : minWidth, max: maxWidth },
+      resize(pointerWidth) {
         const nextCollapsed =
-          latest.onCollapse !== undefined && value < latest.minWidth * COLLAPSE_AT_MIN_WIDTH_SHARE;
+          onCollapse !== undefined && pointerWidth < minWidth * COLLAPSE_AT_MIN_WIDTH_SHARE;
         if (nextCollapsed !== collapsed) {
           collapsed = nextCollapsed;
           host?.toggleAttribute("data-resizable-collapsing", collapsed);
           slide();
         }
-        const nextWidth = latest.clamp(value);
+        const nextWidth = Math.max(minWidth, pointerWidth);
         host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${collapsed ? 0 : nextWidth}px`);
         if (!collapsed) host?.style.setProperty("--resizable-slide-width", `${nextWidth}px`);
         return nextWidth;
@@ -124,35 +114,48 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
       finish(finalWidth) {
         if (collapsed) {
           // Closed: the next open uses the width from before this drag.
-          latestOptions.current.onCollapse?.();
+          onCollapse?.();
           return;
         }
-        setWidthState({ storageKey, width: finalWidth });
+        setWidthState({ storageKey: startStorageKey, width: finalWidth });
         try {
-          setLocalStorageItem(latestOptions.current.storageKey, finalWidth, WidthSchema);
+          setLocalStorageItem(startStorageKey, finalWidth, WidthSchema);
         } catch (error) {
           console.error("Could not persist panel width.", error);
         }
       },
       cleanup(committed) {
-        stopSlide();
-        host?.style.removeProperty("transition-property");
+        if (slideTimer !== null) window.clearTimeout(slideTimer);
+        host?.style.removeProperty("transition-duration");
+        host?.style.removeProperty("transition-timing-function");
         host?.style.removeProperty("overflow");
         host?.style.removeProperty("--resizable-slide-width");
         host?.removeAttribute("data-resizable-collapsing");
+        host?.style.removeProperty("transition-property");
         // A committed collapse stays shut until `finish` unmounts the host.
         if (collapsed && committed) return;
-        // React skips the write when the rendered width did not change.
-        if (!committed) {
-          host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${latestOptions.current.width}px`);
-        }
+        if (!committed) host?.style.setProperty(RESIZABLE_WIDTH_PROPERTY, `${startWidth}px`);
       },
     };
-  }, storageKey);
+  });
 
-  // Bounds can change mid-drag (sidebar opens, window narrows) and the render
-  // rewrites the committed width, so re-apply the live pointer position.
-  useLayoutEffect(refresh, [clamp, clampedWidth, refresh]);
+  // Bounds can change mid-drag (sidebar opens, window narrows), and the render
+  // that carries them rewrites the committed width, so re-apply the live pointer position.
+  const { refresh } = drag;
+  useLayoutEffect(
+    () => refresh({ min: onCollapse ? 0 : minWidth, max: maxWidth }),
+    [refresh, minWidth, maxWidth, onCollapse],
+  );
 
-  return { width: clampedWidth, handlers };
+  return {
+    width: clampedWidth,
+    handlers: {
+      ref: drag.ref,
+      onPointerDown: drag.onPointerDown,
+      onPointerMove: drag.onPointerMove,
+      onPointerUp: drag.onPointerUp,
+      onPointerCancel: drag.onPointerCancel,
+      onLostPointerCapture: drag.onLostPointerCapture,
+    },
+  };
 }

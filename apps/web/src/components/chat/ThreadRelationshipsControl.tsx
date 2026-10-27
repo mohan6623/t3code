@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
-import { CollapsibleSectionHeader, SectionHeaderStatus } from "../ui/collapsible-section-header";
+import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -43,6 +43,7 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowRightIcon,
   BotIcon,
+  ChevronDownIcon,
   CornerLeftUpIcon,
   GitForkIcon,
   LoaderCircleIcon,
@@ -51,10 +52,7 @@ import {
   SquareIcon,
   UnplugIcon,
 } from "lucide-react";
-import * as Schema from "effect/Schema";
 import { useState, type ReactNode } from "react";
-
-import { useLocalStorage } from "../../hooks/useLocalStorage";
 
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -74,7 +72,11 @@ import { ThreadLineageWorkflowRow } from "./ThreadLineageWorkflowRow";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { cn } from "~/lib/utils";
 import {
+  THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+  THREAD_DETAILS_PANEL_ICON_CLASS,
+  THREAD_DETAILS_PANEL_LABEL_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
@@ -98,11 +100,7 @@ function ThreadLineageRowList(props: {
 }) {
   return (
     <>
-      {/*
-        Plain overflow, not a ScrollArea
-        component: this sits inside an already scrolling panel, where a
-        max-height-only virtual viewport measures badly.
-      */}
+      {/* ScrollArea's max-height viewport measures badly inside this scrolling panel. */}
       <ul
         aria-label="Related threads"
         className="m-0 max-h-[13.5rem] list-none overflow-y-auto overscroll-contain p-0 has-data-workflow-expanded:max-h-[min(28rem,55dvh)]"
@@ -123,9 +121,6 @@ function ThreadLineageRowList(props: {
   );
 }
 
-/** Fork: whether the "Previous agents" section is open, kept across threads and restarts. */
-const PREVIOUS_AGENTS_OPEN_KEY = "t3code:thread-details:previous-agents-open";
-
 function ThreadLineageGroup(props: {
   readonly label: string | null;
   readonly rows: ReadonlyArray<ThreadRelationshipWalkRow>;
@@ -142,17 +137,26 @@ function ThreadLineageGroup(props: {
   return (
     <div>
       {props.label ? (
-        <CollapsibleSectionHeader
-          variant="panel"
-          expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
-          accessory={
-            failedCount > 0 ? <SectionHeaderStatus>{failedCount} failed</SectionHeaderStatus> : null
-          }
-        >
-          {props.label}
-          {!expanded && ` (${props.rows.length})`}
-        </CollapsibleSectionHeader>
+        <ThreadDetailsControl aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+          <BotIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
+          <span className={cn(THREAD_DETAILS_PANEL_LABEL_CLASS, "min-w-0 flex-1 truncate")}>
+            {props.label}
+          </span>
+          {failedCount > 0 ? <SectionHeaderStatus>{failedCount} failed</SectionHeaderStatus> : null}
+          {expanded ? null : (
+            <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground">
+              {props.rows.length}
+            </span>
+          )}
+          <ChevronDownIcon
+            aria-hidden
+            className={cn(
+              THREAD_DETAILS_PANEL_CHEVRON_CLASS,
+              "transition-transform",
+              !expanded && "rotate-180 redesign:-rotate-90",
+            )}
+          />
+        </ThreadDetailsControl>
       ) : null}
       {expanded ? (
         <ThreadLineageRowList
@@ -253,13 +257,7 @@ export function ThreadRelationshipsPanel(props: {
   );
   const [busyAction, setBusyAction] = useState<"merge" | "detach" | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
-  const [previousAgentsOpen, setPreviousAgentsOpen] = useLocalStorage(
-    PREVIOUS_AGENTS_OPEN_KEY,
-    false,
-    Schema.Boolean,
-  );
-  // These lookups and the graph walk every subagent and thread, so they sit below
-  // the panel's hooks where the compiler can cache them.
+  // Derive graphs after hooks to preserve their compiler cache.
   const providers = providersByEnvironment.get(props.environmentId);
   const projects = allProjects.filter((project) => project.environmentId === props.environmentId);
   const parentNativeStatus = parentProjection
@@ -329,18 +327,10 @@ export function ThreadRelationshipsPanel(props: {
       ? "previous"
       : "active";
   });
-  // Fork: with only finished agents to show, the section is one closed
-  // "Previous agents" row instead of an empty-looking "Lineage" heading.
-  const onlyPrevious = related.length === 0 && active.length === 0;
   const groups = [
     { id: "related", label: null, rows: related, expanded: true },
     { id: "active", label: null, rows: active, expanded: true },
-    {
-      id: "previous",
-      label: onlyPrevious ? null : "Previous agents",
-      rows: previous,
-      expanded: onlyPrevious,
-    },
+    { id: "previous", label: "Previous agents", rows: previous, expanded: false },
   ];
   const runningCount =
     (projection?.subagents.filter(
@@ -420,19 +410,10 @@ export function ThreadRelationshipsPanel(props: {
   return (
     <ThreadDetailsSection
       headingId="thread-details-lineage-heading"
-      title={
-        onlyPrevious && runningCount === 0
-          ? `Previous agents (${previous.length})`
-          : runningCount > 0
-            ? `Related threads · ${runningCount} running`
-            : "Related threads"
-      }
-      {...(onlyPrevious && runningCount === 0
-        ? {
-            collapsed: !previousAgentsOpen,
-            onCollapsedChange: (c: boolean) => setPreviousAgentsOpen(!c),
-          }
-        : {})}
+      // Fork: "Related threads" says what this lists: parent, forks, transfers, subagents.
+      title={runningCount > 0 ? `Related threads · ${runningCount} running` : "Related threads"}
+      // A lone "Previous agents" row names itself; the heading returns for status or actions.
+      showHeading={runningCount > 0 || canDetach || related.length > 0 || active.length > 0}
       data-thread-relationships-panel
       actions={
         canDetach ? (
@@ -451,9 +432,15 @@ export function ThreadRelationshipsPanel(props: {
               <MoreHorizontalIcon className="size-3.5" />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60 max-w-(--available-width)">
+              {/* Fork: plain words for what detaching does. */}
               <MenuItem onClick={() => void detach()}>
                 <UnplugIcon className="size-3.5" />
-                Disconnect agent session
+                <span className="flex flex-col">
+                  <span>Stop the agent program</span>
+                  <span className="text-xs text-muted-foreground">
+                    Frees memory. Your next message starts it again.
+                  </span>
+                </span>
               </MenuItem>
             </MenuPopup>
           </Menu>

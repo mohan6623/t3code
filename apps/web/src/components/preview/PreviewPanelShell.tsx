@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
 import {
   type PreviewPanelInlineSize,
   usePreviewPanelInlineSize,
@@ -48,29 +48,12 @@ function PreviewPanelShellFrame(
   const hostRef = useRef<HTMLDivElement | null>(null);
   const returnedFocus = useRef(false);
   const { width, handlers, observeRow } = props.inlineSize;
-  // Width animates only for an open or close. Any other width change disables
-  // the transition in the same commit that changes the width, so the browser
-  // never starts one; the next open or close re-enables it in its own commit,
-  // so nothing waits for a paint.
-  const [widthTransition, setWidthTransition] = useState(() => ({
-    open,
-    width,
-    maximized,
-    enabled: true,
-  }));
-  if (
-    widthTransition.open !== open ||
-    widthTransition.width !== width ||
-    widthTransition.maximized !== maximized
-  ) {
-    setWidthTransition({
-      open,
-      width,
-      maximized,
-      enabled: widthTransition.open !== open,
-    });
-  }
-  const suppressWidthTransition = collapsible && !widthTransition.enabled;
+  // Fork: an open or close changes the chat's width once, at the start, and
+  // only the panel slides (a transform, no layout per frame). Animating the
+  // width made the chat text wrap again on every frame, and the list measured
+  // each new wrap one frame late, so the messages jumped.
+  const slides = collapsible && !maximized;
+  const closed = collapsible && !open;
   const attachHost = (host: HTMLDivElement) => {
     hostRef.current = host;
     const stopObservingRow = observeRow(host);
@@ -116,12 +99,17 @@ function PreviewPanelShellFrame(
           ? maximized
             ? // Maximizing meets the sidebar border or window edge; omit the duplicate border.
               "flex-1"
-            : "shrink-0 border-l border-border"
+            : slides
+              ? // Fork: the edge line slides with the panel.
+                "shrink-0"
+              : "shrink-0 border-l border-border"
           : "w-full",
-        collapsible &&
-          "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
-        collapsible && open && "[[data-panel-animations=true]_&]:starting:w-0!",
-        collapsible && !open && "pointer-events-none",
+        // Closed, the panel takes no room: it sits over the chat's right edge,
+        // slid out, and hides once the slide ends.
+        closed &&
+          (slides
+            ? "pointer-events-none invisible absolute inset-y-0 right-0 z-50 bg-transparent [[data-panel-animations=true]_&]:transition-[visibility] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration)"
+            : "pointer-events-none"),
       )}
       style={
         isInline
@@ -129,10 +117,9 @@ function PreviewPanelShellFrame(
               [RESIZABLE_WIDTH_PROPERTY]: `${width}px`,
               width: maximized
                 ? "100%"
-                : collapsible && !open
+                : collapsible && !open && !slides
                   ? "0px"
                   : `var(${RESIZABLE_WIDTH_PROPERTY})`,
-              transitionDuration: suppressWidthTransition ? "0ms" : undefined,
             } as CSSProperties)
           : undefined
       }
@@ -142,12 +129,13 @@ function PreviewPanelShellFrame(
       {isInline && !maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
       <div className={cn("h-full min-h-0 w-full", collapsible && "overflow-clip")}>
         <div
-          className="flex h-full min-h-0 min-w-0 flex-col"
-          style={
-            collapsible && !maximized
-              ? { width: `calc(var(${RESIZABLE_WIDTH_PROPERTY}) - 1px)` }
-              : undefined
-          }
+          className={cn(
+            "flex h-full min-h-0 min-w-0 flex-col",
+            slides &&
+              "border-l border-border bg-background [[data-panel-animations=true]_&]:transition-transform [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
+            slides && (closed ? "translate-x-full" : "starting:translate-x-full"),
+          )}
+          style={slides ? { width: `var(${RESIZABLE_WIDTH_PROPERTY})` } : undefined}
         >
           {props.children}
         </div>

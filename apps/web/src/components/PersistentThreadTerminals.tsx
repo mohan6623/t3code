@@ -239,15 +239,22 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
 
   return (
     <div
+      // Fork: the chat gives up or takes back the room at once, and only the
+      // drawer slides (a transform). Animating the row height re-measured the
+      // chat on every frame. Closing, the drawer takes no room and slides down
+      // over the chat: a 0-height column that ends at its bottom edge.
       className={cn(
-        "grid shrink-0 overflow-clip",
-        active ? (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]") : "hidden",
-        active &&
-          "[[data-panel-animations=true]_&]:transition-[grid-template-rows] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
-        active && visible && "[[data-panel-animations=true]_&]:starting:grid-rows-[0fr]!",
+        "flex shrink-0 flex-col justify-end",
+        !active ? "hidden" : visible ? "overflow-clip" : "pointer-events-none relative z-50 h-0",
       )}
     >
-      <div className="min-h-0 overflow-clip">
+      <div
+        className={cn(
+          "shrink-0 bg-background",
+          "[[data-panel-animations=true]_&]:transition-transform [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
+          visible ? "starting:translate-y-full" : "translate-y-full",
+        )}
+      >
         <ThreadTerminalDrawer
           threadRef={threadRef}
           threadId={threadId}

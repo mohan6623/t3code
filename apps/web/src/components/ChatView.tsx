@@ -3463,7 +3463,8 @@ export default function ChatView(props: ChatViewProps) {
                   : { historyControls: threadHistoryControls })}
               />
 
-              {showScrollToBottom && !isThreadFindActive && (
+              {/* Fork: stays while find is open, so a match far up never strands the user. */}
+              {showScrollToBottom && (
                 <ScrollToEndButton
                   bottom={scrollToEndClearance + 4}
                   onScrollToEnd={() => {

@@ -182,6 +182,7 @@ export function useThreadFindNavigation({
   contentInsetEndAdjustment,
   listReady,
   historyControls,
+  onNavigate,
 }: {
   container: HTMLElement | null;
   query: string;
@@ -200,6 +201,11 @@ export function useThreadFindNavigation({
         readonly onLoadEarlier: (throughEntryId?: string) => void;
       }
     | undefined;
+  /**
+   * Fork: a new match is manual navigation. It releases live follow, so a
+   * jump up is not pulled back to the end and the scroll-to-end pill shows.
+   */
+  onNavigate?: () => void;
 }) {
   const matchKey = match ? `${navigationId}:${query}:${match.entryId}:${match.occurrence}` : null;
   const historyLoading = historyControls?.loading ?? false;
@@ -271,6 +277,13 @@ export function useThreadFindNavigation({
   const reveal = useEffectEvent((range: Range | null, inputs: RevealInputs) =>
     revealThreadFindMatch(range, inputs, { state: stateRef.current, listRef, readInputs }),
   );
+
+  // Fork: declared before the highlight effects, so follow lets go before
+  // the reveal scrolls.
+  const releaseFollow = useEffectEvent(() => onNavigate?.());
+  useEffect(() => {
+    if (matchKey !== null) releaseFollow();
+  }, [matchKey]);
 
   useThreadFindHighlights({
     container,

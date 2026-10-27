@@ -78,8 +78,16 @@ function createVisitScrollState(
       readonly offset: number;
     } | null,
     anchorScrollRestoreFrame: null as number | null,
+    stuckFollowTimer: null as number | null,
   };
 }
+
+/**
+ * Fork: how long the list may sit away from its end while it still follows.
+ * Streaming leaves the end for a frame per chunk and a smooth scroll to the end
+ * takes a few hundred ms; a list still away after this lost its follow.
+ */
+const STUCK_FOLLOW_CHECK_MS = 1200;
 type VisitScrollState = ReturnType<typeof createVisitScrollState>;
 
 function stopAnchorPositioning(scroll: VisitScrollState) {
@@ -502,11 +510,32 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   };
   const onToolOutputCollapsedAtEndStable = useStableCallback(onToolOutputCollapsedAtEnd);
 
+  // Fork: following, yet the list stayed away from its end (seen after a
+  // thread switch mid-run). Let go of follow and offer the pill, so the
+  // user can always get back to the end.
+  const releaseStuckFollow = useStableCallback((scroll: VisitScrollState) => {
+    scroll.stuckFollowTimer = null;
+    if (visitScrollRef.current !== scroll || scroll.visit !== visit) return;
+    if (readFollow().mode !== "following" || timelineAnchorMessageId !== null) return;
+    if (resolveTimelineIsAtEnd(legendListRef.current?.getState()) !== false) return;
+    followStore.dispatch(visit, { type: "navigated" });
+    followStore.dispatch(visit, { type: "leftEnd" });
+    viewportRef.current?.followReleased();
+    setShowScrollToBottom(true);
+  });
   const onIsAtEndChange = (isAtEnd: boolean) => {
     const scroll = visitScroll();
+    if (scroll.stuckFollowTimer !== null) {
+      window.clearTimeout(scroll.stuckFollowTimer);
+      scroll.stuckFollowTimer = null;
+    }
     if (!isAtEnd && readFollow().mode === "following") {
       scroll.showScrollDebouncer.cancel();
       setShowScrollToBottom(false);
+      scroll.stuckFollowTimer = window.setTimeout(
+        () => releaseStuckFollow(scroll),
+        STUCK_FOLLOW_CHECK_MS,
+      );
       return;
     }
     const { before, after } = followStore.dispatch(visit, {

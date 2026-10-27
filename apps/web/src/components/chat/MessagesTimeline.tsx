@@ -1176,6 +1176,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     rowIndex: activeFindMatch ? rows.findIndex((row) => row.id === activeFindMatch.entryId) : -1,
     listRef,
     contentInsetEndAdjustment,
+    onNavigate: navigateTimeline,
   });
 
   // LegendList moves rows one commit late; per-row providers prevent thread context leaks.

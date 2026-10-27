@@ -12,12 +12,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   memo,
   useImperativeHandle,
-  useEffect,
-  useEffectEvent,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -474,172 +472,199 @@ function labelTextWidth(label: HTMLElement, range: Range): number {
   return Number.isFinite(maxWidth) ? Math.min(width, maxWidth) : width;
 }
 
-export function useLabelsOverflow(element: HTMLDivElement | null): ContextStripFoldLevel {
+function animateLabelWidths(
+  previousRects: ReadonlyMap<HTMLElement, DOMRect>,
+  animations: Map<HTMLElement, Animation>,
+) {
+  for (const animation of animations.values()) animation.cancel();
+  animations.clear();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  for (const [label, previousRect] of previousRects) {
+    if (!label.isConnected) continue;
+    const nextWidth = label.getBoundingClientRect().width;
+    if (Math.abs(previousRect.width - nextWidth) < 0.5) continue;
+
+    const animation = label.animate(
+      [
+        { width: `${previousRect.width}px`, maxWidth: `${previousRect.width}px` },
+        { width: `${nextWidth}px`, maxWidth: `${nextWidth}px` },
+      ],
+      {
+        duration: COMPOSER_CONTEXT_MOTION_DURATION_MS,
+        easing: COMPOSER_CONTEXT_MOTION_EASING,
+        fill: "backwards",
+      },
+    );
+    animations.set(label, animation);
+    animation.addEventListener(
+      "finish",
+      () => {
+        if (animations.get(label) === animation) animations.delete(label);
+      },
+      { once: true },
+    );
+  }
+}
+
+/** Fork: the fold level the strip's committed attributes show. */
+function readContextStripFoldLevel(strip: HTMLElement): ContextStripFoldLevel {
+  for (let level = CONTEXT_STRIP_FOLD_STEPS.length; level > 0; level -= 1) {
+    const attributes = contextStripFoldAttributes(level as ContextStripFoldLevel);
+    const applied = Object.entries(attributes).every(
+      ([name, value]) => value === undefined || strip.hasAttribute(name),
+    );
+    if (applied) return level as ContextStripFoldLevel;
+  }
+  return 0;
+}
+
+/**
+ * How far the strip folds (see DOCK_FOLD_ORDER). The strip is measured when
+ * it, a control group or a hosted control resizes, when its text or children
+ * change, and when fonts load, which covers everything the widths depend on.
+ */
+export function useLabelsOverflow(): readonly [
+  attach: (element: HTMLDivElement | null) => (() => void) | undefined,
+  level: ContextStripFoldLevel,
+] {
   const [level, setLevel] = useState<ContextStripFoldLevel>(0);
-  const pendingLabelRectsRef = useRef<Map<HTMLElement, DOMRect> | null>(null);
-  const labelAnimationsRef = useRef(new Map<HTMLElement, Animation>());
-  const measure = useEffectEvent(() => {
-    const current = element;
+
+  const attach = (current: HTMLDivElement | null) => {
     if (!current) return;
-    const stripWidth = current.clientWidth;
-    if (stripWidth === 0) return;
-    const stripStyle = getComputedStyle(current);
-    const available =
-      stripWidth -
-      (Number.parseFloat(stripStyle.paddingInlineStart) || 0) -
-      (Number.parseFloat(stripStyle.paddingInlineEnd) || 0);
-    const contentWidth = (parent: Element): number => {
-      const parentStyle = getComputedStyle(parent);
-      const gap = Number.parseFloat(parentStyle.columnGap) || 0;
-      // Fork: a padded item (the usage badge) needs its padding too, or the strip
-      // stays expanded while the item already squeezes the composer controls.
-      let width =
-        (Number.parseFloat(parentStyle.paddingInlineStart) || 0) +
-        (Number.parseFloat(parentStyle.paddingInlineEnd) || 0);
-      let counted = 0;
-      for (const child of parent.children) {
+    const labelAnimations = new Map<HTMLElement, Animation>();
+
+    const measure = () => {
+      // The committed attributes, not render state, so a stale closure cannot misread them.
+      const level = readContextStripFoldLevel(current);
+      const stripWidth = current.clientWidth;
+      if (stripWidth === 0) return;
+      const stripStyle = getComputedStyle(current);
+      const available =
+        stripWidth -
+        (Number.parseFloat(stripStyle.paddingInlineStart) || 0) -
+        (Number.parseFloat(stripStyle.paddingInlineEnd) || 0);
+      const contentWidth = (parent: Element): number => {
+        const parentStyle = getComputedStyle(parent);
+        const gap = Number.parseFloat(parentStyle.columnGap) || 0;
+        // Fork: a padded item (the usage badge) needs its padding too, or the strip
+        // stays expanded while the item already squeezes the composer controls.
+        let width =
+          (Number.parseFloat(parentStyle.paddingInlineStart) || 0) +
+          (Number.parseFloat(parentStyle.paddingInlineEnd) || 0);
+        let counted = 0;
+        for (const child of parent.children) {
+          if (!(child instanceof HTMLElement)) continue;
+          const style = getComputedStyle(child);
+          // Fork: a folded part keeps its flex gap, so it counts with no width.
+          if (style.display === "none") continue;
+          const position = style.position;
+          if (position === "absolute" || position === "fixed") continue;
+          width +=
+            child.offsetWidth +
+            (Number.parseFloat(style.marginInlineStart) || 0) +
+            (Number.parseFloat(style.marginInlineEnd) || 0);
+          counted += 1;
+        }
+        return width + gap * Math.max(0, counted - 1);
+      };
+      const stripGap = Number.parseFloat(stripStyle.columnGap) || 0;
+      let controlsNatural = 0;
+      let controlsCollapsed = 0;
+      let others = 0;
+      let groups = 0;
+      for (const child of current.children) {
         if (!(child instanceof HTMLElement)) continue;
-        const style = getComputedStyle(child);
-        // Fork: a folded part keeps its flex gap, so it counts with no width.
-        if (style.display === "none") continue;
-        const position = style.position;
-        if (position === "absolute" || position === "fixed") continue;
-        width +=
-          child.offsetWidth +
-          (Number.parseFloat(style.marginInlineStart) || 0) +
-          (Number.parseFloat(style.marginInlineEnd) || 0);
-        counted += 1;
-      }
-      return width + gap * Math.max(0, counted - 1);
-    };
-    const stripGap = Number.parseFloat(stripStyle.columnGap) || 0;
-    let controlsNatural = 0;
-    let controlsCollapsed = 0;
-    let others = 0;
-    let groups = 0;
-    for (const child of current.children) {
-      if (!(child instanceof HTMLElement)) continue;
-      // Reserve overflowed controls' width to prevent repeated hiding and expansion.
-      const hostedControls = child.matches('[data-chat-resting-composer-controls-host="true"]')
-        ? child.querySelector<HTMLElement>('[data-chat-composer-resting-controls="true"]')
-        : null;
-      const hostedMeasurement = hostedControls
-        ? measureRestingComposerControls(hostedControls)
-        : null;
-      if (hostedMeasurement) {
-        const natural = resolveRestingComposerControlsNaturalWidth(hostedMeasurement);
-        if (natural <= 1) continue;
+        // Reserve overflowed controls' width to prevent repeated hiding and expansion.
+        const hostedControls = child.matches('[data-chat-resting-composer-controls-host="true"]')
+          ? child.querySelector<HTMLElement>('[data-chat-composer-resting-controls="true"]')
+          : null;
+        const hostedMeasurement = hostedControls
+          ? measureRestingComposerControls(hostedControls)
+          : null;
+        if (hostedMeasurement) {
+          const natural = resolveRestingComposerControlsNaturalWidth(hostedMeasurement);
+          if (natural <= 1) continue;
+          groups += 1;
+          controlsNatural += natural;
+          controlsCollapsed += resolveRestingComposerControlsCollapsedWidth(hostedMeasurement);
+          continue;
+        }
+        const width = contentWidth(hostedControls ?? child);
+        if (width <= 1) continue;
         groups += 1;
-        controlsNatural += natural;
-        controlsCollapsed += resolveRestingComposerControlsCollapsedWidth(hostedMeasurement);
-        continue;
+        others += width;
       }
-      const width = contentWidth(hostedControls ?? child);
-      if (width <= 1) continue;
-      groups += 1;
-      others += width;
-    }
-    const gaps = stripGap * Math.max(0, groups - 1);
-    // Fork: every folding part counts at its natural width on the levels it shows on, and not
-    // at all on the others, whatever the strip shows now.
-    const naturalAtLevel = CONTEXT_STRIP_FOLD_STEPS.map(() => 0);
-    const range = document.createRange();
-    for (const part of current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_FOLD_SELECTOR)) {
-      const fold = part.dataset.stripFold;
-      const [firstLevel, lastLevel] = CONTEXT_STRIP_PART_LEVELS[fold ?? "label"] ?? [0, 0];
-      const natural = fold ? part.scrollWidth : labelTextWidth(part, range);
-      others -= part.getBoundingClientRect().width;
-      for (let index = firstLevel; index <= lastLevel; index += 1) {
-        if (index < naturalAtLevel.length) naturalAtLevel[index]! += natural;
+      const gaps = stripGap * Math.max(0, groups - 1);
+      // Fork: every folding part counts at its natural width on the levels it shows on, and not
+      // at all on the others, whatever the strip shows now.
+      const naturalAtLevel = CONTEXT_STRIP_FOLD_STEPS.map(() => 0);
+      const range = document.createRange();
+      for (const part of current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_FOLD_SELECTOR)) {
+        const fold = part.dataset.stripFold;
+        const [firstLevel, lastLevel] = CONTEXT_STRIP_PART_LEVELS[fold ?? "label"] ?? [0, 0];
+        const natural = fold ? part.scrollWidth : labelTextWidth(part, range);
+        others -= part.getBoundingClientRect().width;
+        for (let index = firstLevel; index <= lastLevel; index += 1) {
+          if (index < naturalAtLevel.length) naturalAtLevel[index]! += natural;
+        }
       }
-    }
-    const nextLevel = resolveContextStripFoldLevel({
-      level,
-      neededWidths: naturalAtLevel.map(
-        (parts, index) =>
-          (contextStripFoldUsesCollapsedControls(index) ? controlsCollapsed : controlsNatural) +
-          others +
-          gaps +
-          parts,
-      ),
-      availableWidth: available,
-    });
-    if (nextLevel !== level) {
-      pendingLabelRectsRef.current = new Map(
+      const nextLevel = resolveContextStripFoldLevel({
+        level,
+        neededWidths: naturalAtLevel.map(
+          (parts, index) =>
+            (contextStripFoldUsesCollapsedControls(index) ? controlsCollapsed : controlsNatural) +
+            others +
+            gaps +
+            parts,
+        ),
+        availableWidth: available,
+      });
+      if (nextLevel === level) return;
+      const previousRects = new Map(
         Array.from(current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_FOLD_SELECTOR)).map(
-          (label) => [label, label.getBoundingClientRect()],
+          (label) => [label, label.getBoundingClientRect()] as const,
         ),
       );
-    }
-    setLevel(nextLevel);
-  });
+      flushSync(() => setLevel(nextLevel));
+      animateLabelWidths(previousRects, labelAnimations);
+    };
 
-  useLayoutEffect(() => {
-    const previousRects = pendingLabelRectsRef.current;
-    if (!previousRects) return;
-    pendingLabelRectsRef.current = null;
-
-    for (const animation of labelAnimationsRef.current.values()) {
-      animation.cancel();
-    }
-    labelAnimationsRef.current.clear();
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    for (const [label, previousRect] of previousRects) {
-      if (!label.isConnected) continue;
-      const nextWidth = label.getBoundingClientRect().width;
-      if (Math.abs(previousRect.width - nextWidth) < 0.5) continue;
-
-      const animation = label.animate(
+    let stopResize = () => {};
+    const observeSizes = () => {
+      stopResize();
+      stopResize = observeResize(
         [
-          { width: `${previousRect.width}px`, maxWidth: `${previousRect.width}px` },
-          { width: `${nextWidth}px`, maxWidth: `${nextWidth}px` },
+          current,
+          ...Array.from(current.children),
+          ...Array.from(current.querySelectorAll("[data-chat-composer-resting-controls='true']")),
+          ...Array.from(current.querySelectorAll(COMPOSER_CONTEXT_FOLD_SELECTOR)),
         ],
-        {
-          duration: COMPOSER_CONTEXT_MOTION_DURATION_MS,
-          easing: COMPOSER_CONTEXT_MOTION_EASING,
-          fill: "backwards",
-        },
+        measure,
       );
-      labelAnimationsRef.current.set(label, animation);
-      animation.addEventListener(
-        "finish",
-        () => {
-          if (labelAnimationsRef.current.get(label) === animation) {
-            labelAnimationsRef.current.delete(label);
-          }
-        },
-        { once: true },
+    };
+    observeSizes();
+    // Text and control changes alter natural widths without resizing a hidden
+    // or squeezed label, so they re-measure too. Only added or removed elements
+    // can change the observed set; re-subscribing delivers a measure itself.
+    const mutations = new MutationObserver((records) => {
+      const elementsChanged = records.some((record) =>
+        [...record.addedNodes, ...record.removedNodes].some((node) => node instanceof Element),
       );
-    }
-  });
-
-  useEffect(
-    () => () => {
-      for (const animation of labelAnimationsRef.current.values()) {
-        animation.cancel();
-      }
-    },
-    [],
-  );
-
-  useLayoutEffect(() => {
-    // oxlint-disable-next-line react/set-state-in-effect -- The label mode comes from measuring the committed DOM, which render cannot read.
-    measure();
-  });
-
-  useEffect(() => {
-    if (!element) return;
-    const stopObserving = observeResize(element, measure);
+      if (elementsChanged) observeSizes();
+      else measure();
+    });
+    mutations.observe(current, { childList: true, characterData: true, subtree: true });
     document.fonts.addEventListener("loadingdone", measure);
     return () => {
-      stopObserving();
+      stopResize();
+      mutations.disconnect();
       document.fonts.removeEventListener("loadingdone", measure);
+      for (const animation of labelAnimations.values()) animation.cancel();
     };
-  }, [element]);
+  };
 
-  return level;
+  return [attach, level] as const;
 }
 
 export const BranchToolbar = memo(function BranchToolbar({
@@ -737,8 +762,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     activeEnvironment: activeEnvironmentOption,
     canPickEnvironment: hasMultipleEnvironments,
   });
-  const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
-  const stripFoldLevel = useLabelsOverflow(stripElement);
+  const [attachStrip, stripFoldLevel] = useLabelsOverflow();
 
   if (!activeProject) return null;
 
@@ -792,7 +816,7 @@ export const BranchToolbar = memo(function BranchToolbar({
 
   return (
     <ComposerSurface.ContextStrip
-      ref={setStripElement}
+      ref={attachStrip}
       {...contextStripFoldAttributes(stripFoldLevel)}
       className={cn(
         "gap-1 text-xs font-normal text-foreground/70 dark:text-muted-foreground",

@@ -92,6 +92,7 @@ export function useComposerRestingTransition(
     clearOverlayPin();
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors the collapsed flag into a ref read by ResizeObserver callbacks and running animations
   useLayoutEffect(() => {
     isCollapsedRef.current = isCollapsed;
   });
@@ -449,6 +450,7 @@ export function useComposerRestingTransition(
     };
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- runs the FLIP animation against committed DOM geometry before paint when the collapsed state changes
   useLayoutEffect(() => {
     const requestId = transitionLayoutRequestRef.current + 1;
     transitionLayoutRequestRef.current = requestId;
@@ -467,6 +469,7 @@ export function useComposerRestingTransition(
     };
   }, [isCollapsed, transitionToCurrentGeometry]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the committed overlay element and reports its height when the resting state changes
   useLayoutEffect(() => {
     if (previousRestingRef.current === isResting) return;
     previousRestingRef.current = isResting;
@@ -475,6 +478,7 @@ export function useComposerRestingTransition(
     if (overlay) onOverlayHeightChange(overlay.getBoundingClientRect().height);
   }, [isResting, onOverlayHeightChange]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes composer and body resize to record geometry and retarget a running animation
   useLayoutEffect(() => {
     const element = elementRef.current;
     if (!element) return;
@@ -519,6 +523,7 @@ export function useComposerRestingTransition(
     });
   }, [restingControlsRef, transitionToCurrentGeometry]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the cleanup timer, cancels Web Animations and strips inline transition styles on unmount
   useEffect(() => {
     hasCompletedInitialLayoutRef.current = true;
     return () => {

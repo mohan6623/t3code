@@ -24,8 +24,19 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow } from "./settingsLayout";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import {
+  describeClaudeAccount,
+  readClaudeAccountState,
+} from "./ProviderAuthenticationSection.logic";
 
 const ProviderAuthTerminal = lazy(() => import("./ProviderAuthTerminal"));
+
+/**
+ * Fork: sections whose sign-in started while the instance had a saved setup
+ * token. The server removes the token after the sign-in and rebuilds the
+ * instance, so this outlives a remount.
+ */
+const signInsWithSavedToken = new Set<string>();
 
 export function ProviderAuthenticationSection({
   environmentId,
@@ -33,12 +44,15 @@ export function ProviderAuthenticationSection({
   instanceId,
   provider,
   readOnly,
+  hasSavedClaudeToken,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly instanceId: ProviderInstanceId;
   readonly provider: ServerProvider;
   readonly readOnly: boolean;
+  /** Fork: whether the instance's settings hold CLAUDE_CODE_OAUTH_TOKEN; undefined when unknown. */
+  readonly hasSavedClaudeToken?: boolean | undefined;
 }) {
   const target = { environmentId, input: { instanceId } };
   const query = useEnvironmentQuery(serverEnvironment.providerAuthState(target));
@@ -62,6 +76,13 @@ export function ProviderAuthenticationSection({
   const signedIn =
     provider.auth.status === "authenticated" ||
     (provider.auth.status === "unknown" && auth?.phase === "succeeded");
+  // Fork: Claude says whether it uses the subscription login or a token.
+  const claudeAccount = readClaudeAccountState(provider);
+  const needsSubscriptionSignIn =
+    claudeAccount?.kind === "signedOut" || claudeAccount?.kind === "token";
+  const savedTokenKey = `${environmentId}:${instanceId}`;
+  const savedTokenRemoved =
+    hasSavedClaudeToken === false && signInsWithSavedToken.has(savedTokenKey);
   const isDiscovering =
     provider.driver === "acpRegistry" &&
     !active &&
@@ -83,14 +104,17 @@ export function ProviderAuthenticationSection({
           : interaction?.type === "credentials"
             ? "Enter your credentials below."
             : "Finish signing in in your browser."
-    : signedIn
-      ? "Signed in."
-      : isDiscovering
-        ? "Discovering sign-in methods…"
-        : needsExternalSetup
-          ? "No in-app sign-in advertised. Follow the provider's docs to finish setup."
-          : `Sign in on ${environmentLabel}.`;
+    : claudeAccount
+      ? `${describeClaudeAccount(claudeAccount)}.`
+      : signedIn
+        ? "Signed in."
+        : isDiscovering
+          ? "Discovering sign-in methods…"
+          : needsExternalSetup
+            ? "No in-app sign-in advertised. Follow the provider's docs to finish setup."
+            : `Sign in on ${environmentLabel}.`;
   const statusMessage = auth?.phase === "failed" ? auth.message : null;
+  const retrying = auth?.phase === "failed" || auth?.phase === "cancelled";
   const disabled = readOnly || pending || query.error !== null || isDiscovering;
   const draftId = `${auth?.flowId ?? ""}:${interaction?.id ?? ""}`;
   const values = draft.id === draftId ? draft.values : {};
@@ -160,9 +184,14 @@ export function ProviderAuthenticationSection({
     <SettingsRow
       title="Account"
       description={
-        signedIn && !active && provider.auth.email?.trim() ? (
+        signedIn &&
+        !active &&
+        provider.auth.email?.trim() &&
+        (claudeAccount === null || claudeAccount.kind === "subscription") ? (
           <span>
-            Signed in as{" "}
+            {claudeAccount?.kind === "subscription"
+              ? `${describeClaudeAccount(claudeAccount)} as`
+              : "Signed in as"}{" "}
             <RedactedSensitiveText
               key={provider.auth.email}
               value={provider.auth.email}
@@ -181,6 +210,8 @@ export function ProviderAuthenticationSection({
           <p role="status" className="[overflow-wrap:anywhere]">
             {statusMessage}
           </p>
+        ) : savedTokenRemoved && !active ? (
+          <p role="status">Removed the saved token (CLAUDE_CODE_OAUTH_TOKEN) from this provider.</p>
         ) : undefined
       }
       control={
@@ -274,7 +305,9 @@ export function ProviderAuthenticationSection({
                 size="sm"
                 variant="outline"
                 disabled={disabled || !provider.enabled || !provider.installed || !auth}
-                onClick={() =>
+                onClick={() => {
+                  if (hasSavedClaudeToken) signInsWithSavedToken.add(savedTokenKey);
+                  else signInsWithSavedToken.delete(savedTokenKey);
                   void run(() =>
                     start({
                       environmentId,
@@ -285,17 +318,23 @@ export function ProviderAuthenticationSection({
                           : {}),
                       },
                     }),
-                  )
-                }
+                  );
+                }}
               >
-                {signedIn
-                  ? "Change account"
-                  : auth?.phase === "failed" || auth?.phase === "cancelled"
-                    ? "Retry sign-in"
-                    : "Sign in"}
+                {needsSubscriptionSignIn && !retrying
+                  ? "Sign in with Claude subscription"
+                  : signedIn && !needsSubscriptionSignIn
+                    ? "Change account"
+                    : retrying
+                      ? "Retry sign-in"
+                      : "Sign in"}
               </Button>
             ) : null}
-            {!active && signedIn && (provider.auth.canLogout ?? provider.setup?.canAuthenticate) ? (
+            {!active &&
+            signedIn &&
+            // Fork: signing out does not remove a token, so only subscription logins get it.
+            claudeAccount?.kind !== "token" &&
+            (provider.auth.canLogout ?? provider.setup?.canAuthenticate) ? (
               <Button
                 size="sm"
                 variant="ghost"

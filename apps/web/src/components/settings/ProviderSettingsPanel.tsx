@@ -1376,6 +1376,14 @@ function ProviderInstanceRow({
             instanceId={instanceId}
             provider={liveProvider}
             readOnly={readOnly}
+            // Fork: a Claude sign-in removes this token; the section then says so.
+            hasSavedClaudeToken={
+              driver === "claudeAgent"
+                ? (instance.environment ?? []).some(
+                    (variable) => variable.name === "CLAUDE_CODE_OAUTH_TOKEN",
+                  )
+                : undefined
+            }
           />
         ) : mode === "editor" &&
           !readOnly &&

@@ -27,7 +27,11 @@ import { claudeUsageReader } from "./claudeUsage.ts";
 import { makeClaudeScopedLimitNames } from "../claudeUsageLimits.ts";
 import * as ClaudeResetCredits from "../claudeResetCredits.ts";
 import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
-import { makeClaudeLoginAuth } from "../claudeLoginAuth.ts";
+import {
+  makeClaudeLoginAuth,
+  readClaudeSignInMethod,
+  withClaudeSignInMethod,
+} from "../claudeLoginAuth.ts";
 import {
   checkClaudeProviderStatus,
   makePendingClaudeProvider,
@@ -60,6 +64,7 @@ import {
 import {
   makeClaudeCapabilitiesCacheKey,
   makeClaudeContinuationGroupKey,
+  makeClaudeEnvironment,
   resolveClaudeHomePath,
 } from "./ClaudeHome.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -158,6 +163,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     );
     const continuationGroupKey = yield* makeClaudeContinuationGroupKey(effectiveConfig, processEnv);
     const configDir = yield* resolveClaudeHomePath(effectiveConfig, processEnv);
+    const runtimeEnv = yield* makeClaudeEnvironment(effectiveConfig, processEnv);
     const accountConfigPath = yield* ClaudeResetCredits.claudeAccountConfigPath(
       effectiveConfig.homePath.trim() || processEnv.CLAUDE_CONFIG_DIR?.trim()
         ? configDir
@@ -287,6 +293,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
             provider.auth.status === "unauthenticated"
               ? Cache.invalidateAll(capabilitiesProbeCache)
               : Effect.void,
+          ),
+          // Fork: tell a setup token apart from a subscription login; see claudeLoginAuth.ts.
+          Effect.filterOrElse(
+            (provider) => provider.auth.status !== "authenticated",
+            (provider) =>
+              readClaudeSignInMethod({
+                binaryPath: effectiveConfig.binaryPath,
+                environment: runtimeEnv,
+                cwd: stateDir,
+              }).pipe(Effect.map((method) => withClaudeSignInMethod(provider, method))),
           ),
           Effect.map(stampIdentity),
         ),

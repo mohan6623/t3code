@@ -5,18 +5,124 @@
  * shows that terminal in provider settings. A remote environment (such as a
  * cloud VM) can then be signed in again from the app, without SSH.
  */
-import { ProviderSetupError, type ProviderInstanceId } from "@t3tools/contracts";
+import {
+  ProviderSetupError,
+  type ProviderInstanceConfig,
+  type ProviderInstanceId,
+  type ServerProviderAuth,
+} from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import { ChildProcess } from "effect/process";
 
 import * as ProviderAuthFlow from "@t3tools/provider-core/server/providerAuthFlow";
+import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import * as ServerSettings from "../serverSettings.ts";
 
 const METHOD_ID = "claude-subscription";
 const TRANSCRIPT_LIMIT = 16_384;
+const SETUP_TOKEN_VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/** The web app matches this auth type to offer a subscription sign-in. */
+export const CLAUDE_TOKEN_AUTH_TYPE = "oauthToken";
+
+/** How an instance reaches Claude: its own login, a setup token, an API key, or nothing. */
+export type ClaudeSignInMethod = "subscription" | "token" | "apiKey" | "signedOut";
+
+const decodeClaudeAuthStatus = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      loggedIn: Schema.optional(Schema.Boolean),
+      authMethod: Schema.optional(Schema.String),
+    }),
+  ),
+);
+
+/** Reads `claude auth status --json`; undefined when the output does not say. */
+export function parseClaudeAuthStatus(stdout: string): ClaudeSignInMethod | undefined {
+  const status = decodeClaudeAuthStatus(stdout.trim());
+  if (Option.isNone(status)) return undefined;
+  switch (status.value.authMethod) {
+    case "claude.ai":
+      return "subscription";
+    case "oauth_token":
+      return "token";
+    case "api_key":
+      return "apiKey";
+    case "none":
+      return "signedOut";
+    default:
+      return status.value.loggedIn === false ? "signedOut" : undefined;
+  }
+}
+
+/** The credential an environment hands to Claude. An API key wins over a token, as in the CLI. */
+export function claudeEnvironmentSignInMethod(
+  environment: NodeJS.ProcessEnv,
+): "token" | "apiKey" | undefined {
+  if (environment.ANTHROPIC_API_KEY?.trim()) return "apiKey";
+  if (environment[SETUP_TOKEN_VARIABLE]?.trim()) return "token";
+  return undefined;
+}
+
+/** Asks the CLI how this instance signs in, with the instance's environment and config dir. */
+export const readClaudeSignInMethod = Effect.fn("readClaudeSignInMethod")(function* (options: {
+  readonly binaryPath: string;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly cwd: string;
+}) {
+  const output = yield* Effect.gen(function* () {
+    const spawnCommand = yield* resolveSpawnCommand(
+      options.binaryPath,
+      ["auth", "status", "--json"],
+      { env: options.environment },
+    );
+    return yield* spawnAndCollect(
+      options.binaryPath,
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        env: options.environment,
+        shell: spawnCommand.shell,
+        cwd: options.cwd,
+      }),
+    );
+  }).pipe(
+    Effect.timeoutOption("10 seconds"),
+    Effect.orElseSucceed(() => Option.none()),
+  );
+  const method = Option.isSome(output) ? parseClaudeAuthStatus(output.value.stdout) : undefined;
+  return method ?? claudeEnvironmentSignInMethod(options.environment);
+});
+
+/**
+ * A setup token counts as signed in, but MCP connectors and usage need a real
+ * login. Mark it so settings can offer a subscription sign-in.
+ */
+export function withClaudeSignInMethod<T extends { readonly auth: ServerProviderAuth }>(
+  provider: T,
+  method: ClaudeSignInMethod | undefined,
+): T {
+  if (method !== "token" || provider.auth.status !== "authenticated") return provider;
+  return {
+    ...provider,
+    auth: { ...provider.auth, type: CLAUDE_TOKEN_AUTH_TYPE, label: "Claude token" },
+  };
+}
+
+/** The instance without its saved setup token, or undefined when it has none. */
+export function withoutClaudeSetupToken(
+  instance: ProviderInstanceConfig,
+): ProviderInstanceConfig | undefined {
+  const environment = instance.environment ?? [];
+  if (!environment.some((variable) => variable.name === SETUP_TOKEN_VARIABLE)) return undefined;
+  const kept = environment.filter((variable) => variable.name !== SETUP_TOKEN_VARIABLE);
+  const { environment: _omit, ...rest } = instance;
+  return kept.length > 0 ? { ...rest, environment: kept } : rest;
+}
 
 /**
  * The environment for the login command. A setup token or API key in the
@@ -36,6 +142,27 @@ export function claudeLoginEnvironment(
   return { ...rest, CLAUDE_CONFIG_DIR: configDir };
 }
 
+/** Removes the instance's saved setup token from settings; true when there was one. */
+export const removeClaudeSetupToken = Effect.fn("removeClaudeSetupToken")(function* (
+  instanceId: ProviderInstanceId,
+) {
+  const settings = yield* ServerSettings.ServerSettingsService;
+  return yield* Effect.gen(function* () {
+    const current = yield* settings.getSettings;
+    const instance = current.providerInstances[instanceId];
+    const next = instance === undefined ? undefined : withoutClaudeSetupToken(instance);
+    if (next === undefined) return false;
+    yield* settings.updateProviderInstance({ operation: "upsert", instanceId, instance: next });
+    return true;
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("Could not remove the saved Claude setup token.", {
+        operation: error.operation,
+      }).pipe(Effect.as(false)),
+    ),
+  );
+});
+
 export const makeClaudeLoginAuth = Effect.fn("makeClaudeLoginAuth")(function* (options: {
   readonly instanceId: ProviderInstanceId;
   readonly binaryPath: string;
@@ -46,9 +173,21 @@ export const makeClaudeLoginAuth = Effect.fn("makeClaudeLoginAuth")(function* (o
   readonly onChanged: Effect.Effect<void>;
 }) {
   const pty = yield* Effect.serviceOption(PtyAdapter.PtyAdapter);
+  const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
   const failure = (operation: string, detail: string, cause?: unknown) =>
     new ProviderSetupError({ instanceId: options.instanceId, operation, detail, cause });
   const env = claudeLoginEnvironment(options.environment, options.configDir);
+
+  /**
+   * A saved setup token outranks the new login, so it goes once the login works.
+   * Saving settings deletes its stored secret and rebuilds the instance, which
+   * reads the account again. False when there was no token to remove.
+   */
+  const removeSetupToken = Option.isNone(settings)
+    ? Effect.succeed(false)
+    : removeClaudeSetupToken(options.instanceId).pipe(
+        Effect.provideService(ServerSettings.ServerSettingsService, settings.value),
+      );
 
   /** Runs one `claude auth` command in a terminal; with a context, the user sees and types in it. */
   const runInTerminal = Effect.fnUntraced(function* (
@@ -138,7 +277,7 @@ export const makeClaudeLoginAuth = Effect.fn("makeClaudeLoginAuth")(function* (o
     if (exitCode !== 0)
       return yield* failure("start", "Claude sign-in did not finish. Start again.");
     yield* context.verifying;
-    yield* options.onChanged;
+    if (!(yield* removeSetupToken)) yield* options.onChanged;
   });
 
   const logout = Effect.scoped(runInTerminal("logout", ["auth", "logout"], null)).pipe(

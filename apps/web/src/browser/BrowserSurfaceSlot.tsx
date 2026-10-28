@@ -66,10 +66,40 @@ export function BrowserSurfaceSlot(props: {
     // Sidebar width changes move the slot without changing its size or column offset.
     observed.push(...document.querySelectorAll('[data-slot="sidebar-gap"]'));
     const stopObserving = observeResize(observed, update);
+    // Fork: panels slide in with a transform, which moves the slot without a
+    // resize. Follow every frame while an ancestor's transition runs, then
+    // measure once more at its end.
+    const moving = new Set<EventTarget>();
+    let frameId: number | null = null;
+    // A removed element never sends transitionend; stop following after this.
+    let followUntil = 0;
+    const followFrame = () => {
+      update();
+      if (performance.now() > followUntil) moving.clear();
+      frameId = moving.size > 0 ? window.requestAnimationFrame(followFrame) : null;
+    };
+    const onTransitionRun = (event: TransitionEvent) => {
+      if (!(event.target instanceof Node) || !event.target.contains(element)) return;
+      moving.add(event.target);
+      followUntil = performance.now() + 2000;
+      if (frameId === null) frameId = window.requestAnimationFrame(followFrame);
+    };
+    const onTransitionStop = (event: TransitionEvent) => {
+      if (!(event.target instanceof Node) || !event.target.contains(element)) return;
+      moving.delete(event.target);
+      update();
+    };
+    document.addEventListener("transitionrun", onTransitionRun, true);
+    document.addEventListener("transitionend", onTransitionStop, true);
+    document.addEventListener("transitioncancel", onTransitionStop, true);
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     return () => {
       stopObserving();
+      document.removeEventListener("transitionrun", onTransitionRun, true);
+      document.removeEventListener("transitionend", onTransitionStop, true);
+      document.removeEventListener("transitioncancel", onTransitionStop, true);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
       if (updateRef.current === update) updateRef.current = null;

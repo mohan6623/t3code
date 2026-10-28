@@ -166,11 +166,9 @@ function adjacentModelPickerProvider(input: {
 
 const EMPTY_MODEL_JUMP_LABELS = new Map<string, string>();
 const MODEL_LIST_ESTIMATED_ITEM_SIZE = 52;
-// Rendered heights in `--spacing` units. Chrome is the search box and list padding, plus a 1px border.
-const ONE_LINE_ROW_UNITS = 8;
-const TWO_LINE_ROW_UNITS = 12;
-const ROW_SEPARATOR_UNITS = 0.5;
-const LIST_CHROME_UNITS = 15.5;
+// Fork: one fixed, compact height for every tab, in `--spacing` units (18rem).
+// The rail can make it taller, so every provider icon stays reachable.
+const PICKER_COMPACT_UNITS = 72;
 
 function ModelListSeparator() {
   return <div className="h-0.5" />;
@@ -369,7 +367,7 @@ function useProviderRefresh(environmentId: EnvironmentId | null) {
   return { canRefresh: environmentId !== null && canRefresh, refreshing, refresh };
 }
 
-const PICKER_MAX_HEIGHT = "min(36rem, calc(var(--available-height, 36rem) - 2px))";
+const PICKER_MAX_HEIGHT = "min(28rem, calc(var(--available-height, 28rem) - 2px))";
 
 export const ModelPickerContent = memo(function ModelPickerContent(props: {
   environmentId: EnvironmentId | null;
@@ -608,33 +606,6 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const isSearching = searchQuery.trim().length > 0;
   // Inside one provider's tab the provider line repeats the selected rail icon on every row.
   const rowsMixProviders = isSearching || selectedInstanceId === "favorites";
-  // Fork: fit the open tab, not the tallest one, so a short list leaves no empty space.
-  // The rail sits at the popup's anchored edge (see ModelPickerSidebar), so a tab
-  // switch that resizes the popup leaves the provider icons under the cursor.
-  const openTabUnits = (() => {
-    const unitsByTab = new Map<ProviderInstanceId | "favorites", number>();
-    const addRow = (tab: ProviderInstanceId | "favorites", twoLine: boolean) => {
-      const rowUnits = twoLine ? TWO_LINE_ROW_UNITS : ONE_LINE_ROW_UNITS;
-      const previous = unitsByTab.get(tab);
-      unitsByTab.set(
-        tab,
-        previous === undefined ? rowUnits : previous + ROW_SEPARATOR_UNITS + rowUnits,
-      );
-    };
-    const tabsWithLegacyRow = new Set<ProviderInstanceId>();
-    for (const model of flatModels) {
-      if (!matchesLockedProvider(model)) continue;
-      const isFavorite = favoritesSet.has(providerModelKey(model.instanceId, model.slug));
-      if (isFavorite) addRow("favorites", true);
-      if (model.isLegacy && !isFavorite) {
-        tabsWithLegacyRow.add(model.instanceId);
-      } else {
-        addRow(model.instanceId, Boolean(model.subProvider));
-      }
-    }
-    for (const instanceId of tabsWithLegacyRow) addRow(instanceId, true);
-    return unitsByTab.get(selectedInstanceId) ?? 0;
-  })();
   const lockedDisabledInstanceIds = (() => {
     if (!isLocked) {
       return undefined;
@@ -865,14 +836,14 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       <div
         ref={pickerContentRef}
         className="relative flex w-screen max-w-90 flex-row overflow-hidden"
-        // Fork: grow into the room the popover has (up to 36rem) so every provider in the
-        // sidebar is reachable without scrolling; the old fixed cap was 21.625rem.
+        // Fork: the same compact height on every tab, so switching tabs never resizes
+        // (and never moves) the popup; long lists scroll. Only a long rail makes it taller.
         style={
           isSearching
             ? { maxHeight: PICKER_MAX_HEIGHT, height: searchHeight }
             : {
                 maxHeight: PICKER_MAX_HEIGHT,
-                minHeight: `min(calc(var(--spacing) * ${Math.max(openTabUnits + LIST_CHROME_UNITS, railUnits)} + 1px), ${PICKER_MAX_HEIGHT})`,
+                height: `min(calc(var(--spacing) * ${Math.max(PICKER_COMPACT_UNITS, railUnits)} + 1px), ${PICKER_MAX_HEIGHT})`,
               }
         }
         data-model-picker-content="true"

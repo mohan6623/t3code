@@ -70,8 +70,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
       );
     };
     measure();
-    // Fork: the icons sit at the rail's bottom, so a popup that changes height
-    // moves them inside the rail; the indicator follows.
+    // Fork: re-measure when the rail resizes (providers load or the popup settles).
     return observeResize(content, measure);
   }, [
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Adding, removing or reordering providers moves the selected item, so the indicator re-measures.
@@ -97,9 +96,6 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
     >
       <div className="h-full overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div ref={sidebarContentRef} className="relative flex min-h-full flex-col gap-1 p-1">
-          {/* Fork: above the composer the popup grows upward, so the icons sit at its
-              bottom edge and stay under the cursor when a tab changes its height. */}
-          <div aria-hidden className="hidden flex-1 in-data-[side=top]:block" />
           {selectedIndicatorTop !== null ? (
             <div
               data-model-picker-selected-indicator="true"

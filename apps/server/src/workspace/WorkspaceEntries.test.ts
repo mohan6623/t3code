@@ -349,6 +349,57 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
       }),
     );
 
+    it.effect("finds files in child repositories that the folder's .gitignore hides", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-child-repos-", git: true });
+        yield* writeTextFile(cwd, ".gitignore", "/backend/\n");
+        yield* writeTextFile(cwd, "docs/notes.md", "notes");
+        yield* writeTextFile(cwd, "backend/app/agents/voice_call.py", "print(1)");
+        yield* git(`${cwd}/backend`, ["init"]);
+
+        const child = yield* searchWorkspaceEntries({
+          cwd,
+          query: "voice_call.py",
+          limit: 10,
+          kind: "file",
+        });
+        expect(child.entries[0]?.path).toBe("backend/app/agents/voice_call.py");
+
+        const own = yield* searchWorkspaceEntries({ cwd, query: "notes", limit: 10, kind: "file" });
+        expect(own.entries.map((entry) => entry.path)).toContain("docs/notes.md");
+      }),
+    );
+
+    it.effect("merges child repository results: whole matches first, no duplicates", () =>
+      Effect.sync(() => {
+        const merged = WorkspaceEntries.mergeWorkspaceSearchResults(
+          [
+            {
+              entries: [
+                { path: "voice_routes.py", kind: "file" },
+                { path: "backend/shared.py", kind: "file" },
+              ],
+              truncated: false,
+            },
+            {
+              entries: [
+                { path: "backend/shared.py", kind: "file" },
+                { path: "backend/app/voice_call.py", kind: "file" },
+              ],
+              truncated: false,
+            },
+          ],
+          "voice_call.py",
+          2,
+        );
+        expect(merged.entries.map((entry) => entry.path)).toEqual([
+          "backend/app/voice_call.py",
+          "voice_routes.py",
+        ]);
+        expect(merged.truncated).toBe(true);
+      }),
+    );
+
     it.effect("excludes tracked paths that match ignore rules", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir({

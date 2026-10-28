@@ -8,18 +8,19 @@ import * as Path from "effect/Path";
 import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
 
-import type {
-  FilesystemBrowseInput,
-  FilesystemBrowseResult,
-  ProjectEntry,
-  ProjectListEntriesInput,
-  ProjectListEntriesResult,
-  ProjectListIgnoredFilesInput,
-  ProjectListIgnoredFilesResult,
-  ProjectSearchContentsInput,
-  ProjectSearchContentsResult,
-  ProjectSearchEntriesInput,
-  ProjectSearchEntriesResult,
+import {
+  isRootWorkspaceRepository,
+  type FilesystemBrowseInput,
+  type FilesystemBrowseResult,
+  type ProjectEntry,
+  type ProjectListEntriesInput,
+  type ProjectListEntriesResult,
+  type ProjectListIgnoredFilesInput,
+  type ProjectListIgnoredFilesResult,
+  type ProjectSearchContentsInput,
+  type ProjectSearchContentsResult,
+  type ProjectSearchEntriesInput,
+  type ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
@@ -28,6 +29,7 @@ import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
+import * as WorkspaceRepositories from "./WorkspaceRepositories.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
 
 export class WorkspaceEntriesWindowsPathUnsupportedError extends Schema.TaggedError<WorkspaceEntriesWindowsPathUnsupportedError>()(
@@ -145,10 +147,60 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
   );
 });
 
+/** Fork: child repositories searched beside the folder's own index, at most. */
+const MAX_CHILD_REPOSITORY_SEARCHES = 8;
+
+function prefixSearchResult(
+  result: ProjectSearchEntriesResult,
+  relativePath: string,
+): ProjectSearchEntriesResult {
+  const prefix = relativePath.replace(/\/+$/, "");
+  return {
+    ...result,
+    entries: result.entries.map((entry) => ({ ...entry, path: `${prefix}/${entry.path}` })),
+  };
+}
+
+/**
+ * Fork: merges the folder's own search with its child repositories' searches. Entries whose
+ * path ends with the whole query (a file name or a path tail) come first; the rest alternate
+ * between sources so one large repository cannot crowd out the others. Duplicates (a child
+ * the parent does not ignore) keep their first place.
+ */
+export function mergeWorkspaceSearchResults(
+  results: ReadonlyArray<ProjectSearchEntriesResult>,
+  query: string,
+  limit: number,
+): ProjectSearchEntriesResult {
+  const target = query.trim().replace(/\\/g, "/").toLowerCase();
+  const isWholeMatch = (entryPath: string) => {
+    const candidate = entryPath.toLowerCase();
+    return target.length > 0 && (candidate === target || candidate.endsWith(`/${target}`));
+  };
+  const seen = new Set<string>();
+  const exact: ProjectEntry[] = [];
+  const rest: ProjectEntry[] = [];
+  const longest = Math.max(0, ...results.map((result) => result.entries.length));
+  for (let index = 0; index < longest; index += 1) {
+    for (const result of results) {
+      const entry = result.entries[index];
+      if (entry === undefined || seen.has(entry.path)) continue;
+      seen.add(entry.path);
+      (isWholeMatch(entry.path) ? exact : rest).push(entry);
+    }
+  }
+  const merged = [...exact, ...rest];
+  return {
+    entries: merged.slice(0, limit),
+    truncated: merged.length > limit || results.some((result) => result.truncated),
+  };
+}
+
 /** @public */
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+  const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
   const vcsProcess = yield* VcsProcess.VcsProcess;
 
@@ -253,16 +305,40 @@ export const make = Effect.gen(function* () {
       const normalizedQuery = normalizeSearchQuery(input.query, {
         trimLeadingPattern: /^[@./]+/,
       });
-      return yield* Effect.gen(function* () {
-        const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
-        return yield* searchIndex.search(normalizedQuery, input.limit, input.kind, input.imageOnly);
-      }).pipe(
-        Effect.provide(
-          workspaceSearchIndexes.get(
-            WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths"),
+      const searchIn = Effect.fn("WorkspaceEntries.searchIn")(function* (root: string) {
+        return yield* Effect.gen(function* () {
+          const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
+          return yield* searchIndex.search(
+            normalizedQuery,
+            input.limit,
+            input.kind,
+            input.imageOnly,
+          );
+        }).pipe(
+          Effect.provide(
+            workspaceSearchIndexes.get(WorkspaceSearchIndex.workspaceSearchIndexKey(root, "paths")),
           ),
-        ),
+        );
+      });
+      const own = yield* searchIn(normalizedCwd);
+      // Fork: a folder can hold child repositories that its own .gitignore hides (a wrapper
+      // repo listing `/backend/`). Its index skips them, so file chips and @ mentions never
+      // found their files. Search each child repository's own index too.
+      const children = (yield* workspaceRepositories.list(normalizedCwd))
+        .filter((repository) => !isRootWorkspaceRepository(repository))
+        .slice(0, MAX_CHILD_REPOSITORY_SEARCHES);
+      if (children.length === 0) return own;
+      const childResults = yield* Effect.forEach(
+        children,
+        (repository) =>
+          searchIn(path.join(normalizedCwd, repository.relativePath)).pipe(
+            Effect.map((result) => prefixSearchResult(result, repository.relativePath)),
+            // A child index that fails must not break the folder's own search.
+            Effect.orElseSucceed(() => ({ entries: [], truncated: false })),
+          ),
+        { concurrency: "unbounded" },
       );
+      return mergeWorkspaceSearchResults([own, ...childResults], normalizedQuery, input.limit);
     },
   );
 
@@ -444,5 +520,6 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(
   Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
+  Layer.provide(WorkspaceRepositories.layer),
   Layer.provide(VcsProcess.layer),
 );

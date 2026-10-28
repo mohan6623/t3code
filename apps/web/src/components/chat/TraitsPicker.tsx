@@ -24,7 +24,7 @@ import {
   normalizeModelSlug,
 } from "@t3tools/shared/model";
 import { memo } from "react";
-import { BrainIcon, GaugeIcon } from "lucide-react";
+import { GaugeIcon } from "lucide-react";
 import {
   Menu,
   MenuGroup,
@@ -595,16 +595,14 @@ export const TraitsPicker = memo(function TraitsPicker({
                 size === "xs" ? "gap-1" : "gap-1.5",
               )}
             >
-              <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
-              <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+              <ComposerControlIcon icon={GaugeIcon} size={size} />
               <span data-composer-control-label className="min-w-0 truncate">
                 {triggerLabel}
               </span>
             </span>
           ) : (
             <>
-              <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
-              <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+              <ComposerControlIcon icon={GaugeIcon} size={size} />
               <span data-composer-control-label>{triggerLabel}</span>
             </>
           )}

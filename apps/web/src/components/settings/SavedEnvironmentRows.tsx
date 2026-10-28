@@ -8,6 +8,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useEffectEvent, useState } from "react";
 import {
+  AuthRelayReadScope,
   AuthRelayWriteScope,
   type EnvironmentId,
   connectReachabilityHelpUrl,
@@ -51,7 +52,9 @@ import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "~/env";
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
 import { environmentCatalog } from "~/connection/catalog";
-import { readEnvironmentScope } from "~/state/session";
+import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
+import { canLinkFromThisClient } from "~/cloud/remoteCloudLink";
+import { RemoteCloudLinkLine } from "./RemoteCloudLinkLine";
 import {
   type EnvironmentPresentation,
   useRelayEnvironmentDiscovery,
@@ -209,6 +212,16 @@ export function SavedBackendListRow({
       (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
   );
   const routeCount = connectionRoutes(environment.entry).length;
+  // Fork: T3 Connect line for hosts this client reaches with its own bearer session (SSH, pairing).
+  const canReadRelay = useEnvironmentScope(environmentId, AuthRelayReadScope);
+  const cloudLinkPrepared =
+    hasCloudPublicConfig() &&
+    canReadRelay &&
+    isConnected &&
+    prepared._tag === "Some" &&
+    prepared.value.httpAuthorization?._tag === "Bearer"
+      ? prepared.value
+      : null;
   const subtitleText = [
     environmentTransportLabel(environment, connectedTarget),
     // The headline below names the failure in full.
@@ -321,6 +334,13 @@ export function SavedBackendListRow({
             <div className="mt-1 max-w-md">
               <ServerUpdateProgress state={serverUpdateState} />
             </div>
+          ) : null}
+          {cloudLinkPrepared ? (
+            <RemoteCloudLinkLine
+              environmentId={environmentId}
+              label={environment.label}
+              linkable={canLinkFromThisClient(cloudLinkPrepared)}
+            />
           ) : null}
         </>
       }

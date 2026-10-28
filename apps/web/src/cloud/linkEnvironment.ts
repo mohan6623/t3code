@@ -184,17 +184,23 @@ export interface CloudLinkTarget {
 
 export type CloudLinkState = EnvironmentCloudLinkStateResult;
 
-export const readPrimaryCloudLinkState: (input: {
+// Fork: read, link and unlink take the environment's HTTP client from context, so a
+// saved remote environment can run them with its own session (remoteCloudLink.ts).
+// The primary versions only add the primary environment's HTTP layer.
+export const readCloudLinkState: (input: {
   readonly target: CloudLinkTarget;
 }) => Effect.Effect<CloudLinkState | null, CloudEnvironmentLinkError, HttpClient.HttpClient> =
-  Effect.fn("linkEnvironment.readPrimaryCloudLinkState")(function* (input: {
+  Effect.fn("linkEnvironment.readCloudLinkState")(function* (input: {
     readonly target: CloudLinkTarget;
   }) {
     const client = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
     return yield* client.connect
       .linkState({ headers: {} })
       .pipe(Effect.mapError(environmentApiError("Could not read environment cloud link state.")));
-  }, Effect.provide(PrimaryEnvironmentHttpLayer.layer));
+  });
+
+export const readPrimaryCloudLinkState: typeof readCloudLinkState = (input) =>
+  readCloudLinkState(input).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 
 export const updatePrimaryCloudPreferences: (input: {
   readonly target: CloudLinkTarget;
@@ -217,14 +223,14 @@ export const updatePrimaryCloudPreferences: (input: {
     .pipe(Effect.mapError(environmentApiError("Could not update environment cloud preferences.")));
 }, Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 
-export const unlinkPrimaryEnvironmentFromCloud: (input: {
+export const unlinkEnvironmentFromCloud: (input: {
   readonly target: CloudLinkTarget;
   readonly clerkToken: string | null;
 }) => Effect.Effect<
   void,
   CloudEnvironmentLinkError,
   HttpClient.HttpClient | ManagedRelay.ManagedRelayClient
-> = Effect.fn("linkEnvironment.unlinkPrimaryEnvironmentFromCloud")(function* (input: {
+> = Effect.fn("linkEnvironment.unlinkEnvironmentFromCloud")(function* (input: {
   readonly target: CloudLinkTarget;
   readonly clerkToken: string | null;
 }) {
@@ -249,13 +255,16 @@ export const unlinkPrimaryEnvironmentFromCloud: (input: {
         ),
       );
   }
-}, Effect.provide(PrimaryEnvironmentHttpLayer.layer));
+});
+
+export const unlinkPrimaryEnvironmentFromCloud: typeof unlinkEnvironmentFromCloud = (input) =>
+  unlinkEnvironmentFromCloud(input).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 
 export type CloudLinkMode = "managed" | "publish_only";
 
 const PUBLISH_ONLY_PROVIDER_KIND = "manual" satisfies RelayManagedEndpointProviderKind;
 
-export const linkPrimaryEnvironmentToCloud: (input: {
+export const linkEnvironmentToCloud: (input: {
   readonly target: CloudLinkTarget;
   readonly clerkToken: string;
   readonly mode?: CloudLinkMode;
@@ -263,7 +272,7 @@ export const linkPrimaryEnvironmentToCloud: (input: {
   void,
   CloudEnvironmentLinkError,
   EnvironmentRegistry.EnvironmentRegistry | HttpClient.HttpClient | ManagedRelay.ManagedRelayClient
-> = Effect.fn("linkEnvironment.linkPrimaryEnvironmentToCloud")(function* (input: {
+> = Effect.fn("linkEnvironment.linkEnvironmentToCloud")(function* (input: {
   readonly target: CloudLinkTarget;
   readonly clerkToken: string;
   readonly mode?: CloudLinkMode;
@@ -349,4 +358,7 @@ export const linkPrimaryEnvironmentToCloud: (input: {
       },
     })
     .pipe(Effect.mapError(environmentApiError("Could not configure environment relay access.")));
-}, Effect.provide(PrimaryEnvironmentHttpLayer.layer));
+});
+
+export const linkPrimaryEnvironmentToCloud: typeof linkEnvironmentToCloud = (input) =>
+  linkEnvironmentToCloud(input).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));

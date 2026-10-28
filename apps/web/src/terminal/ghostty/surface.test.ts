@@ -7,6 +7,7 @@ import {
   clearPrimedTerminalCopyInput,
   isTerminalCompositionKey,
   isTerminalCopyShortcut,
+  isTerminalPasteShortcut,
   primeTerminalCopyInput,
   resolveTerminalMouseData,
   terminalLinkAtPositionWithRange,
@@ -640,6 +641,34 @@ describe("isTerminalCopyShortcut", () => {
   it("uses the produced character instead of the physical key position", () => {
     expect(isTerminalCopyShortcut(event({ key: "C", metaKey: true }), "MacIntel")).toBe(true);
     expect(isTerminalCopyShortcut(event({ key: "j", metaKey: true }), "MacIntel")).toBe(false);
+  });
+});
+
+describe("isTerminalPasteShortcut", () => {
+  const event = (overrides: Partial<Parameters<typeof isTerminalPasteShortcut>[0]> = {}) => ({
+    ctrlKey: false,
+    key: "v",
+    metaKey: false,
+    shiftKey: false,
+    ...overrides,
+  });
+
+  it("pastes on plain Ctrl+V on Windows, like Windows Terminal", () => {
+    expect(isTerminalPasteShortcut(event({ ctrlKey: true }), "Win32")).toBe(true);
+    expect(isTerminalPasteShortcut(event({ ctrlKey: true, shiftKey: true }), "Win32")).toBe(true);
+  });
+
+  it("keeps plain Ctrl+V for the program on Linux and macOS", () => {
+    expect(isTerminalPasteShortcut(event({ ctrlKey: true }), "Linux x86_64")).toBe(false);
+    expect(isTerminalPasteShortcut(event({ ctrlKey: true, shiftKey: true }), "Linux x86_64")).toBe(
+      true,
+    );
+    expect(isTerminalPasteShortcut(event({ ctrlKey: true }), "MacIntel")).toBe(false);
+    expect(isTerminalPasteShortcut(event({ metaKey: true }), "MacIntel")).toBe(true);
+  });
+
+  it("pastes on Shift+Insert outside macOS", () => {
+    expect(isTerminalPasteShortcut(event({ key: "Insert", shiftKey: true }), "Win32")).toBe(true);
   });
 });
 

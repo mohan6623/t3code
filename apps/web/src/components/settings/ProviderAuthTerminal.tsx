@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { GhosttyTerminalSurface } from "../../terminal/ghostty/surface";
 import { ensureLocalApi } from "../../localApi";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { readTextFromClipboard, writeTextToClipboard } from "../../hooks/useCopyToClipboard";
 import { terminalThemeFromApp } from "../ThreadTerminalDrawer";
 
 export default function ProviderAuthTerminal({
@@ -38,6 +39,23 @@ export default function ProviderAuthTerminal({
       onResize: (cols, rows) => respond({ type: "terminal", data: "", size: { cols, rows } }),
       onSelectionChange: () => {},
       beforeKey: (event) => event.key !== "Tab",
+      // Fork: right-click copies the selection, or pastes, like the thread terminal.
+      onContextMenu: (event) => {
+        event.preventDefault();
+        const terminal = created;
+        if (!terminal) return;
+        if (terminal.hasSelection()) {
+          const selection = terminal.getSelection();
+          terminal.clearSelection();
+          void writeTextToClipboard(selection, "sign-in terminal selection").catch(() =>
+            setError("Could not copy the selection."),
+          );
+          return;
+        }
+        void terminal
+          .pasteFromClipboard(() => readTextFromClipboard("sign-in terminal"))
+          .catch(() => setError("Could not read the clipboard."));
+      },
       onLinkActivate: (url) => {
         if (/^https?:\/\//i.test(url))
           void ensureLocalApi()

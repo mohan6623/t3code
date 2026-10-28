@@ -1,4 +1,4 @@
-import { isMacPlatform } from "../../lib/utils";
+import { isMacPlatform, isWindowsPlatform } from "../../lib/utils";
 import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
 import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../terminal-links";
 import {
@@ -338,7 +338,7 @@ export function applyTerminalCopyEvent(
   return { preventDefault: true, claimWriteFallback: true };
 }
 
-function isTerminalPasteShortcut(
+export function isTerminalPasteShortcut(
   event: Pick<KeyboardEvent, "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   platform = navigator.platform,
 ) {
@@ -347,7 +347,9 @@ function isTerminalPasteShortcut(
     return event.shiftKey && !event.ctrlKey && !event.metaKey;
   }
   if (key !== "v") return false;
-  return isMacPlatform(platform) ? event.metaKey : event.ctrlKey && event.shiftKey;
+  if (isMacPlatform(platform)) return event.metaKey;
+  // Fork: plain Ctrl+V pastes on Windows too, as in Windows Terminal and VS Code.
+  return event.ctrlKey && !event.metaKey && (event.shiftKey || isWindowsPlatform(platform));
 }
 
 // X11/Wayland expects middle-click paste; macOS and Windows use it for autoscroll.
@@ -1124,6 +1126,11 @@ export class GhosttyTerminalSurface {
     if (isTerminalPasteShortcut(event)) {
       const gesture = { code: event.code, readText: "" };
       this.pasteShortcutGesture = gesture;
+      // Fork: with no text to paste, plain Ctrl+V still reaches the program (an image paste, say).
+      const plainKey =
+        event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === "v"
+          ? this.core.encodeKey(event)
+          : "";
       const clipboard = navigator.clipboard;
       if (typeof clipboard?.readText === "function") {
         // Keep native paste available if the read is denied. The token drops
@@ -1133,7 +1140,10 @@ export class GhosttyTerminalSurface {
           (text) => {
             if (this.disposed || this.pasteShortcutToken !== token) return;
             this.pasteShortcutToken += 1;
-            if (text.length === 0) return;
+            if (text.length === 0) {
+              if (plainKey.length > 0) this.options.onData(plainKey);
+              return;
+            }
             if (this.pasteShortcutGesture === gesture) gesture.readText = text;
             this.options.onData(this.core.encodePaste(text));
           },

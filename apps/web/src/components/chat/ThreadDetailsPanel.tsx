@@ -58,7 +58,7 @@ function RepositoryChangesStat(props: { environmentId: EnvironmentId; cwd: strin
   );
 }
 
-export interface ThreadDetailsPanelProps extends Pick<
+interface ThreadDetailsPanelProps extends Pick<
   ComponentProps<typeof ThreadDetailsCard>,
   "anchor" | "handle"
 > {
@@ -238,7 +238,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 ) : null}
                 {props.activeProjectName ? (
                   <GitActionsControl
-                    displayMode="panel"
                     compact={density !== "full"}
                     gitCwd={props.gitCwd}
                     activeThreadRef={activeThreadRef}
@@ -264,7 +263,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   {...repositorySectionProps(props.gitCwd!, repository)}
                 >
                   <GitActionsControl
-                    displayMode="panel"
                     compact={density !== "full"}
                     gitCwd={joinWorkspaceRepositoryPath(props.gitCwd!, repository.relativePath)}
                     activeThreadRef={{

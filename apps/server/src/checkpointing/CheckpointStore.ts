@@ -1,8 +1,4 @@
-import {
-  isRootWorkspaceRepository,
-  VcsUnsupportedOperationError,
-  type CheckpointRef,
-} from "@t3tools/contracts";
+import { isRootWorkspaceRepository, type CheckpointRef } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -111,17 +107,9 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
 
   const resolveCheckpoints = Effect.fn("CheckpointStore.resolveCheckpoints")(function* (
-    operation: string,
     cwd: string,
   ) {
     const handle = yield* vcsRegistry.resolve({ cwd });
-    if (!handle.driver.checkpoints) {
-      return yield* new VcsUnsupportedOperationError({
-        operation,
-        kind: handle.kind,
-        detail: `${handle.kind} driver does not implement checkpoint operations.`,
-      });
-    }
     return handle.driver.checkpoints satisfies VcsCheckpointOps;
   });
 
@@ -164,7 +152,7 @@ export const make = Effect.gen(function* () {
   });
 
   const hasRefIn = (target: CheckpointTarget, checkpointRef: CheckpointRef) =>
-    resolveCheckpoints("CheckpointStore.hasCheckpointRef", target.cwd).pipe(
+    resolveCheckpoints(target.cwd).pipe(
       Effect.flatMap((checkpoints) =>
         checkpoints.hasCheckpointRef({ cwd: target.cwd, checkpointRef }),
       ),
@@ -176,10 +164,7 @@ export const make = Effect.gen(function* () {
     yield* forEachTarget(yield* resolveTargets(input.cwd), (target) =>
       Effect.gen(function* () {
         if (input.missingOnly && (yield* hasRefIn(target, input.checkpointRef))) return;
-        const checkpoints = yield* resolveCheckpoints(
-          "CheckpointStore.captureCheckpoint",
-          target.cwd,
-        );
+        const checkpoints = yield* resolveCheckpoints(target.cwd);
         yield* checkpoints.captureCheckpoint({
           cwd: target.cwd,
           checkpointRef: input.checkpointRef,
@@ -219,7 +204,7 @@ export const make = Effect.gen(function* () {
     }
     // One at a time, so a failure can name the repositories that were already restored.
     const restored = yield* Effect.forEach(targets, (target, index) =>
-      resolveCheckpoints("CheckpointStore.restoreCheckpoint", target.cwd).pipe(
+      resolveCheckpoints(target.cwd).pipe(
         Effect.flatMap((checkpoints) =>
           checkpoints.restoreCheckpoint({ ...input, cwd: target.cwd }),
         ),
@@ -242,10 +227,7 @@ export const make = Effect.gen(function* () {
     const targets = yield* resolveTargets(input.cwd);
     const diffs = yield* forEachTarget(targets, (target) =>
       Effect.gen(function* () {
-        const checkpoints = yield* resolveCheckpoints(
-          "CheckpointStore.diffCheckpoints",
-          target.cwd,
-        );
+        const checkpoints = yield* resolveCheckpoints(target.cwd);
         if (target.pathPrefix === null) {
           return yield* checkpoints.diffCheckpoints({
             ...input,
@@ -299,15 +281,12 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const targets = yield* resolveTargets(input.cwd);
     if (targets.length === 1 && targets[0]!.pathPrefix === null) {
-      const checkpoints = yield* resolveCheckpoints("CheckpointStore.listAuthoredPaths", input.cwd);
+      const checkpoints = yield* resolveCheckpoints(input.cwd);
       return yield* checkpoints.listAuthoredPaths(input);
     }
     const perRepository = yield* forEachTarget(targets, (target) =>
       Effect.gen(function* () {
-        const checkpoints = yield* resolveCheckpoints(
-          "CheckpointStore.listAuthoredPaths",
-          target.cwd,
-        );
+        const checkpoints = yield* resolveCheckpoints(target.cwd);
         // A repository without both checkpoints has no diff, so nothing of it is listed.
         const comparable =
           (yield* checkpoints.hasCheckpointRef({
@@ -332,10 +311,7 @@ export const make = Effect.gen(function* () {
     for (const { target, paths } of perRepository) {
       let repositoryPaths: Iterable<string> | null = paths;
       if (repositoryPaths === null) {
-        const numstat = yield* resolveCheckpoints(
-          "CheckpointStore.listAuthoredPaths",
-          target.cwd,
-        ).pipe(
+        const numstat = yield* resolveCheckpoints(target.cwd).pipe(
           Effect.flatMap((checkpoints) =>
             checkpoints.diffCheckpoints({
               ...input,
@@ -362,7 +338,7 @@ export const make = Effect.gen(function* () {
     "deleteCheckpointRefs",
   )(function* (input) {
     yield* forEachTarget(yield* resolveTargets(input.cwd), (target) =>
-      resolveCheckpoints("CheckpointStore.deleteCheckpointRefs", target.cwd).pipe(
+      resolveCheckpoints(target.cwd).pipe(
         Effect.flatMap((checkpoints) =>
           checkpoints.deleteCheckpointRefs({ ...input, cwd: target.cwd }),
         ),

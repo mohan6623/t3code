@@ -142,6 +142,17 @@ jobs:
           Rules:
           - Keep every fork feature working and keep every upstream change.
             When both sides changed the same code, combine them.
+          - Exception: the fork keeps its own composer and the dock under it, the
+            pre-3841 design: the context strip as a drawer with its own background
+            tucked under the composer, separate effort, Full access and Build chips,
+            the usage badge dock, and the composer that collapses on scroll (with its
+            setting). In composer files (ChatComposer, ComposerSurface,
+            ComposerControlsBar, ComposerControl, ComposerFooterControls,
+            TraitsPicker, ProviderModelPicker, BranchToolbar, the composer parts of
+            ChatView and index.css, composerFooterLayout, the collapse-on-scroll
+            helpers) keep the fork side. Take only upstream changes there that do not
+            alter the composer's layout or look, and check those files even where
+            git merged them without a conflict.
           - Remove all conflict markers and stage the resolved files with git add.
           - If the lockfile conflicted, take upstream's version and run vp install.
           - Then run \`vp run --filter @t3tools/desktop ensure:electron\` and

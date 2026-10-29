@@ -178,8 +178,6 @@ import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
 import { useDeviceState } from "~/state/device";
 import { BranchToolbar, type BranchToolbarHandle, useLabelsOverflow } from "./BranchToolbar";
-import { ComposerContextPermissions } from "./ComposerContextPermissions";
-import { resolveCompatibleRuntimeMode } from "./chat/runtimeModeConfig";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
@@ -273,7 +271,11 @@ import type { MessagesTimelineHistoryControls, TimelineOutputRate } from "./chat
 import { ThreadTimeline } from "./chat/ThreadTimeline";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName, shortenClaudeModelName } from "./chat/providerIconUtils";
-import { resolveScrollToEndClearance } from "./composerFooterLayout";
+import {
+  overlayComposerIsResting,
+  resolveComposerTimelineInset,
+  resolveScrollToEndClearance,
+} from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -723,6 +725,8 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadStartFromOriginByThreadId,
   ] = useState<Record<string, boolean>>({});
   const legendListRef = useRef<LegendListRef | null>(null);
+  const getTimelineScrollableNode = () => legendListRef.current?.getScrollableNode() ?? null;
+  const getTimelineScrollableNodeStable = useStableCallback(getTimelineScrollableNode);
   const conversationArea = workspaceAreaProps("conversation", 1, "Conversation");
   const composerArea = workspaceAreaProps("composer", 2, "Message input");
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
@@ -731,7 +735,9 @@ export default function ChatView(props: ChatViewProps) {
   const [composerReservedHeight, setComposerReservedHeight] = useState(0);
   const composerReservedHeightRef = useRef(0);
   const composerExpandedHeightRef = useRef(0);
+  const composerRestingRef = useRef(false);
   const [scrollToEndClearance, setScrollToEndClearance] = useState(0);
+  const [timelineOverflows, setTimelineOverflows] = useState(false);
   const fanoutSelectionsAtom = draftFanoutSelectionsAtom(routeThreadKey);
   const { sendInFlight: sendInFlightRef } = draftSendState(routeThreadKey);
   const multipleModelSelections = useAtomValue(fanoutSelectionsAtom);
@@ -1853,9 +1859,6 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
   const scheduleComposerFocusStable = useStableCallback(scheduleComposerFocus);
-  const openComposerPermissionsStable = useStableCallback(() =>
-    composerRef.current?.openControl("composer.mode"),
-  );
   const insertArtifactTemplate = (template: CodexArtifactTemplate) => {
     const composer = composerRef.current;
     if (!composer) return;
@@ -2111,12 +2114,14 @@ export default function ChatView(props: ChatViewProps) {
   const {
     showScrollToBottom,
     timelineLiveFollowEnabled,
+    isTimelineAtLogicalEndStable,
     onComposerPageScrollKeyDownStable,
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,
     scrollToEnd,
     onTimelineAnchorReadyStable,
     onTimelineAnchorSizeChangedStable,
+    onToolOutputCollapsedAtEndStable,
     onTimelineFooterGrowStable,
     onIsAtEndChangeStable,
     anchorNewTurn,
@@ -2124,6 +2129,7 @@ export default function ChatView(props: ChatViewProps) {
     attachComposerOverlay: attachFollowComposerOverlay,
   } = useTimelineFollow({
     legendListRef,
+    composerRef,
     composerTimelineInset,
     routeThreadKey,
     activeThreadKey,
@@ -2238,9 +2244,29 @@ export default function ChatView(props: ChatViewProps) {
   const publishComposerOverlayHeight = (height: number) => {
     const nextHeight = Math.ceil(height);
     if (nextHeight <= 0) return;
-    if (composerTimelineInsetRef.current !== nextHeight) {
-      composerTimelineInsetRef.current = nextHeight;
-      setComposerTimelineInset(nextHeight);
+    const isResting = overlayComposerIsResting({
+      composerMounted,
+      composerReportedResting: composerRestingRef.current,
+    });
+    const modelStrip = composerOverlayElement?.querySelector<HTMLElement>(
+      '[data-composer-model-strip="true"]',
+    );
+    const restingOnlyHeight =
+      modelStrip && isResting
+        ? Math.max(
+            0,
+            modelStrip.offsetHeight + Number.parseFloat(getComputedStyle(modelStrip).marginTop),
+          )
+        : 0;
+    const nextInset = resolveComposerTimelineInset({
+      currentInset: composerTimelineInsetRef.current,
+      overlayHeight: height,
+      isResting,
+      restingOnlyHeight,
+    });
+    if (composerTimelineInsetRef.current !== nextInset) {
+      composerTimelineInsetRef.current = nextInset;
+      setComposerTimelineInset(nextInset);
     }
     // Reserve the expanded composer height for the terminal drawer and empty placeholder.
     // Keep it while the mobile strip collapses, but allow growth from approvals or tasks.
@@ -2249,7 +2275,7 @@ export default function ChatView(props: ChatViewProps) {
       '[data-chat-composer-stack="true"]',
     );
     const expandedComposerHeight =
-      isDraftHeroState && stack ? Math.ceil(stack.getBoundingClientRect().height) : nextHeight;
+      isDraftHeroState && stack ? Math.ceil(stack.getBoundingClientRect().height) : nextInset;
     const mobileCollapsed = Boolean(
       stack?.querySelector('[data-chat-composer-mobile-collapsed="true"]'),
     );
@@ -2281,6 +2307,11 @@ export default function ChatView(props: ChatViewProps) {
     setScrollToEndClearance(clearance);
   };
   const publishComposerOverlayHeightStable = useStableCallback(publishComposerOverlayHeight);
+  // The composer's layout effect publishes this flag before parent layout effects or resize observations.
+  const onComposerRestingChange = (resting: boolean) => {
+    composerRestingRef.current = resting;
+  };
+  const onComposerRestingChangeStable = useStableCallback(onComposerRestingChange);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the composer overlay element before paint for a new thread or composer mount
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
@@ -3391,6 +3422,8 @@ export default function ChatView(props: ChatViewProps) {
                 contentInsetEndAdjustment={composerTimelineInset}
                 liveFollowEnabled={timelineLiveFollowEnabled}
                 onIsAtEndChange={onIsAtEndChangeStable}
+                onContentOverflowChange={setTimelineOverflows}
+                onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEndStable}
                 onViewportAttach={attachTimelineViewport}
                 onFooterGrow={onTimelineFooterGrowStable}
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
@@ -3406,7 +3439,10 @@ export default function ChatView(props: ChatViewProps) {
                 <ScrollToEndButton
                   bottom={scrollToEndClearance + 4}
                   summary={scrollToEndSummary}
-                  onScrollToEnd={() => scrollToEnd(true)}
+                  onScrollToEnd={() => {
+                    composerRef.current?.restoreAfterTimelineReachedEnd();
+                    scrollToEnd(true);
+                  }}
                 />
               )}
             </div>
@@ -3457,7 +3493,9 @@ export default function ChatView(props: ChatViewProps) {
                         : undefined
                     }
                   >
-                    <ComposerSurface.Shell contextRow={showComposerContextStrip}>
+                    <ComposerSurface.Shell
+                      contextStrip={showComposerContextStrip || showComposerModelStrip}
+                    >
                       <ComposerSurface.Host
                         inert={queuedRunEdit.isSaving}
                         aria-busy={queuedRunEdit.isSaving}
@@ -3577,7 +3615,6 @@ export default function ChatView(props: ChatViewProps) {
                                 activeEnvironmentUnavailable ? null : threadSyncPhase
                               }
                               runtimeMode={runtimeMode}
-                              defaultRuntimeMode={defaultRuntimeMode}
                               interactionMode={interactionMode}
                               lockedProvider={modelPickerLockedProvider}
                               providerStatuses={providerStatuses as ServerProvider[]}
@@ -3608,8 +3645,11 @@ export default function ChatView(props: ChatViewProps) {
                                 mountComposerContextStrip &&
                                 (hasGitSurfaces || showComposerEnvironmentIndicator)
                               }
+                              getTimelineScrollableNode={getTimelineScrollableNodeStable}
+                              isTimelineAtLogicalEnd={isTimelineAtLogicalEndStable}
+                              timelineOverflows={timelineOverflows}
                               onComposerOverlayHeightChange={publishComposerOverlayHeightStable}
-                              permissionsShownInStrip={showComposerContextStrip && !isServerThread}
+                              onRestingChange={onComposerRestingChangeStable}
                               promptRef={promptRef}
                               composerImagesRef={composerImagesRef}
                               composerFilesRef={composerFilesRef}
@@ -3726,21 +3766,6 @@ export default function ChatView(props: ChatViewProps) {
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
                                 trailingContent={composerUsageBadge}
-                                {...(isServerThread
-                                  ? {}
-                                  : {
-                                      trailing: (
-                                        <ComposerContextPermissions
-                                          runtimeMode={
-                                            resolveCompatibleRuntimeMode(
-                                              runtimeMode,
-                                              activeProviderStatus?.supportedRuntimeModes,
-                                            ).mode
-                                          }
-                                          onOpen={openComposerPermissionsStable}
-                                        />
-                                      ),
-                                    })}
                               />
                             </div>
                           )}

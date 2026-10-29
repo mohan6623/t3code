@@ -34,6 +34,7 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
   contextWindowMeterEnabled: false,
+  composerCollapseOnScroll: true,
   compactBeforeSendEnabled: true,
   diffFilesCollapsed: true,
   diffIgnoreWhitespace: true,

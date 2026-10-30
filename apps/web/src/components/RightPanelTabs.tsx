@@ -1222,11 +1222,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   }, [props.activeSurfaceId, tabScrollState.hasOverflow]);
 
   const foldsLayoutControls = props.mode === "inline" && !props.layoutControls;
+  const keepsButtonsWhenMaximized = props.maximized === true;
+  const onCompactChange = useStableCallback((compact: boolean) => props.onCompactChange?.(compact));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the tab bar's DOM size to fold its buttons, reporting the fold to the chat header until unmount
   useEffect(() => {
     const bar = tabBarRef.current;
     const content = tabScrollViewport(tabListRef.current)?.firstElementChild;
     if (!bar || !(content instanceof HTMLElement) || !foldsLayoutControls) {
       setCompactTabBar(false);
+      onCompactChange(false);
       return;
     }
     // Fold only when the tabs do not fit beside the full set of buttons. The
@@ -1241,19 +1245,20 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       const available = bar.clientWidth - Number.parseFloat(style.paddingLeft) - buttonsRoom;
       let tabsWidth = 0;
       for (const child of content.children) tabsWidth += child.getBoundingClientRect().width + 4;
-      setCompactTabBar(tabsWidth > available);
+      const compact = tabsWidth > available;
+      setCompactTabBar(compact);
+      onCompactChange(compact && !keepsButtonsWhenMaximized);
     };
     measure();
-    return observeResize([bar, content], measure);
-  }, [foldsLayoutControls, ownsDesktopTitleBar]);
-  const onCompactChange = useStableCallback((compact: boolean) => props.onCompactChange?.(compact));
+    const stopObserving = observeResize([bar, content], measure);
+    return () => {
+      stopObserving();
+      // A closed or unmounted panel leaves no compact bar behind.
+      onCompactChange(false);
+    };
+  }, [foldsLayoutControls, ownsDesktopTitleBar, keepsButtonsWhenMaximized, onCompactChange]);
   // Fork: a maximized panel has no chat header to take its buttons, so it keeps them.
-  const compactInline = compactTabBar && foldsLayoutControls && props.maximized !== true;
-  // A closed or unmounted panel leaves no compact bar behind.
-  useEffect(() => {
-    onCompactChange(compactInline);
-    return () => onCompactChange(false);
-  }, [compactInline, onCompactChange]);
+  const compactInline = compactTabBar && foldsLayoutControls && !keepsButtonsWhenMaximized;
 
   const attachTabList = (root: HTMLDivElement | null) => {
     tabListRef.current = root;

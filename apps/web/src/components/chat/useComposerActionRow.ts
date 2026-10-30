@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
+import { observeResize } from "~/lib/observeResize";
+
 export interface ComposerActionRowLayout {
   /**
    * Whether the prompt needs the full row width, with the actions on their own
@@ -31,7 +33,7 @@ const ATTACH_ICON_INSET_PX = 6;
  */
 const INLINE_RETURN_MARGIN_PX = 12;
 
-export function measureComposerActionRow(
+function measureComposerActionRow(
   row: HTMLElement,
   usesActionRow: boolean,
 ): ComposerActionRowLayout | null {
@@ -140,6 +142,7 @@ export function useComposerActionRow(
   const [layout, setLayout] = useState(UNMEASURED_LAYOUT);
   const currentRef = useRef(UNMEASURED_LAYOUT);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the prompt row's DOM sizes and text while mounted to lay the actions out
   useLayoutEffect(() => {
     if (!row) return;
     const measure = () => {
@@ -158,18 +161,18 @@ export function useComposerActionRow(
       setLayout(resolved);
     };
     measure();
-    const resizeObserver = new ResizeObserver(measure);
-    resizeObserver.observe(row);
     const editor = row.querySelector<HTMLElement>('[data-testid="composer-editor"]');
-    if (editor) resizeObserver.observe(editor);
     const actions = row
       .closest('[data-chat-composer-surface="true"]')
       ?.querySelector<HTMLElement>('[data-chat-composer-actions="right"]');
-    if (actions) resizeObserver.observe(actions);
+    const stopObserving = observeResize(
+      [row, ...(editor ? [editor] : []), ...(actions ? [actions] : [])],
+      measure,
+    );
     const mutationObserver = new MutationObserver(measure);
     mutationObserver.observe(row, { childList: true, characterData: true, subtree: true });
     return () => {
-      resizeObserver.disconnect();
+      stopObserving();
       mutationObserver.disconnect();
     };
   }, [enabled, row]);

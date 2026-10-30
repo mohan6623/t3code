@@ -37,7 +37,6 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlError from "effect/sql/SqlError";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
 
 import { toolOutputImages } from "@t3tools/shared/toolOutput";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -2184,12 +2183,37 @@ layer("ProviderEventIngestorV2", (it) => {
       const now = yield* DateTime.now;
       const eventSink = yield* EventSink.EventSinkV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-      const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const rootEvent = yield* threadCreatedEvent(now);
       if (rootEvent.type !== "thread.created") {
         throw new Error("Expected a thread.created fixture event");
       }
+      // The copy runs on a detached fiber, so the test waits for the sink to commit it.
+      const parentCountWritten = yield* Deferred.make<void>();
+      const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2.pipe(
+        Effect.provide(Layer.fresh(ProviderEventIngestor.layer)),
+        Effect.provideService(
+          EventSink.EventSinkV2,
+          EventSink.EventSinkV2.of({
+            ...eventSink,
+            write: (input) =>
+              eventSink
+                .write(input)
+                .pipe(
+                  Effect.tap(() =>
+                    input.events.some(
+                      (event) =>
+                        event.type === "subagent.updated" &&
+                        event.threadId === rootEvent.threadId &&
+                        event.payload.usage?.totalTokens === 12_345,
+                    )
+                      ? Deferred.succeed(parentCountWritten, undefined)
+                      : Effect.void,
+                  ),
+                ),
+          }),
+        ),
+      );
       const childThreadId = idAllocator.derive.threadFromProviderThread({
         driver: CODEX_DRIVER,
         nativeThreadId: "native-delegated-child",
@@ -2284,11 +2308,8 @@ layer("ProviderEventIngestorV2", (it) => {
       const parentTask = projectionStore
         .getThreadRecords(rootEvent.threadId, ["subagents"])
         .pipe(Effect.map(({ subagents }) => subagents.find((entry) => entry.id === task.id)));
-      let copied = yield* parentTask;
-      for (let attempt = 0; attempt < 200 && copied?.usage === undefined; attempt++) {
-        yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
-        copied = yield* parentTask;
-      }
+      yield* Deferred.await(parentCountWritten);
+      const copied = yield* parentTask;
       assert.deepEqual(copied?.usage, { totalTokens: 12_345 });
       assert.equal(copied?.status, "running");
 
@@ -2323,12 +2344,42 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
     const now = yield* DateTime.now;
     const eventSink = yield* EventSink.EventSinkV2;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-    const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const rootEvent = yield* threadCreatedEvent(now);
     if (rootEvent.type !== "thread.created") {
       throw new Error("Expected a thread.created fixture event");
     }
+    const cost = 0.2 * 1.25 + 0.8 * 0.125 + 0.01 * 10;
+    const settled = (entry: OrchestrationV2Subagent | undefined) =>
+      Math.abs((entry?.usage?.limits?.[0]?.cost ?? 0) - 2 * cost) < 1e-6;
+    // Each turn's cost lands on a detached fiber, so the test waits for the sink to commit both.
+    const parentCostWritten = yield* Deferred.make<void>();
+    const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2.pipe(
+      Effect.provide(
+        Layer.fresh(ProviderEventIngestor.layer).pipe(Layer.provide(layerCalibration)),
+      ),
+      Effect.provideService(
+        EventSink.EventSinkV2,
+        EventSink.EventSinkV2.of({
+          ...eventSink,
+          write: (input) =>
+            eventSink
+              .write(input)
+              .pipe(
+                Effect.tap(() =>
+                  input.events.some(
+                    (event) =>
+                      event.type === "subagent.updated" &&
+                      event.threadId === rootEvent.threadId &&
+                      settled(event.payload),
+                  )
+                    ? Deferred.succeed(parentCostWritten, undefined)
+                    : Effect.void,
+                ),
+              ),
+        }),
+      ),
+    );
     const childThreadId = idAllocator.derive.threadFromProviderThread({
       driver: CODEX_DRIVER,
       nativeThreadId: "native-costed-child",
@@ -2424,7 +2475,6 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
     yield* ingest(childThreadId, finishedTurn("costed-turn-1", 1));
     yield* ingest(childThreadId, finishedTurn("costed-turn-2", 2));
 
-    const cost = 0.2 * 1.25 + 0.8 * 0.125 + 0.01 * 10;
     assert.lengthOf(recorded, 2);
     assert.equal(recorded[0]?.instanceId, modelSelection.instanceId);
     assert.equal(recorded[0]?.model, modelSelection.model);
@@ -2433,13 +2483,8 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
     const parentTask = projectionStore
       .getThreadRecords(rootEvent.threadId, ["subagents"])
       .pipe(Effect.map(({ subagents }) => subagents.find((entry) => entry.id === task.id)));
-    const settled = (entry: OrchestrationV2Subagent | undefined) =>
-      Math.abs((entry?.usage?.limits?.[0]?.cost ?? 0) - 2 * cost) < 1e-6;
-    let copied = yield* parentTask;
-    for (let attempt = 0; attempt < 200 && !settled(copied); attempt++) {
-      yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
-      copied = yield* parentTask;
-    }
+    yield* Deferred.await(parentCostWritten);
+    const copied = yield* parentTask;
     const share = copied?.usage?.limits?.[0];
     assert.equal(share?.providerInstanceId, modelSelection.instanceId);
     assert.closeTo(share!.cost, 2 * cost, 1e-6);

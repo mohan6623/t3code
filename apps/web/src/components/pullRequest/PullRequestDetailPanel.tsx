@@ -616,6 +616,7 @@ export function PullRequestDetailPanel({
   const [pendingAction, setPendingAction] = useState<PullRequestAction | null>(null);
   // Fork: set when a merge succeeds, until the host shows what it did.
   const mergeSentRef = useRef<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- raises an imperative toast once the host's refetched detail shows what a sent merge did
   useEffect(() => {
     if (mergeSentRef.current !== pullRequestKey || detail === null) return;
     const outcome =

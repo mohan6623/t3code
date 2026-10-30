@@ -513,14 +513,9 @@ export const layer: Layer.Layer<
     );
 
     /**
-     * Fork: a subagent T3 started (delegate_task) runs in its own thread, on
-     * any provider. That thread reports its context size as each reply lands;
-     * copy it to the parent's subagent row so the hover card shows a live
-     * token count, as Claude's native subagents already do.
-     *
-     * The write takes the parent's lock, so it runs on its own fiber: the
-     * parent may hold that lock while it waits for this child's events.
-     * Fibers can finish out of order, so each one writes the latest count.
+     * Fork: copies a delegate_task child's live token count to the parent's subagent row.
+     * The write takes the parent's lock, which the parent may hold while it waits on this
+     * child, so it runs on its own fiber; fibers finish out of order, so each writes the latest.
      */
     const latestChildTokens = new Map<ThreadId, number>();
     /** Fork: cost of a delegated subagent's finished turns, not yet on the parent's row. */

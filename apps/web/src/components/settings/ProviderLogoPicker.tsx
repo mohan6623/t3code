@@ -8,7 +8,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "../ui/popov
 import { toastManager } from "../ui/toast";
 
 /** Logos live in settings, so they stay small. */
-export const PROVIDER_LOGO_MAX_BYTES = 64 * 1024;
+const PROVIDER_LOGO_MAX_BYTES = 64 * 1024;
 
 const ACCEPTED_LOGO_TYPES = [
   "image/png",

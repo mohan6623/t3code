@@ -663,7 +663,7 @@ export const RUNNER_SPRITES: ReadonlyMap<string, RunnerSprite> = new Map(
 );
 
 /** Monocode's pick: the same project always gets the same mascot, by its list order and hash. */
-export function projectMascotId(seed: string): string {
+function projectMascotId(seed: string): string {
   let hash = 0;
   for (let index = 0; index < seed.length; index++) {
     hash = (hash * 131 + seed.charCodeAt(index)) >>> 0;

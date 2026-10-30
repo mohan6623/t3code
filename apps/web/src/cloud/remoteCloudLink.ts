@@ -27,7 +27,7 @@ export function canLinkFromThisClient(
   }
 }
 
-export function remoteCloudLinkTarget(prepared: PreparedConnection): CloudLinkTarget {
+function remoteCloudLinkTarget(prepared: PreparedConnection): CloudLinkTarget {
   const origin = new URL(prepared.httpBaseUrl).origin;
   return {
     environmentId: prepared.environmentId,

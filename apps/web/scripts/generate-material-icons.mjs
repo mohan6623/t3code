@@ -1,24 +1,25 @@
 // Fork: writes src/components/files/materialIcons.generated.ts from the
 // material-icon-theme package (MIT, Copyright (c) 2025 Material Extensions).
 //
-// usage: node apps/web/scripts/generate-material-icons.mjs <unpacked material-icon-theme dir>
+// usage, from apps/web: node scripts/generate-material-icons.mjs <unpacked material-icon-theme dir>
+//   (the icons:material package script)
 //   npm pack material-icon-theme && tar xzf material-icon-theme-*.tgz   (gives ./package)
-import * as NodeFs from "node:fs";
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
-import * as NodeUrl from "node:url";
+import * as NodeURL from "node:url";
 
 const packageDir = process.argv[2];
 if (!packageDir) {
   console.error("usage: generate-material-icons.mjs <unpacked material-icon-theme dir>");
   process.exit(1);
 }
-const scriptDir = NodePath.dirname(NodeUrl.fileURLToPath(import.meta.url));
+const scriptDir = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const outPath = NodePath.join(scriptDir, "../src/components/files/materialIcons.generated.ts");
 const manifest = JSON.parse(
-  NodeFs.readFileSync(NodePath.join(packageDir, "dist/material-icons.json"), "utf8"),
+  NodeFS.readFileSync(NodePath.join(packageDir, "dist/material-icons.json"), "utf8"),
 );
 const { version } = JSON.parse(
-  NodeFs.readFileSync(NodePath.join(packageDir, "package.json"), "utf8"),
+  NodeFS.readFileSync(NodePath.join(packageDir, "package.json"), "utf8"),
 );
 
 /** The theme lists ".rust", "_rust", "__rust__" and so on; all share one icon. Keep the base name. */
@@ -58,7 +59,7 @@ for (const iconId of [...iconIds].toSorted()) {
   for (const id of ids) {
     const definition = manifest.iconDefinitions[id];
     if (!definition) continue;
-    svgs[id] = NodeFs.readFileSync(NodePath.join(packageDir, "dist", definition.iconPath), "utf8")
+    svgs[id] = NodeFS.readFileSync(NodePath.join(packageDir, "dist", definition.iconPath), "utf8")
       .replace(/<!--[\s\S]*?-->/g, "")
       .replace(/\s+/g, " ")
       .replace(/> </g, "><")
@@ -99,7 +100,7 @@ export const MATERIAL_FILE_ICON_EXTENSIONS: Readonly<Record<string, string>> = $
 /** Icon id -> SVG markup. */
 export const MATERIAL_ICON_SVGS: Readonly<Record<string, string>> = ${json(svgs)};
 `;
-NodeFs.writeFileSync(outPath, source);
+NodeFS.writeFileSync(outPath, source);
 console.log(
   `wrote ${outPath}: ${Object.keys(folderNames).length} folder names, ${Object.keys(fileNames).length} file names, ${Object.keys(fileExtensions).length} extensions, ${Object.keys(svgs).length} icons, ${source.length} bytes`,
 );

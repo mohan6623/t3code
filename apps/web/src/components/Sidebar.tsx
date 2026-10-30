@@ -1025,18 +1025,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   if (disabledEnvironmentIds !== configuredDisabledEnvironmentIds) {
     setConfiguredDisabledEnvironmentIds(disabledEnvironmentIds);
   }
-  const handleToggleEnvironment = useStableCallback(
-    (environmentId: EnvironmentId, checked: boolean) => {
-      setConfiguredDisabledEnvironmentIds((current) =>
-        toggleDisabledEnvironmentId({
-          disabledIds: current,
-          environmentId,
-          enabled: checked,
-          allEnvironmentIds: environments.map((environment) => environment.environmentId),
-        }),
-      );
-    },
-  );
   const duplicateEnvironmentLabels = (() => {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
@@ -1046,19 +1034,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return duplicates;
   })();
-  // Fork: "Only" keeps one environment and turns every other one off.
-  const handleOnlyEnvironment = useStableCallback((environmentId: EnvironmentId) => {
-    setConfiguredDisabledEnvironmentIds(
-      new Set(
-        environments
-          .map((environment) => environment.environmentId)
-          .filter((id) => id !== environmentId),
-      ),
-    );
-  });
-  const handleEnableAllEnvironments = useStableCallback(() => {
-    setConfiguredDisabledEnvironmentIds((current) => (current.size === 0 ? current : new Set()));
-  });
 
   const projectScopeItems = allProjectScopeItems.filter(
     (item) =>
@@ -1069,13 +1044,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           (projectRef) => !disabledEnvironmentIds.has(projectRef.environmentId),
         ),
   );
-  const previousDisabledEnvironmentIds = useRef(disabledEnvironmentIds);
-  useEffect(() => {
-    if (previousDisabledEnvironmentIds.current !== disabledEnvironmentIds) {
-      clearSelection();
-      previousDisabledEnvironmentIds.current = disabledEnvironmentIds;
-    }
-  }, [clearSelection, disabledEnvironmentIds]);
 
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
@@ -1238,6 +1206,46 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  // A changed filter can hide selected threads, and a project scope whose every project is now
+  // disabled would show nothing, so both reset with the change.
+  const applyDisabledEnvironmentIds = (next: ReadonlySet<EnvironmentId>) => {
+    if (next === disabledEnvironmentIds) return;
+    clearSelection();
+    setConfiguredDisabledEnvironmentIds(next);
+    const hiddenScopeKeys = scopedProjectGroups
+      .filter(
+        (group) =>
+          !group.memberProjectRefs.some((projectRef) => !next.has(projectRef.environmentId)),
+      )
+      .map((group) => group.projectKey);
+    if (hiddenScopeKeys.length === 0) return;
+    setPersistedProjectScopeKeys(projectScopeKeys.filter((key) => !hiddenScopeKeys.includes(key)));
+  };
+  const handleToggleEnvironment = useStableCallback(
+    (environmentId: EnvironmentId, checked: boolean) => {
+      applyDisabledEnvironmentIds(
+        toggleDisabledEnvironmentId({
+          disabledIds: disabledEnvironmentIds,
+          environmentId,
+          enabled: checked,
+          allEnvironmentIds: environments.map((environment) => environment.environmentId),
+        }),
+      );
+    },
+  );
+  // Fork: "Only" keeps one environment and turns every other one off.
+  const handleOnlyEnvironment = useStableCallback((environmentId: EnvironmentId) => {
+    applyDisabledEnvironmentIds(
+      new Set(
+        environments
+          .map((environment) => environment.environmentId)
+          .filter((id) => id !== environmentId),
+      ),
+    );
+  });
+  const handleEnableAllEnvironments = useStableCallback(() => {
+    if (disabledEnvironmentIds.size > 0) applyDisabledEnvironmentIds(new Set());
+  });
   const threadSearch = useThreadSearch(
     searchEnvironmentIds,
     threadSearchQuery,
@@ -1245,25 +1253,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       ? {}
       : { projectIds: scopedProjectRefs.map((projectRef) => projectRef.projectId) },
   );
-  useEffect(() => {
-    const hiddenScopeKeys = scopedProjectGroups
-      .filter(
-        (group) =>
-          !group.memberProjectRefs.some(
-            (projectRef) => !disabledEnvironmentIds.has(projectRef.environmentId),
-          ),
-      )
-      .map((group) => group.projectKey);
-    if (hiddenScopeKeys.length === 0) return;
-    clearSelection();
-    setPersistedProjectScopeKeys(projectScopeKeys.filter((key) => !hiddenScopeKeys.includes(key)));
-  }, [
-    clearSelection,
-    disabledEnvironmentIds,
-    projectScopeKeys,
-    scopedProjectGroups,
-    setPersistedProjectScopeKeys,
-  ]);
   const routeDraftIdForRows = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
   const visibleDraftSessionCount = useComposerDraftStore((store) => {
     let count = 0;
@@ -2278,7 +2267,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         threadKey,
         currentThreadKey: readRouteThreadKey(router),
         action: "snooze",
-        // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
         now: new Date().toISOString(),
         thread: readThreadShell(threadRef),
       })
@@ -2318,7 +2306,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
       if (threadKeys.length === 0) return;
       const count = threadKeys.length;
-      // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
       const selectionNow = new Date();
       const selectedThreads = threadKeys.flatMap((threadKey) => {
         const thread = threadByKeyRef.current.get(threadKey);
@@ -2349,7 +2336,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         pinnedCount: pinnedSelectedThreads.length,
       });
       // Presets sync across environments, so the first selected thread's stand for all.
-      // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
       const menuOpenedAt = new Date();
       const snoozePresets = resolveSnoozePresets(
         menuOpenedAt,

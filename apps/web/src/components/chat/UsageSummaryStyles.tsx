@@ -126,7 +126,7 @@ function Figures({ windows, now, compact }: Pick<SummaryProps, "windows" | "now"
  * "usage-figures" step of DOCK_FOLD_ORDER. The strip reads this label's natural
  * width to decide, the same way it folds its Git labels.
  */
-export function FoldingLabel({ children }: { children: ReactNode }) {
+function FoldingLabel({ children }: { children: ReactNode }) {
   return (
     <span
       data-composer-label

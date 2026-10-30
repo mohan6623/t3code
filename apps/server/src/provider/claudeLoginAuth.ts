@@ -29,7 +29,7 @@ const TRANSCRIPT_LIMIT = 16_384;
 const SETUP_TOKEN_VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /** The web app matches this auth type to offer a subscription sign-in. */
-export const CLAUDE_TOKEN_AUTH_TYPE = "oauthToken";
+const CLAUDE_TOKEN_AUTH_TYPE = "oauthToken";
 
 /** How an instance reaches Claude: its own login, a setup token, an API key, or nothing. */
 export type ClaudeSignInMethod = "subscription" | "token" | "apiKey" | "signedOut";

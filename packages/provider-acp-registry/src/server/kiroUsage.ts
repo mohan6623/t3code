@@ -19,8 +19,8 @@ import type { AcpRegistrySettings } from "../settings.ts";
 export const KIRO_COMMAND_EXECUTE_METHOD = "_kiro.dev/commands/execute";
 /** Kiro sends this per session; turns add `meteringUsage` with the credits spent. */
 export const KIRO_METADATA_NOTIFICATION = "_kiro.dev/metadata";
-export const KIRO_USAGE_TIMEOUT = "20 seconds";
-export const KIRO_CREDITS_WINDOW_ID = "credits";
+const KIRO_USAGE_TIMEOUT = "20 seconds";
+const KIRO_CREDITS_WINDOW_ID = "credits";
 
 const PROBE_FAILED_MESSAGE = "Kiro could not read credit usage.";
 
@@ -40,7 +40,7 @@ export function isKiroAcpAgent(
   );
 }
 
-export function kiroUsageRequest(sessionId: string) {
+function kiroUsageRequest(sessionId: string) {
   return { sessionId, command: { command: "usage", args: {} } };
 }
 

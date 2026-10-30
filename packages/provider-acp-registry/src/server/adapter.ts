@@ -131,7 +131,7 @@ const KIRO_LIVE_USAGE_MIN_INTERVAL_MS = 60_000;
  * for the account's credit usage (a free call) so the usage badge moves
  * without spawning a probe.
  */
-export function makeKiroLiveUsageExtension(
+function makeKiroLiveUsageExtension(
   publish: (
     usageLimits: Parameters<
       AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator["Service"]["publishUsageLimits"]

@@ -1,17 +1,7 @@
 /**
- * WorkspaceRepositories - finds the Git repositories a multi-repo workspace folder holds.
- *
- * A project or isolated-run folder that is not itself inside a repository can still hold
- * several: a wrapper folder with one checkout per repository. A repository root can too: its
- * direct child checkouts (not its submodules) join it, and it is listed as `.`. A
- * `.code-workspace` file in the folder decides which of its folders count; without one, every
- * immediate child directory with a `.git` entry counts. Folders outside the workspace are never
- * included.
- *
- * Discovery reads only the filesystem and treats anything unreadable as absent, so callers on
- * hot paths (checkpoints, session start) can rely on it without handling failures.
- *
- * @module WorkspaceRepositories
+ * Finds the repositories a multi-repo folder holds: the child folders its `.code-workspace`
+ * names, else every child with a `.git` entry (a repository root also lists itself as `.`).
+ * Unreadable entries count as absent, so hot paths (checkpoints, session start) need not care.
  */
 import { ROOT_WORKSPACE_REPOSITORY_PATH, type VcsRepository } from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
@@ -54,7 +44,7 @@ export class WorkspaceRepositories extends Context.Service<
   }
 >()("t3/workspace/WorkspaceRepositories") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 

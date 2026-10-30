@@ -1413,6 +1413,8 @@ export function PullRequestDetailPanel({
                 onSelectMergeMethod={selectMergeMethod}
                 showsDeleteBranch={showsDeleteBranch}
                 environmentConnected={environmentConnected}
+                canWriteSourceControl={canWriteSourceControl}
+                onMaintainerEditsSaved={refreshDetail}
                 confirmDeleteBranch={confirmDeleteBranch}
                 pendingAction={pendingAction}
                 perform={perform}

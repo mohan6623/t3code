@@ -40,6 +40,7 @@ export interface ResizableWidthHandlers {
 /** Persist on drag end to avoid a storage write on every animation frame. */
 export function useResizableWidth(options: UseResizableWidthOptions): {
   readonly width: number;
+  readonly setWidth: (width: number) => void;
   readonly handlers: ResizableWidthHandlers;
 } {
   const { storageKey, defaultWidth, minWidth, maxWidth, edge, onCollapse } = options;
@@ -65,6 +66,16 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   }
 
   const clampedWidth = clamp(widthState.width);
+
+  const commitWidth = (nextStorageKey: string, nextWidth: number) => {
+    // Resizing remains usable for this session when browser storage is unavailable.
+    setWidthState({ storageKey: nextStorageKey, width: nextWidth });
+    try {
+      setLocalStorageItem(nextStorageKey, nextWidth, WidthSchema);
+    } catch (error) {
+      console.error("Could not persist panel width.", error);
+    }
+  };
 
   const drag = useResizeDrag<HTMLElement>((event) => {
     const host = event.currentTarget.parentElement;
@@ -117,12 +128,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
           onCollapse?.();
           return;
         }
-        setWidthState({ storageKey: startStorageKey, width: finalWidth });
-        try {
-          setLocalStorageItem(startStorageKey, finalWidth, WidthSchema);
-        } catch (error) {
-          console.error("Could not persist panel width.", error);
-        }
+        commitWidth(startStorageKey, finalWidth);
       },
       cleanup(committed) {
         if (slideTimer !== null) window.clearTimeout(slideTimer);
@@ -150,6 +156,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
 
   return {
     width: clampedWidth,
+    setWidth: (value) => commitWidth(storageKey, clamp(value)),
     handlers: {
       ref: drag.ref,
       onPointerDown: drag.onPointerDown,

@@ -1,5 +1,11 @@
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
-import { useLayoutEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import {
+  useLayoutEffect,
+  useState,
+  type MouseEventHandler,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
@@ -17,11 +23,16 @@ export function ThreadDetailsCard({
   threadRef,
   anchor,
   handle,
+  contentKey,
+  onContextMenu,
   children,
 }: {
   threadRef: ScopedThreadRef;
   anchor: RefObject<Element | null>;
   handle: ReturnType<typeof PopoverCreateHandle>;
+  /** Changes when the set of rendered items changes, so cached heights are measured again. */
+  contentKey: string;
+  onContextMenu?: MouseEventHandler<HTMLDivElement>;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const detailsArea = workspaceAreaProps("details", 3, "Thread details");
@@ -36,7 +47,7 @@ export function ThreadDetailsCard({
   const popoverOpen = useRightPanelStore((state) =>
     selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "popover"),
   );
-  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}`;
+  const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${contentKey}`;
   const [measurements, setMeasurements] = useState({
     key: measurementKey,
     heights: { full: 0, compact: 0 },
@@ -101,9 +112,6 @@ export function ThreadDetailsCard({
     environmentId,
     threadId,
   ]);
-  // The canvas reports a new layout on every frame of a panel resize. Keep
-  // the content tree, so only this card's frame follows it.
-  const content = useMemo(() => children(density), [children, density]);
   const card = (
     <div
       className={cn(
@@ -112,10 +120,11 @@ export function ThreadDetailsCard({
           "max-h-[min(calc(100dvh-6.5rem),calc(var(--available-height,100dvh)-1rem))]",
       )}
       style={placement ? { maxHeight: height } : undefined}
+      onContextMenu={onContextMenu}
       data-thread-details-card
     >
       <ScrollArea scrollFade className="min-h-0">
-        <div ref={setContentElement}>{content}</div>
+        <div ref={setContentElement}>{children(density)}</div>
       </ScrollArea>
     </div>
   );

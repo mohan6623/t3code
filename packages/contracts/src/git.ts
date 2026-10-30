@@ -135,6 +135,18 @@ export const GitRunStackedActionInput = Schema.Struct({
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 
+// Fork: stops a running stacked action (the thread details panel's Cancel).
+export const GitCancelStackedActionInput = Schema.Struct({
+  actionId: TrimmedNonEmptyStringSchema,
+});
+export type GitCancelStackedActionInput = typeof GitCancelStackedActionInput.Type;
+
+export const GitCancelStackedActionResult = Schema.Struct({
+  /** False when the action already finished or is past its last safe stop (creating the PR). */
+  cancelled: Schema.Boolean,
+});
+export type GitCancelStackedActionResult = typeof GitCancelStackedActionResult.Type;
+
 export const VcsListRefsInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   query: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(256))),

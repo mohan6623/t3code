@@ -329,6 +329,12 @@ export function createVcsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.subscribeWorktreeSetup,
       idleTtlMs: VCS_STATUS_IDLE_TTL_MS,
     }),
+    // Fork: Cancel for a running stacked action. input.actionId is its transport id
+    // (createVcsActionTransportId), the id the server tracks the action by.
+    cancelStackedAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:cancel-stacked-action",
+      tag: WS_METHODS.gitCancelStackedAction,
+    }),
     cancelWorktreeSetup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:cancel-worktree-setup",
       tag: WS_METHODS.worktreeSetupCancel,

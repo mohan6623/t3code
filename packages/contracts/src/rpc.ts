@@ -145,6 +145,8 @@ import {
   VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
+  GitCancelStackedActionInput,
+  GitCancelStackedActionResult,
   VcsStatusInput,
   VcsStatusSubscriptionInput,
   VcsStatusResult,
@@ -454,6 +456,8 @@ export const WS_METHODS = {
   vcsInit: "vcs.init",
 
   gitRunStackedAction: "git.runStackedAction",
+  // Fork: Cancel for a running stacked action.
+  gitCancelStackedAction: "git.cancelStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
@@ -1453,6 +1457,13 @@ const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
   stream: true,
 });
 
+// Fork: Cancel for a running stacked action.
+const WsGitCancelStackedActionRpc = Rpc.make(WS_METHODS.gitCancelStackedAction, {
+  payload: GitCancelStackedActionInput,
+  success: GitCancelStackedActionResult,
+  error: EnvironmentAuthorizationError,
+});
+
 const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
   payload: GitPullRequestRefInput,
   success: GitResolvePullRequestResult,
@@ -2084,6 +2095,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
+  WsGitCancelStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,

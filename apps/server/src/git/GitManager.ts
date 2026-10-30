@@ -8,6 +8,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -99,6 +100,52 @@ export interface GitRunStackedActionOptions {
   readonly progressReporter?: GitActionProgressReporter;
 }
 
+// Fork: Cancel for a running stacked action. Cancel only stops where nothing is half done:
+// AI text generation is interrupted at once (its CLI process ends with its scope), while a
+// commit, branch switch or push that already started finishes and the action stops before
+// its next step. Once the PR is being created the action must finish and Cancel says false.
+interface StackedActionCancellation {
+  fiber: Fiber.Fiber<unknown, unknown> | null;
+  state: "running" | "cancelling" | "uncancellable";
+  inCancellableStep: boolean;
+}
+
+const CurrentStackedActionCancellation = Context.Reference<StackedActionCancellation | null>(
+  "t3/git/GitManager/CurrentStackedActionCancellation",
+  { defaultValue: () => null },
+);
+
+/** Fork: a step Cancel may interrupt mid-way (AI text generation, which changes nothing). */
+const cancellableStep = Effect.fn("GitManager.cancellableStep")(function* <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) {
+  const control = yield* CurrentStackedActionCancellation;
+  if (control === null) return yield* effect;
+  if (control.state === "cancelling") return yield* Effect.interrupt;
+  control.inCancellableStep = true;
+  return yield* effect.pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        control.inCancellableStep = false;
+      }),
+    ),
+  );
+});
+
+/** Fork: stops a cancelled action before its next step that changes the repository. */
+const cancellationCheckpoint = Effect.gen(function* () {
+  const control = yield* CurrentStackedActionCancellation;
+  if (control?.state === "cancelling") return yield* Effect.interrupt;
+});
+
+/** Fork: past this point the action must finish, so Cancel reports false. */
+const beginUncancellableStep = Effect.gen(function* () {
+  const control = yield* CurrentStackedActionCancellation;
+  if (control === null) return;
+  if (control.state === "cancelling") return yield* Effect.interrupt;
+  control.state = "uncancellable";
+});
+
 export interface GitRemoteStatusOptions extends GitVcsDriver.GitRemoteStatusOptions {
   readonly refreshMissingPullRequest?: boolean;
 }
@@ -151,6 +198,11 @@ export class GitManager extends Context.Service<
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
     ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+    /**
+     * Fork: cancels the running stacked action with this progress action id. False when no
+     * such action runs or it is already creating its PR.
+     */
+    readonly cancelStackedAction: (actionId: string) => Effect.Effect<boolean>;
     readonly subscribePullRequestStateChanges: Effect.Effect<
       Stream.Stream<ThreadPullRequestKey>,
       never,
@@ -2099,7 +2151,11 @@ export const make = Effect.gen(function* () {
           ...(policy ? { policy } : {}),
           modelSelection: input.settings.modelSelection,
         })
-        .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
+        .pipe(
+          // Fork: Cancel interrupts commit message generation.
+          cancellableStep,
+          Effect.map((result) => sanitizeCommitMessage(result)),
+        );
 
       return {
         subject: generated.subject,
@@ -2153,6 +2209,8 @@ export const make = Effect.gen(function* () {
       return { status: "skipped_no_changes" as const };
     }
 
+    // Fork: a cancelled action stops before it commits.
+    yield* cancellationCheckpoint;
     yield* emit({
       kind: "phase_started",
       phase: "commit",
@@ -2289,18 +2347,23 @@ export const make = Effect.gen(function* () {
         : undefined;
     const threadContext = yield* readThreadContext(threadId);
 
-    const generated = yield* textGeneration.generatePrContent({
-      cwd,
-      baseBranch,
-      headBranch: headContext.headBranch,
-      commitSummary: limitContext(rangeContext.commitSummary, 20_000),
-      diffSummary: limitContext(rangeContext.diffSummary, 20_000),
-      diffPatch: limitContext(rangeContext.diffPatch, 60_000),
-      ...(changeRequestTemplate ? { changeRequestTemplate } : {}),
-      ...(threadContext ? { threadContext } : {}),
-      ...(policy ? { policy } : {}),
-      modelSelection: settings.modelSelection,
-    });
+    const generated = yield* textGeneration
+      .generatePrContent({
+        cwd,
+        baseBranch,
+        headBranch: headContext.headBranch,
+        commitSummary: limitContext(rangeContext.commitSummary, 20_000),
+        diffSummary: limitContext(rangeContext.diffSummary, 20_000),
+        diffPatch: limitContext(rangeContext.diffPatch, 60_000),
+        ...(changeRequestTemplate ? { changeRequestTemplate } : {}),
+        ...(threadContext ? { threadContext } : {}),
+        ...(policy ? { policy } : {}),
+        modelSelection: settings.modelSelection,
+      })
+      // Fork: Cancel interrupts PR content generation.
+      .pipe(cancellableStep);
+    // Fork: from here the PR gets created, so Cancel no longer applies (no half-made PR).
+    yield* beginUncancellableStep;
 
     const bodyFile = path.join(
       tempDir,
@@ -2984,6 +3047,9 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
   }, asUserAction);
 
+  // Fork: running stacked actions by progress action id, for cancelStackedAction.
+  const runningStackedActions = new Map<string, StackedActionCancellation>();
+
   const runFeatureBranchStep = Effect.fn("runFeatureBranchStep")(function* (
     settings: SourceControlTextGenerationSettings,
     cwd: string,
@@ -3011,6 +3077,8 @@ export const make = Effect.gen(function* () {
     const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
     const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
 
+    // Fork: a cancelled action stops before it creates the branch.
+    yield* cancellationCheckpoint;
     yield* gitCore.createRef({ cwd, refName: resolvedBranch });
     yield* Effect.scoped(gitCore.switchRef({ cwd, refName: resolvedBranch }));
 
@@ -3150,6 +3218,8 @@ export const make = Effect.gen(function* () {
             )
           : { status: "skipped_not_requested" as const };
 
+        // Fork: a cancelled action stops before it pushes.
+        if (wantsPush) yield* cancellationCheckpoint;
         const push = wantsPush
           ? yield* progress
               .emit({
@@ -3207,7 +3277,7 @@ export const make = Effect.gen(function* () {
         return result;
       });
 
-      return yield* runAction().pipe(
+      const action = runAction().pipe(
         Effect.ensuring(invalidateStatus(input.cwd)),
         Effect.tapError((error) =>
           Effect.flatMap(Ref.get(currentPhase), (phase) =>
@@ -3219,9 +3289,52 @@ export const make = Effect.gen(function* () {
           ),
         ),
       );
+      // Fork: run the action in its own fiber so cancelStackedAction can interrupt it; the
+      // caller then fails with an interrupt cause instead of being interrupted itself.
+      const actionId = options?.actionId;
+      if (actionId === undefined) {
+        return yield* action;
+      }
+      const control: StackedActionCancellation = {
+        fiber: null,
+        state: "running",
+        inCancellableStep: false,
+      };
+      const fiber = yield* action.pipe(
+        Effect.provideService(CurrentStackedActionCancellation, control),
+        Effect.forkChild,
+      );
+      control.fiber = fiber;
+      runningStackedActions.set(actionId, control);
+      return yield* Fiber.join(fiber).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (runningStackedActions.get(actionId) === control) {
+              runningStackedActions.delete(actionId);
+            }
+          }),
+        ),
+      );
     },
     asUserAction,
   );
+
+  // Fork: Cancel from the thread details panel.
+  const cancelStackedAction: GitManager["Service"]["cancelStackedAction"] = (actionId) =>
+    Effect.sync(() => {
+      const control = runningStackedActions.get(actionId);
+      if (control === undefined || control.state === "uncancellable") {
+        return false;
+      }
+      // Set the flag and interrupt in one synchronous step, so the action cannot slip past
+      // beginUncancellableStep in between. Outside a cancellable step the action stops at
+      // its next checkpoint instead, so a started commit or push is never cut off.
+      control.state = "cancelling";
+      if (control.inCancellableStep) {
+        control.fiber?.interruptUnsafe();
+      }
+      return true;
+    });
 
   return GitManager.of({
     createWorktree,
@@ -3235,6 +3348,7 @@ export const make = Effect.gen(function* () {
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,
+    cancelStackedAction,
     subscribePullRequestStateChanges: PubSub.subscribe(pullRequestStateChanges).pipe(
       Effect.map((subscription) => Stream.fromSubscription(subscription)),
     ),

@@ -6,6 +6,7 @@ import {
   buildMenuItems,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitActionProgressPresentation,
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
 } from "./GitActionsControl.logic";
@@ -215,5 +216,52 @@ describe("resolveAutoFeatureBranchName", () => {
   it("treats existing ref names as case-insensitive for collision checks", () => {
     const ref = resolveAutoFeatureBranchName(["Feature/Ticket-1"], "feature/ticket-1");
     assert.equal(ref, "feature/ticket-1-2");
+  });
+});
+
+// Fork: Cancel on a running PR action.
+describe("resolveGitActionProgressPresentation cancel", () => {
+  const running = {
+    isRunning: true,
+    operation: "run_change_request",
+    currentLabel: "Generating PR content...",
+    lastOutputLine: null,
+    phaseStartedAtMs: 1_000,
+    hookStartedAtMs: null,
+  } as const;
+
+  it("offers Cancel while a PR action runs", () => {
+    for (const action of ["create_pr", "commit_push_pr"] as const) {
+      const progress = resolveGitActionProgressPresentation({ ...running, action });
+      assert.equal(progress?.cancellable, true);
+      assert.equal(progress?.cancelling, false);
+      assert.equal(progress?.status, "Generating PR content...");
+    }
+  });
+
+  it("does not offer Cancel for other actions or a pull", () => {
+    for (const action of ["commit", "push", "commit_push", null] as const) {
+      assert.equal(
+        resolveGitActionProgressPresentation({ ...running, action })?.cancellable,
+        false,
+      );
+    }
+    assert.equal(
+      resolveGitActionProgressPresentation({ ...running, operation: "pull", action: "create_pr" })
+        ?.cancellable,
+      false,
+    );
+  });
+
+  it("says Cancelling and hides hook output after Cancel is clicked", () => {
+    const progress = resolveGitActionProgressPresentation({
+      ...running,
+      action: "commit_push_pr",
+      lastOutputLine: "lint ok",
+      cancelling: true,
+    });
+    assert.equal(progress?.status, "Cancelling...");
+    assert.equal(progress?.output, null);
+    assert.equal(progress?.cancelling, true);
   });
 });

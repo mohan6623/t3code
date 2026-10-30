@@ -2982,6 +2982,11 @@ export const layerWsRpc = (
                 }),
               ),
           ),
+        // Fork: Cancel interrupts the running action; its stream above then ends interrupted.
+        [WS_METHODS.gitCancelStackedAction]: (input) =>
+          gitWorkflow
+            .cancelStackedAction(input.actionId)
+            .pipe(Effect.map((cancelled) => ({ cancelled }))),
         [WS_METHODS.gitResolvePullRequest]: (input) => gitWorkflow.resolvePullRequest(input),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           gitWorkflow

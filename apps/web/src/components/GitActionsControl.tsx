@@ -62,6 +62,8 @@ import {
   resolveThreadBranchUpdate,
 } from "./GitActionsControl.logic";
 import { WizardPopup, WizardHeader, WizardSteps, WizardPanel, WizardFooter } from "./ui/wizard";
+import { GitActionCancelButton } from "./GitActionCancelButton";
+import { createVcsActionTransportId } from "@t3tools/client-runtime/state/vcs";
 import { StartTruncatedPath } from "./StartTruncatedPath";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -980,6 +982,8 @@ export default function GitActionsControl({
   const [inlineSuccess, setInlineSuccess] = useState<InlineGitActionSuccess | null>(null);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
+  // Fork: the action whose Cancel was clicked, until the server stops it.
+  const [cancellingActionId, setCancellingActionId] = useState<string | null>(null);
   const sourceControlScope = { environmentId: activeEnvironmentId, cwd: gitCwd };
   const vcsActionState = useAtomValue(vcsActionManager.stateAtom(sourceControlScope));
   const inlineSuccessExpired = useDeadlinePassed(inlineSuccess?.expiresAtMs ?? null);
@@ -1117,7 +1121,48 @@ export default function GitActionsControl({
     : quickAction.disabled
       ? (quickAction.hint ?? "This action is currently unavailable.")
       : null;
-  const gitActionProgress = resolveGitActionProgressPresentation(vcsActionState);
+  const gitActionProgress = resolveGitActionProgressPresentation({
+    ...vcsActionState,
+    cancelling: cancellingActionId !== null && cancellingActionId === vcsActionState.actionId,
+  });
+  const cancelStackedAction = useAtomCommand(vcsEnvironment.cancelStackedAction, {
+    reportFailure: false,
+  });
+  // Fork: Cancel stops the running PR action on the server. Its stream then ends
+  // interrupted, which runGitActionWithToast ignores, so the row goes back to idle.
+  const cancelRunningGitAction = () => {
+    const actionId = vcsActionState.actionId;
+    if (activeEnvironmentId === null || gitCwd === null || actionId === null) return;
+    setCancellingActionId(actionId);
+    void (async () => {
+      const result = await cancelStackedAction({
+        environmentId: activeEnvironmentId,
+        input: {
+          actionId: createVcsActionTransportId(
+            { environmentId: activeEnvironmentId, cwd: gitCwd },
+            actionId,
+          ),
+        },
+      });
+      if (result._tag === "Success" && result.value.cancelled) return;
+      setCancellingActionId((current) => (current === actionId ? null : current));
+      if (isAtomCommandInterrupted(result)) return;
+      toastManager.add(
+        stackedThreadToast({
+          type: result._tag === "Success" ? "info" : "error",
+          title: result._tag === "Success" ? "Too late to cancel" : "Cancel failed",
+          description:
+            result._tag === "Success"
+              ? `The ${changeRequestTerminology.shortLabel} is already being created.`
+              : (() => {
+                  const error = squashAtomCommandFailure(result);
+                  return error instanceof Error ? error.message : "An error occurred.";
+                })(),
+          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+        }),
+      );
+    })();
+  };
   // A fresh draft or a thread with no turns hides commit, push, and diff rows until there is work.
   const quietEmptyDraft =
     (draftId !== undefined || activeServerThreadShell?.latestRun === null) &&
@@ -1604,10 +1649,18 @@ export default function GitActionsControl({
             </ThreadDetailsControl>
           )}
           {gitActionProgress ? (
-            <GitActionElapsedTime
-              startedAtMs={gitActionProgress.startedAtMs}
-              className="flex h-8 shrink-0 items-center self-start pe-2.5 text-2xs font-normal tabular-nums text-muted-foreground"
-            />
+            <>
+              <GitActionElapsedTime
+                startedAtMs={gitActionProgress.startedAtMs}
+                className="flex h-8 shrink-0 items-center self-start pe-2.5 text-2xs font-normal tabular-nums text-muted-foreground"
+              />
+              {gitActionProgress.cancellable && canWriteSourceControl ? (
+                <GitActionCancelButton
+                  cancelling={gitActionProgress.cancelling}
+                  onCancel={cancelRunningGitAction}
+                />
+              ) : null}
+            </>
           ) : (
             <>
               <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />

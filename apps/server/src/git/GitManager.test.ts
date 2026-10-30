@@ -8,9 +8,11 @@ import * as NodeChildProcess from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -5319,6 +5321,187 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           label: "Creating pull request...",
         }),
       ]);
+    }),
+  );
+  // Fork: Cancel for a running stacked action (thread details panel).
+  it.effect("cancel interrupts PR content generation and creates no PR", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/cancel-pr"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "cancel.txt"), "cancel\n");
+      yield* runGit(repoDir, ["add", "cancel.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Cancel branch"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/cancel-pr"]);
+
+      const generating = yield* Deferred.make<void>();
+      const generationInterrupted = yield* Deferred.make<void>();
+      const { manager, providerCalls } = yield* makeManager({
+        textGeneration: {
+          generatePrContent: () =>
+            Deferred.succeed(generating, undefined).pipe(
+              Effect.andThen(Effect.never),
+              Effect.onInterrupt(() => Deferred.succeed(generationInterrupted, undefined)),
+            ),
+        },
+        providerScenario: { prListSequence: [[], []] },
+      });
+      const events: GitActionProgressEvent[] = [];
+      const running = yield* runStackedAction(
+        manager,
+        { cwd: repoDir, action: "create_pr", actionId: "action-cancel-pr" },
+        {
+          actionId: "action-cancel-pr",
+          progressReporter: {
+            publish: (event) => Effect.sync(() => void events.push(event)),
+          },
+        },
+      ).pipe(Effect.exit, Effect.forkChild);
+
+      yield* Deferred.await(generating);
+      expect(yield* manager.cancelStackedAction("action-cancel-pr")).toBe(true);
+      const exit = yield* Fiber.join(running);
+
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      expect(yield* Deferred.isDone(generationInterrupted)).toBe(true);
+      expect(created(providerCalls)).toEqual([]);
+      expect(events.some((event) => event.kind === "action_failed")).toBe(false);
+      // The action is gone, so a second Cancel has nothing to stop.
+      expect(yield* manager.cancelStackedAction("action-cancel-pr")).toBe(false);
+    }),
+  );
+
+  it.effect("cancel during commit message generation leaves no commit or push", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/cancel-commit"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "work.txt"), "work\n");
+      const headBefore = (yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout;
+
+      const generating = yield* Deferred.make<void>();
+      const { manager, providerCalls } = yield* makeManager({
+        textGeneration: {
+          generateCommitMessage: () =>
+            Deferred.succeed(generating, undefined).pipe(Effect.andThen(Effect.never)),
+        },
+      });
+      const running = yield* runStackedAction(
+        manager,
+        { cwd: repoDir, action: "commit_push_pr", actionId: "action-cancel-commit" },
+        { actionId: "action-cancel-commit" },
+      ).pipe(Effect.exit, Effect.forkChild);
+
+      yield* Deferred.await(generating);
+      expect(yield* manager.cancelStackedAction("action-cancel-commit")).toBe(true);
+      const exit = yield* Fiber.join(running);
+
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      expect((yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout).toBe(headBefore);
+      const remoteBranches = (yield* runGit(repoDir, ["ls-remote", "--heads", "origin"])).stdout;
+      expect(remoteBranches).not.toContain("feature/cancel-commit");
+      expect(created(providerCalls)).toEqual([]);
+    }),
+  );
+
+  it.effect("cancel requested during a commit lets it finish and stops before the push", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/cancel-mid-commit"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "work.txt"), "work\n");
+      const headBefore = (yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout;
+
+      const { manager, providerCalls } = yield* makeManager();
+      const cancelResults: boolean[] = [];
+      const exit = yield* runStackedAction(
+        manager,
+        { cwd: repoDir, action: "commit_push_pr", actionId: "action-cancel-mid-commit" },
+        {
+          actionId: "action-cancel-mid-commit",
+          progressReporter: {
+            // Cancel arrives while the commit runs: the commit must still complete.
+            publish: (event) =>
+              event.kind === "phase_started" && event.label === "Committing..."
+                ? manager
+                    .cancelStackedAction("action-cancel-mid-commit")
+                    .pipe(Effect.map((cancelled) => void cancelResults.push(cancelled)))
+                : Effect.void,
+          },
+        },
+      ).pipe(Effect.exit);
+
+      expect(cancelResults).toEqual([true]);
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      expect((yield* runGit(repoDir, ["rev-parse", "HEAD"])).stdout).not.toBe(headBefore);
+      expect((yield* runGit(repoDir, ["status", "--porcelain"])).stdout).toBe("");
+      const remoteBranches = (yield* runGit(repoDir, ["ls-remote", "--heads", "origin"])).stdout;
+      expect(remoteBranches).not.toContain("feature/cancel-mid-commit");
+      expect(created(providerCalls)).toEqual([]);
+    }),
+  );
+
+  it.effect("cancel is refused once the PR is being created", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/cancel-too-late"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "late.txt"), "late\n");
+      yield* runGit(repoDir, ["add", "late.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Late branch"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/cancel-too-late"]);
+
+      const { manager, providerCalls } = yield* makeManager({
+        providerScenario: {
+          prListSequence: [
+            [],
+            [
+              {
+                number: 77,
+                title: "Add stacked git actions",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+                baseRefName: "main",
+                headRefName: "feature/cancel-too-late",
+              },
+            ],
+          ],
+        },
+      });
+      const cancelResults: boolean[] = [];
+      const result = yield* runStackedAction(
+        manager,
+        { cwd: repoDir, action: "create_pr", actionId: "action-cancel-too-late" },
+        {
+          actionId: "action-cancel-too-late",
+          progressReporter: {
+            publish: (event) =>
+              event.kind === "phase_started" && event.label === "Creating pull request..."
+                ? manager
+                    .cancelStackedAction("action-cancel-too-late")
+                    .pipe(Effect.map((cancelled) => void cancelResults.push(cancelled)))
+                : Effect.void,
+          },
+        },
+      );
+
+      expect(cancelResults).toEqual([false]);
+      expect(result.pr.status).toBe("created");
+      expect(created(providerCalls)).toHaveLength(1);
+    }),
+  );
+
+  it.effect("cancel reports false for an unknown action", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* makeManager();
+      expect(yield* manager.cancelStackedAction("no-such-action")).toBe(false);
     }),
   );
 });

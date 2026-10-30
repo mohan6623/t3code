@@ -66,6 +66,8 @@ export class GitWorkflowService extends Context.Service<
       input: GitRunStackedActionInput,
       options?: GitManager.GitRunStackedActionOptions,
     ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+    /** Fork: Cancel for a running stacked action; see GitManager.cancelStackedAction. */
+    readonly cancelStackedAction: (actionId: string) => Effect.Effect<boolean>;
     readonly resolvePullRequest: (
       input: GitPullRequestRefInput,
     ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
@@ -386,6 +388,8 @@ export const make = Effect.gen(function* () {
         ),
       );
     }),
+    // Fork: Cancel for a running stacked action.
+    cancelStackedAction: gitManager.cancelStackedAction,
     resolvePullRequest: routeGitManager(
       "GitWorkflowService.resolvePullRequest",
       gitManager.resolvePullRequest,

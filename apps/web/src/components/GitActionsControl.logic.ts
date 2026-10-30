@@ -40,6 +40,15 @@ export interface GitActionProgressPresentation {
   readonly status: string;
   readonly output: string | null;
   readonly startedAtMs: number | null;
+  /** Fork: a PR action shows Cancel while it runs (see isCancellableGitAction). */
+  readonly cancellable: boolean;
+  /** Fork: Cancel was clicked and the server has not stopped the action yet. */
+  readonly cancelling: boolean;
+}
+
+/** Fork: the stacked actions whose run offers Cancel: the ones that make a PR. */
+export function isCancellableGitAction(action: GitStackedAction | null | undefined): boolean {
+  return action === "create_pr" || action === "commit_push_pr";
 }
 
 export interface GitActionResultToastTiming {
@@ -65,6 +74,9 @@ export function resolveGitActionProgressPresentation(input: {
   readonly lastOutputLine: string | null;
   readonly phaseStartedAtMs: number | null;
   readonly hookStartedAtMs: number | null;
+  readonly action?: GitStackedAction | null;
+  /** Fork: Cancel was clicked; the row says so until the server stops the action. */
+  readonly cancelling?: boolean;
 }): GitActionProgressPresentation | null {
   if (
     !input.isRunning ||
@@ -76,14 +88,19 @@ export function resolveGitActionProgressPresentation(input: {
   const currentLabel = input.currentLabel?.trim();
   const output = input.lastOutputLine?.trim();
   const isPull = input.operation === "pull";
+  const cancellable = !isPull && isCancellableGitAction(input.action);
+  const cancelling = cancellable && input.cancelling === true;
   return {
-    status:
-      currentLabel && currentLabel !== "Running source control action"
+    status: cancelling
+      ? "Cancelling..."
+      : currentLabel && currentLabel !== "Running source control action"
         ? currentLabel
         : isPull
           ? "Pulling latest changes..."
           : "Starting source control action...",
-    output: !isPull && output ? output : null,
+    output: !isPull && !cancelling && output ? output : null,
+    cancellable,
+    cancelling,
     startedAtMs: isPull
       ? input.phaseStartedAtMs
       : (input.hookStartedAtMs ?? input.phaseStartedAtMs),

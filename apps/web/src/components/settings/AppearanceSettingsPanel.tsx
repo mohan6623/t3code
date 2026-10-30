@@ -5,6 +5,7 @@ import {
   DEFAULT_UNIFIED_SETTINGS,
   type ChatWidth,
   type EnvironmentIdentificationMode,
+  type FileExplorerSide,
   MAX_APPEARANCE_CONTRAST,
   MAX_GLASS_OPACITY,
   MAX_PANEL_ANIMATION_DURATION_MS,
@@ -75,6 +76,12 @@ const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
   comfortable: "Comfortable",
   wide: "Wide",
   full: "Full",
+};
+
+// Fork: where the file explorer and opened files dock.
+const FILE_EXPLORER_SIDE_LABELS: Record<FileExplorerSide, string> = {
+  right: "Right",
+  left: "Left",
 };
 
 export function AppearanceSettingsPanel() {
@@ -269,6 +276,39 @@ export function AppearanceSettingsPanel() {
           }
         />
         <ThreadDetailsItemsRow />
+        <SettingsRow
+          {...searchableSetting("file-explorer-side")}
+          description="Choose which side of the chat shows the file explorer and the files you open. The other panels stay on the right."
+          resetAction={
+            settings.fileExplorerSide !== DEFAULT_UNIFIED_SETTINGS.fileExplorerSide ? (
+              <SettingResetButton
+                label="file explorer side"
+                onClick={() =>
+                  updateSettings({ fileExplorerSide: DEFAULT_UNIFIED_SETTINGS.fileExplorerSide })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="w-full sm:w-40">
+              <Select
+                value={settings.fileExplorerSide}
+                onValueChange={(value) => {
+                  if (value === "right" || value === "left")
+                    updateSettings({ fileExplorerSide: value });
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full min-w-0" aria-label="File explorer side">
+                  <SelectValue>{FILE_EXPLORER_SIDE_LABELS[settings.fileExplorerSide]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="right">Right (default)</SelectItem>
+                  <SelectItem value="left">Left</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+          }
+        />
         <SettingsRow
           {...searchableSetting("math-rendering")}
           description="Typeset LaTeX math, such as $x^2$ or \[x^2\], in messages and Markdown previews. The composer keeps TeX source editable."

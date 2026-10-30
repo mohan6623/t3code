@@ -22,6 +22,8 @@ interface PreviewPanelShellProps {
   /** Use a distinct key per surface to keep remembered widths independent. */
   widthStorageKey?: string;
   defaultWidth?: number;
+  /** Fork: "left" docks the panel left of the chat (the files dock); the edge line, resize handle and slide flip. */
+  side?: "left" | "right";
   children: ReactNode;
 }
 
@@ -36,6 +38,7 @@ export function PreviewPanelShell(props: PreviewPanelShellProps) {
 function ResizablePreviewPanelShell(props: PreviewPanelShellProps) {
   const inlineSize = usePreviewPanelInlineSize({
     enabled: props.mode === "inline" && !props.maximized,
+    side: props.side,
     widthStorageKey: props.widthStorageKey,
     defaultWidth: props.defaultWidth,
   });
@@ -45,7 +48,11 @@ function ResizablePreviewPanelShell(props: PreviewPanelShellProps) {
 function PreviewPanelShellFrame(
   props: PreviewPanelShellProps & { inlineSize: PreviewPanelInlineSize },
 ) {
-  const panelArea = workspaceAreaProps("panel", 4, props.workspaceLabel ?? "Workspace panel");
+  const left = props.side === "left";
+  // Fork: the files dock is its own F6 stop, between the threads sidebar and the conversation.
+  const panelArea = left
+    ? workspaceAreaProps("files-dock", 0.5, props.workspaceLabel ?? "Files")
+    : workspaceAreaProps("panel", 4, props.workspaceLabel ?? "Workspace panel");
   const isInline = props.mode === "inline";
   const collapsible = isInline && props.open !== undefined;
   const open = props.open ?? true;
@@ -53,6 +60,7 @@ function PreviewPanelShellFrame(
   const hostRef = useRef<HTMLDivElement | null>(null);
   const returnedFocus = useRef(false);
   const { width, handlers, observeRow } = props.inlineSize;
+  const toggleSelector = left ? "[data-files-dock-toggle]" : "[data-right-panel-toggle]";
   // Fork: an open or close changes the chat's width once, at the start, and
   // only the panel slides (a transform, no layout per frame). Animating the
   // width made the chat text wrap again on every frame, and the list measured
@@ -76,11 +84,11 @@ function PreviewPanelShellFrame(
       // Unmount moves the toggle; restore focus at its committed location if removal sent focus to body.
       queueMicrotask(() => {
         if (host.ownerDocument.activeElement === host.ownerDocument.body) {
-          host.ownerDocument.querySelector<HTMLButtonElement>("[data-right-panel-toggle]")?.focus();
+          host.ownerDocument.querySelector<HTMLButtonElement>(toggleSelector)?.focus();
         }
       });
     };
-  }, [collapsible, hostRef]);
+  }, [collapsible, hostRef, toggleSelector]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves focus to the toggle and sets inert on the host DOM node before a collapse paints
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -89,14 +97,12 @@ function PreviewPanelShellFrame(
     if (!collapsed) returnedFocus.current = false;
     // Move focus before making its current owner inert, while the toggle is reachable.
     if (collapsed && host.contains(host.ownerDocument.activeElement)) {
-      const toggle = host.ownerDocument.querySelector<HTMLButtonElement>(
-        "[data-right-panel-toggle]",
-      );
+      const toggle = host.ownerDocument.querySelector<HTMLButtonElement>(toggleSelector);
       toggle?.focus();
       returnedFocus.current = toggle !== null && host.ownerDocument.activeElement === toggle;
     }
     host.toggleAttribute("inert", collapsed);
-  }, [collapsible, open, hostRef]);
+  }, [collapsible, open, hostRef, toggleSelector]);
   return (
     <div
       ref={attachHost}
@@ -112,13 +118,18 @@ function PreviewPanelShellFrame(
             : slides
               ? // Fork: the edge line slides with the panel.
                 "shrink-0"
-              : "shrink-0 border-l border-border"
+              : left
+                ? "shrink-0 border-r border-border"
+                : "shrink-0 border-l border-border"
           : "w-full",
         // Closed, the panel takes no room: it sits over the chat's right edge,
         // slid out, and hides once the slide ends.
         closed &&
           (slides
-            ? "pointer-events-none invisible absolute inset-y-0 right-0 z-50 bg-transparent [[data-panel-animations=true]_&]:transition-[visibility] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration)"
+            ? cn(
+                "pointer-events-none invisible absolute inset-y-0 z-50 bg-transparent [[data-panel-animations=true]_&]:transition-[visibility] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration)",
+                left ? "left-0" : "right-0",
+              )
             : "pointer-events-none"),
       )}
       style={
@@ -136,14 +147,27 @@ function PreviewPanelShellFrame(
       data-preview-panel-mode={props.mode}
       data-preview-panel-maximized={maximized ? "true" : "false"}
     >
-      {isInline && !maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
+      {isInline && !maximized ? (
+        <RightPanelResizeHandle
+          handlers={handlers}
+          {...(left ? { className: "left-auto -right-1" } : {})}
+        />
+      ) : null}
       <div className={cn("h-full min-h-0 w-full", collapsible && "overflow-clip")}>
         <div
           className={cn(
             "flex h-full min-h-0 min-w-0 flex-col",
             slides &&
-              "border-l border-border bg-background [[data-panel-animations=true]_&]:transition-transform [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
-            slides && (closed ? "translate-x-full" : "starting:translate-x-full"),
+              "border-border bg-background [[data-panel-animations=true]_&]:transition-transform [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
+            slides && (left ? "border-r" : "border-l"),
+            slides &&
+              (left
+                ? closed
+                  ? "-translate-x-full"
+                  : "starting:-translate-x-full"
+                : closed
+                  ? "translate-x-full"
+                  : "starting:translate-x-full"),
           )}
           style={slides ? { width: `var(${RESIZABLE_WIDTH_PROPERTY})` } : undefined}
         >

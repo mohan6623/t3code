@@ -86,6 +86,41 @@ export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
 
 const isPullRequestsPanelKey = (threadKey: string) => threadKey.endsWith(":pull-requests-panel");
 
+// Fork: with the file explorer on the left, a thread's explorer and opened files live under a
+// companion key, so the left dock reuses every panel action (tabs, close, reorder, persist).
+export type FileSurfaceSide = "right" | "left";
+const FILES_DOCK_SUFFIX = "#files-dock";
+const isFilesDockKey = (threadKey: string) => threadKey.endsWith(FILES_DOCK_SUFFIX);
+
+function isFilesDockRef(ref: ScopedThreadRef): boolean {
+  return ref.threadId.endsWith(FILES_DOCK_SUFFIX);
+}
+
+/** The left dock's ref for a thread. */
+export function filesDockRef(ref: ScopedThreadRef): ScopedThreadRef {
+  return isFilesDockRef(ref)
+    ? ref
+    : scopeThreadRef(ref.environmentId, ThreadId.make(`${ref.threadId}${FILES_DOCK_SUFFIX}`));
+}
+
+/** The thread a dock ref belongs to; other refs pass through. */
+export function filesDockOwnerRef(ref: ScopedThreadRef): ScopedThreadRef {
+  return isFilesDockRef(ref)
+    ? scopeThreadRef(
+        ref.environmentId,
+        ThreadId.make(ref.threadId.slice(0, -FILES_DOCK_SUFFIX.length)),
+      )
+    : ref;
+}
+
+/** Where the explorer and opened files of a thread go for the chosen side. */
+function fileSurfaceRef(ref: ScopedThreadRef, side: FileSurfaceSide): ScopedThreadRef {
+  return side === "left" ? filesDockRef(ref) : filesDockOwnerRef(ref);
+}
+
+const isFileSurface = (surface: RightPanelSurface) =>
+  surface.kind === "file" || surface.kind === "files";
+
 export interface ThreadRightPanelState {
   isOpen: boolean;
   activeSurfaceId: string | null;
@@ -102,6 +137,10 @@ export interface ThreadPanelVisibility {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  /** Fork: mirrors the fileExplorerSide client setting; not persisted. */
+  fileSurfaceSide: FileSurfaceSide;
+  /** Fork: moves every thread's explorer and file tabs to the new side. */
+  setFileSurfaceSide: (side: FileSurfaceSide) => void;
   pendingMaximizeThreadKey: string | null;
   requestMaximize: (ref: ScopedThreadRef) => void;
   consumeMaximizeRequest: (ref: ScopedThreadRef) => boolean;
@@ -430,6 +469,62 @@ function normalizeRevealLine(line: number | undefined): number | null {
   return Math.max(1, Math.trunc(line));
 }
 
+/** Fork: file opens follow the chosen side; every other kind stays in the thread's right panel. */
+function panelKeyFor(
+  state: Pick<RightPanelStoreState, "fileSurfaceSide">,
+  ref: ScopedThreadRef,
+  kind: RightPanelKind,
+): string {
+  const threadKey = scopedThreadKey(ref);
+  // The pull requests page has no left dock; its files stay in its own panel.
+  if ((kind !== "file" && kind !== "files") || isPullRequestsPanelKey(threadKey)) return threadKey;
+  return scopedThreadKey(fileSurfaceRef(ref, state.fileSurfaceSide));
+}
+
+/**
+ * Fork: moves explorer and file tabs between each thread's right panel and its left dock.
+ * A file that was showing keeps showing on the new side.
+ */
+export function moveFileSurfacesToSide(
+  byThreadKey: Record<string, ThreadRightPanelState>,
+  side: FileSurfaceSide,
+): Record<string, ThreadRightPanelState> {
+  let next = byThreadKey;
+  for (const [sourceKey, source] of Object.entries(byThreadKey)) {
+    const fromDock = isFilesDockKey(sourceKey);
+    if (side === "left" ? fromDock || isPullRequestsPanelKey(sourceKey) : !fromDock) continue;
+    const moving = source.surfaces.filter(isFileSurface);
+    if (moving.length === 0) continue;
+    const targetKey =
+      side === "left"
+        ? `${sourceKey}${FILES_DOCK_SUFFIX}`
+        : sourceKey.slice(0, -FILES_DOCK_SUFFIX.length);
+    const activeMoved = moving.some((surface) => surface.id === source.activeSurfaceId);
+    next = updateThreadStateMap(next, sourceKey, (current) => {
+      const surfaces = current.surfaces.filter((surface) => !isFileSurface(surface));
+      return {
+        ...current,
+        isOpen: surfaces.length > 0 && current.isOpen,
+        surfaces,
+        activeSurfaceId: activeMoved ? (surfaces.at(-1)?.id ?? null) : current.activeSurfaceId,
+      };
+    });
+    next = updateThreadStateMap(next, targetKey, (current) => {
+      const known = new Set(current.surfaces.map((surface) => surface.id));
+      const surfaces = [...current.surfaces, ...moving.filter((surface) => !known.has(surface.id))];
+      return {
+        ...current,
+        isOpen: current.isOpen || (source.isOpen && activeMoved),
+        surfaces,
+        activeSurfaceId: activeMoved
+          ? source.activeSurfaceId
+          : (current.activeSurfaceId ?? moving.at(-1)?.id ?? null),
+      };
+    });
+  }
+  return next;
+}
+
 export function migratePersistedRightPanelState(persistedState: unknown): {
   byThreadKey: Record<string, ThreadRightPanelState>;
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
@@ -586,6 +681,16 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      fileSurfaceSide: "right",
+      setFileSurfaceSide: (side) =>
+        set((state) =>
+          state.fileSurfaceSide === side
+            ? state
+            : {
+                fileSurfaceSide: side,
+                byThreadKey: moveFileSurfacesToSide(state.byThreadKey, side),
+              },
+        ),
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
       consumeMaximizeRequest: (ref) => {
@@ -640,7 +745,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       },
       open: (ref, kind) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
+          userAction(state, panelKeyFor(state, ref, kind), (current) => {
             if (kind === "preview") {
               const existing = current.surfaces.find((surface) => surface.kind === "preview");
               return upsertSurface(current, existing ?? browserSurface(null));
@@ -728,7 +833,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         }),
       openFile: (ref, requestedPath, line) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
+          userAction(state, panelKeyFor(state, ref, "file"), (current) => {
             if (requestedPath === ".") {
               return upsertSurface(current, singletonSurface("files"));
             }
@@ -763,7 +868,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       navigateFolder: (ref, surfaceId, relativePath, folderTrail, keepSource = false) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
+          userAction(state, panelKeyFor(state, ref, "file"), (current) => {
             const index = current.surfaces.findIndex((surface) => surface.id === surfaceId);
             if (index < 0) return current;
             const trail = folderTrail === relativePath ? {} : { folderTrail };
@@ -789,7 +894,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       openAttachment: (ref, attachment) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
+          userAction(state, panelKeyFor(state, ref, "file"), (current) => {
             const withoutStandaloneExplorer = current.surfaces.filter(
               (surface) => surface.kind !== "files",
             );
@@ -1039,7 +1144,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       toggle: (ref, kind) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
+          userAction(state, panelKeyFor(state, ref, kind), (current) => {
             const active = current.surfaces.find(
               (surface) => surface.id === current.activeSurfaceId,
             );
@@ -1078,6 +1183,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
+          // Fork: the thread's left files dock goes with it.
+          const dockKey = scopedThreadKey(filesDockRef(ref));
+          if (dockKey in state.byThreadKey && !isFilesDockRef(ref)) {
+            const { [dockKey]: _dock, ...withoutDock } = state.byThreadKey;
+            state = { ...state, byThreadKey: withoutDock };
+          }
           if (
             !(threadKey in state.byThreadKey) &&
             !(threadKey in state.threadPanelVisibilityByThreadKey) &&
@@ -1129,8 +1240,10 @@ useRightPanelStore.subscribe((next, previous) => {
   if (next.closeRevisionByThreadKey === previous.closeRevisionByThreadKey) return;
   for (const [threadKey, revision] of Object.entries(next.closeRevisionByThreadKey)) {
     if (revision === previous.closeRevisionByThreadKey[threadKey]) continue;
-    const threadRef = parseScopedThreadKey(threadKey);
-    if (!threadRef) continue;
+    const parsedRef = parseScopedThreadKey(threadKey);
+    if (!parsedRef) continue;
+    // Fork: a tab closed in the left files dock reopens through its thread.
+    const threadRef = filesDockOwnerRef(parsedRef);
     const before = previous.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
     const after = next.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
     const removed = before.surfaces.filter(

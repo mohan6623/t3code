@@ -334,6 +334,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    // Fork: docks the file explorer and opened files left of the chat.
+    id: "file-explorer-side",
+    title: "File explorer side",
+    to: "/settings/appearance",
+    searchTerms: ["files tree left right panel dock position layout opened files editor"],
+  },
+  {
     id: "math-rendering",
     title: "Render math",
     to: "/settings/appearance",

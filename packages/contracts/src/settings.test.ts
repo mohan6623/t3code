@@ -248,6 +248,18 @@ describe("ClientSettings notifications", () => {
   });
 });
 
+// Fork: the file explorer side preference.
+describe("ClientSettings file explorer side", () => {
+  it("keeps the explorer on the right unless the user chose left", () => {
+    expect(decodeClientSettings({}).fileExplorerSide).toBe("right");
+    expect(decodeClientSettings({ fileExplorerSide: "left" }).fileExplorerSide).toBe("left");
+    expect(decodeClientSettingsPatch({ fileExplorerSide: "left" })).toEqual({
+      fileExplorerSide: "left",
+    });
+    expect(() => decodeClientSettingsPatch({ fileExplorerSide: "top" })).toThrow();
+  });
+});
+
 describe("ClientSettings quit confirmation", () => {
   it.each([
     [true, "hold"],

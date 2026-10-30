@@ -96,6 +96,11 @@ import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
+  /**
+   * Fork: "left" is the files dock left of the chat. It holds only the explorer and opened
+   * files, keeps no room for the window's top-right buttons, and has no new-tab menu shortcut.
+   */
+  side?: "left" | "right";
   maximized?: boolean;
   open?: boolean;
   keybindings: ResolvedKeybindingsConfig;
@@ -297,6 +302,29 @@ function SurfaceMenuItem(props: {
   );
   if (props.available || !props.disabledReason) return item;
   return <DisabledReasonTooltip reason={props.disabledReason} trigger={item} />;
+}
+
+/** Fork: the files dock's only new tab is the explorer, so it gets a button instead of a menu. */
+function OpenFileExplorerButton(props: { available: boolean; onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label="Open file explorer"
+            className="shrink-0 [-webkit-app-region:no-drag]"
+            size="icon-xs"
+            variant="ghost-muted"
+            disabled={!props.available}
+            onClick={props.onClick}
+          />
+        }
+      >
+        <Plus className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">Open file explorer</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 function RightPanelEmptyState(props: {
@@ -974,6 +1002,7 @@ function TabScrollEdgeButton(props: { side: "left" | "right"; onClick: () => voi
 export function RightPanelTabs(props: RightPanelTabsProps) {
   const focusedSurface = props.surfaces.find((surface) => surface.id === props.activeSurfaceId);
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
+  const filesDock = props.side === "left";
   const browserProfiles = useBrowserDefaults().profiles;
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
@@ -1010,10 +1039,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes a document keydown listener for the new surface shortcut while the panel is open
   useEffect(() => {
-    if (props.open === false) return;
+    if (props.open === false || filesDock) return;
     document.addEventListener("keydown", onNewSurfaceKeyDown, true);
     return () => document.removeEventListener("keydown", onNewSurfaceKeyDown, true);
-  }, [props.open]);
+  }, [props.open, filesDock]);
 
   const updateTabScrollState = (viewport: HTMLDivElement) => {
     const hasOverflow = viewport.scrollWidth - viewport.clientWidth > TAB_SCROLL_EDGE_TOLERANCE;
@@ -1222,7 +1251,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [props.activeSurfaceId, tabScrollState.hasOverflow]);
 
-  const foldsLayoutControls = props.mode === "inline" && !props.layoutControls;
+  const foldsLayoutControls = props.mode === "inline" && !props.layoutControls && !filesDock;
   const keepsButtonsWhenMaximized = props.maximized === true;
   const onCompactChange = useStableCallback((compact: boolean) => props.onCompactChange?.(compact));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the tab bar's DOM size to fold its buttons, reporting the fold to the chat header until unmount
@@ -1310,6 +1339,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       {...(props.widthStorageKey !== undefined ? { widthStorageKey: props.widthStorageKey } : {})}
       {...(props.defaultWidth !== undefined ? { defaultWidth: props.defaultWidth } : {})}
       {...(props.inlineSize ? { inlineSize: props.inlineSize } : {})}
+      {...(filesDock ? { side: "left" as const, workspaceLabel: "Files" } : {})}
     >
       <div
         ref={tabBarRef}
@@ -1317,10 +1347,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 pl-2",
           // Room for the panel buttons that float over this bar. In a narrow bar
           // they move to the chat header (fork), so the tabs get the room.
-          props.mode === "inline" && !props.layoutControls && !compactInline ? "pr-28" : "pr-3",
+          props.mode === "inline" && !props.layoutControls && !compactInline && !filesDock
+            ? "pr-28"
+            : "pr-3",
           ownsDesktopTitleBar && "drag-region",
-          ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
-          props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+          ownsDesktopTitleBar && !filesDock && "wco:pr-(--workspace-native-controls-inset)",
+          props.mode === "inline" &&
+            (props.maximized || filesDock) &&
+            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
         data-right-panel-tabbar
         data-compact={compactInline ? "true" : undefined}
@@ -1378,7 +1412,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   );
                 })}
               </SortableTabList>
-              {props.open !== false ? (
+              {props.open !== false && filesDock ? (
+                <OpenFileExplorerButton
+                  available={props.filesAvailable}
+                  onClick={props.onAddFiles}
+                />
+              ) : props.open !== false ? (
                 <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
                   <MenuTrigger
                     ref={addSurfaceTriggerRef}
@@ -1462,10 +1501,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           ) : null}
         </div>
         {props.layoutControls}
-        {ownsDesktopTitleBar && !props.layoutControls && !compactInline ? (
+        {ownsDesktopTitleBar && !props.layoutControls && !compactInline && !filesDock ? (
           <span aria-hidden className="hidden w-24 shrink-0 wco:block" />
         ) : null}
-        {ownsDesktopTitleBar && !compactInline ? (
+        {ownsDesktopTitleBar && !compactInline && !filesDock ? (
           <span
             aria-hidden
             className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
@@ -1473,7 +1512,19 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         ) : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
-        {props.activeSurfaceId === null ? (
+        {props.activeSurfaceId === null && filesDock ? (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!props.filesAvailable}
+              onClick={props.onAddFiles}
+            >
+              <Files className="size-4" />
+              Open file explorer
+            </Button>
+          </div>
+        ) : props.activeSurfaceId === null ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}
             onAddBrowserInProfile={props.onAddBrowserInProfile}

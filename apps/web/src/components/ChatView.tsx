@@ -157,6 +157,7 @@ import {
   selectActiveRightPanelSurface,
   selectThreadPanelOpen,
   selectThreadRightPanelState,
+  filesDockRef,
   useRightPanelStore,
 } from "../rightPanelStore";
 import { isPreviewSupportedInRuntime, useThreadPreviewState } from "../previewStateStore";
@@ -359,6 +360,7 @@ import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
+import { ChatFilesDock, FilesDockToggle } from "./chat/ChatFilesDock";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
 import { ThreadNow } from "./chat/ThreadNow";
@@ -1120,6 +1122,22 @@ export default function ChatView(props: ChatViewProps) {
   const canMaximizeRightPanel = rightPanelOpen;
   const rightPanelMaximized = canMaximizeRightPanel && rightPanelState.maximized === true;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUsePlanSidebarSheet;
+  // Fork: the explorer and opened files dock left of the chat when the setting says so.
+  const filesDockActive =
+    useRightPanelStore((state) => state.fileSurfaceSide) === "left" && activeThreadRef !== null;
+  // A workspace file showing in the dock owns the "open in editor" shortcut.
+  const filesDockShowsWorkspaceFile = useRightPanelStore((state) => {
+    if (!filesDockActive || activeThreadRef === null) return false;
+    const surface = selectActiveRightPanelSurface(state.byThreadKey, filesDockRef(activeThreadRef));
+    return surface?.kind === "file" && surface.attachment === undefined;
+  });
+  const filesDockInlineOpen = useRightPanelStore(
+    (state) =>
+      filesDockActive &&
+      activeThreadRef !== null &&
+      !shouldUsePlanSidebarSheet &&
+      selectThreadRightPanelState(state.byThreadKey, filesDockRef(activeThreadRef)).isOpen,
+  );
   const [threadPanelPopoverHandle] = useState(PopoverCreateHandle);
   const [chatCanvasStore] = useState(createChatCanvasStore);
 
@@ -1194,6 +1212,10 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activeThreadRef || !activeEnvironmentBootstrapComplete) return;
     useRightPanelStore.getState().reconcileFileSurfaces(activeThreadRef, activeProject !== null);
+    // Fork: and from the left files dock.
+    useRightPanelStore
+      .getState()
+      .reconcileFileSurfaces(filesDockRef(activeThreadRef), activeProject !== null);
   }, [activeEnvironmentBootstrapComplete, activeProject, activeThreadRef]);
 
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
@@ -3215,54 +3237,58 @@ export default function ChatView(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
+  // Fork: shared with the left files dock, which renders the same file surfaces.
+  const surfaceContentProps = {
+    environmentId: activeThread.environmentId,
+    composerDraftTarget,
+    keybindings,
+    configuredPreviewUrls,
+    workspaceMutationId,
+    getShortcutContext: getShortcutContextStable,
+    onSendAnnotation: sendPreviewAnnotationStable,
+    onCloseSurface: closeRightPanelSurface,
+    terminal: {
+      launchContext: activeTerminalLaunchContext ?? null,
+      keybindings,
+      onAddTerminalContext: addTerminalContextToDraftStable,
+      onSplitTerminal: splitPanelTerminalStable,
+      onSplitTerminalVertical: splitPanelTerminalVerticalStable,
+      onNewTerminal: addTerminalSurfaceStable,
+      onActiveTerminalChange: activatePanelTerminalStable,
+      onCloseTerminal: closePanelTerminalStable,
+      splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
+      splitVerticalShortcutLabel: splitTerminalVerticalShortcutLabel ?? undefined,
+      newShortcutLabel: newTerminalShortcutLabel ?? undefined,
+      closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
+    },
+    pullRequest: {
+      capabilityKnown: pullRequestsCapabilityKnown,
+      supported: supportsPullRequests,
+      projectId: activeThread.projectId,
+      pullRequests: visiblePullRequests,
+      linkedPullRequest: linkedThreadPullRequest,
+      branchPullRequest: activeThreadShell?.branchPullRequest ?? activeThread.branchPullRequest,
+      onBack:
+        pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
+          ? addPullRequestsSurfaceStable
+          : undefined,
+    },
+    files: {
+      projectName: activeProject?.title ?? null,
+      workspaceRoot: activeWorkspaceRoot,
+      availableEditors,
+      pendingSurfaceIds: pendingFileSurfaceIds,
+      onOpenFile: openFileSurfaceStable,
+      onPendingChange: handleFilePendingChangeStable,
+    },
+  };
   const rightPanelContent = activeThreadRef ? (
     <RightPanelSurfaceContent
+      {...surfaceContentProps}
       surface={renderedRightPanelSurface}
       activeSurfaceId={activeRightPanelSurface?.id ?? null}
       threadRef={activeThreadRef}
-      environmentId={activeThread.environmentId}
       visible={rightPanelOpen}
-      composerDraftTarget={composerDraftTarget}
-      keybindings={keybindings}
-      configuredPreviewUrls={configuredPreviewUrls}
-      workspaceMutationId={workspaceMutationId}
-      getShortcutContext={getShortcutContextStable}
-      onSendAnnotation={sendPreviewAnnotationStable}
-      onCloseSurface={closeRightPanelSurface}
-      terminal={{
-        launchContext: activeTerminalLaunchContext ?? null,
-        keybindings,
-        onAddTerminalContext: addTerminalContextToDraftStable,
-        onSplitTerminal: splitPanelTerminalStable,
-        onSplitTerminalVertical: splitPanelTerminalVerticalStable,
-        onNewTerminal: addTerminalSurfaceStable,
-        onActiveTerminalChange: activatePanelTerminalStable,
-        onCloseTerminal: closePanelTerminalStable,
-        splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
-        splitVerticalShortcutLabel: splitTerminalVerticalShortcutLabel ?? undefined,
-        newShortcutLabel: newTerminalShortcutLabel ?? undefined,
-        closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
-      }}
-      pullRequest={{
-        capabilityKnown: pullRequestsCapabilityKnown,
-        supported: supportsPullRequests,
-        projectId: activeThread.projectId,
-        pullRequests: visiblePullRequests,
-        linkedPullRequest: linkedThreadPullRequest,
-        branchPullRequest: activeThreadShell?.branchPullRequest ?? activeThread.branchPullRequest,
-        onBack:
-          pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
-            ? addPullRequestsSurfaceStable
-            : undefined,
-      }}
-      files={{
-        projectName: activeProject?.title ?? null,
-        workspaceRoot: activeWorkspaceRoot,
-        availableEditors,
-        pendingSurfaceIds: pendingFileSurfaceIds,
-        onOpenFile: openFileSurfaceStable,
-        onPendingChange: handleFilePendingChangeStable,
-      }}
     />
   ) : null;
   const panelToggleControlProps = {
@@ -3331,6 +3357,28 @@ export default function ChatView(props: ChatViewProps) {
         state={deviceState}
       />
       {rightPanelControlsAtRoot ? panelLayoutControls : null}
+      {filesDockActive && activeThreadRef && activeThreadKey ? (
+        <ChatFilesDock
+          threadRef={activeThreadRef}
+          threadKey={activeThreadKey}
+          sheet={shouldUsePlanSidebarSheet}
+          workspaceLayoutElement={workspaceLayoutElement}
+          keybindings={keybindings}
+          getShortcutContext={getShortcutContextStable}
+          pendingSurfaceIds={pendingFileSurfaceIds}
+          filesAvailable={activeProject !== null}
+          onCopyFilePath={copyRightPanelFilePathStable}
+          renderContent={(surface, visible) => (
+            <RightPanelSurfaceContent
+              {...surfaceContentProps}
+              surface={surface}
+              activeSurfaceId={surface?.id ?? null}
+              threadRef={activeThreadRef}
+              visible={visible}
+            />
+          )}
+        />
+      ) : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -3354,7 +3402,8 @@ export default function ChatView(props: ChatViewProps) {
                     "wco:pr-(--workspace-native-controls-inset)",
                 )
               : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            // Fork: an open files dock sits between the window edge and this header.
+            !filesDockInlineOpen && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
           {isElectron && rightPanelControlsAtRoot ? (
@@ -3365,6 +3414,9 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+          {filesDockActive && activeThreadRef ? (
+            <FilesDockToggle threadRef={activeThreadRef} filesAvailable={activeProject !== null} />
+          ) : null}
           <ChatHeader
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
@@ -3918,7 +3970,7 @@ export default function ChatView(props: ChatViewProps) {
                   rightPanelOpen &&
                   renderedRightPanelSurface?.kind === "file" &&
                   renderedRightPanelSurface.attachment === undefined
-                )
+                ) && !filesDockShowsWorkspaceFile
               }
               gitCwd={gitCwd}
               isGitRepo={isGitRepo}

@@ -24,6 +24,8 @@ export function usePreviewPanelInlineSize(
     readonly widthStorageKey?: string | undefined;
     readonly defaultWidth?: number | undefined;
     readonly container?: HTMLElement | null | undefined;
+    /** Fork: a panel docked left of the chat drags its right edge. */
+    readonly side?: "left" | "right" | undefined;
   } = {},
 ): PreviewPanelInlineSize {
   const enabled = options.enabled ?? true;
@@ -36,7 +38,7 @@ export function usePreviewPanelInlineSize(
     defaultWidth: options.defaultWidth ?? PREVIEW_PANEL_DEFAULT_WIDTH,
     minWidth: PREVIEW_PANEL_MIN_WIDTH,
     maxWidth,
-    edge: "left",
+    edge: options.side === "left" ? "right" : "left",
   });
   const observeRow = (host: HTMLElement) => {
     const row = container ?? (enabled ? host.parentElement : null) ?? null;

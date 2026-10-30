@@ -15,7 +15,9 @@ import {
 import { useDiffPanelStore } from "../../diffPanelStore";
 import { type ThreadPanelPresentation } from "../../rightPanelLayout";
 import {
+  filesDockRef,
   selectActiveRightPanel,
+  selectActiveRightPanelSurface,
   selectThreadPanelOpen,
   type RightPanelSurface,
   useRightPanelStore,
@@ -333,6 +335,18 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     },
     "threadPanel.toggle": () => toggleThreadPanel(),
     "rightPanel.close": ({ event }) => {
+      // Fork: inside the left files dock, the shortcut closes the dock's tab.
+      if (
+        activeThreadRef &&
+        document.activeElement?.closest('[data-workspace-area="files-dock"]')
+      ) {
+        const dockRef = filesDockRef(activeThreadRef);
+        const store = useRightPanelStore.getState();
+        const dockSurface = selectActiveRightPanelSurface(store.byThreadKey, dockRef);
+        if (!dockSurface) return false;
+        if (!event.repeat) store.closeSurface(dockRef, dockSurface.id);
+        return;
+      }
       if (!activeRightPanelSurface) return false;
       if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
     },

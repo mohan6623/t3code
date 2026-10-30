@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { useClosedViewStore } from "./closedViewStore";
 import { reopenClosedView } from "./reopenClosedView";
 import {
+  filesDockOwnerRef,
+  filesDockRef,
   migratePersistedRightPanelState,
+  moveFileSurfacesToSide,
   pullRequestSurface,
   pullRequestSurfaceId,
   selectActiveRightPanel,
@@ -22,6 +25,7 @@ beforeEach(() => {
   useClosedViewStore.setState({ entries: [] });
   useRightPanelStore.setState({
     byThreadKey: {},
+    fileSurfaceSide: "right",
     threadPanelVisibilityByThreadKey: {},
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
@@ -1219,5 +1223,136 @@ describe("rightPanelStore", () => {
     store.reconcileBrowserSurfaces(refA, ["tab-a", "tab-b"]);
     expect(surfaceIds()).toEqual(["browser:tab-a", "terminal:term-1", "diff", "browser:tab-b"]);
     expect(store.getUserActionRevision(refA)).toBe(revision);
+  });
+});
+
+// Fork: the "File explorer side" setting docks the explorer and opened files left of the chat.
+describe("files dock", () => {
+  const ids = (ref: typeof refA) =>
+    selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, ref).surfaces.map(
+      (surface) => surface.id,
+    );
+  const dockA = filesDockRef(refA);
+
+  it("derives a stable dock ref that maps back to its thread", () => {
+    expect(filesDockRef(dockA)).toEqual(dockA);
+    expect(filesDockOwnerRef(dockA)).toEqual(refA);
+    expect(filesDockOwnerRef(refA)).toEqual(refA);
+  });
+
+  it("keeps every file open in the right panel by default", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "src/app.ts");
+    store.open(refA, "files");
+    store.openAttachment(refA, {
+      type: "file",
+      id: "attachment-1",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 4,
+    } as never);
+    // An attachment replaces the standalone explorer, as before.
+    expect(ids(refA)).toEqual(["file:src/app.ts", "attachment:attachment-1"]);
+    expect(useRightPanelStore.getState().byThreadKey).not.toHaveProperty(
+      "env-1:thread-A#files-dock",
+    );
+  });
+
+  it("opens files, the explorer and folder moves in the dock on the left, other panels stay right", () => {
+    const store = useRightPanelStore.getState();
+    store.setFileSurfaceSide("left");
+    store.open(refA, "diff");
+    store.openFile(refA, "src/app.ts", 12);
+    store.open(refA, "files");
+    store.navigateFolder(refA, "files", "src", "src");
+    expect(ids(refA)).toEqual(["diff"]);
+    expect(ids(dockA)).toEqual(["file:src/app.ts", "file:src"]);
+    const dock = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, dockA);
+    expect(dock.isOpen).toBe(true);
+    expect(dock.activeSurfaceId).toBe("file:src");
+    store.toggle(refA, "files");
+    expect(ids(dockA)).toContain("files");
+  });
+
+  it("moves open file tabs to the chosen side and keeps a showing file showing", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.openFile(refA, "README.md");
+    store.openFile(refA, "src/app.ts");
+    store.openFile(refB, "docs/b.md");
+    store.activateSurface(refB, "file:docs/b.md");
+
+    store.setFileSurfaceSide("left");
+    let byThreadKey = useRightPanelStore.getState().byThreadKey;
+    expect(ids(refA)).toEqual(["diff"]);
+    expect(selectThreadRightPanelState(byThreadKey, refA)).toMatchObject({
+      isOpen: true,
+      activeSurfaceId: "diff",
+    });
+    expect(selectThreadRightPanelState(byThreadKey, dockA)).toMatchObject({
+      isOpen: true,
+      activeSurfaceId: "file:src/app.ts",
+    });
+    expect(ids(dockA)).toEqual(["file:README.md", "file:src/app.ts"]);
+    // Thread B had only a file: its right panel empties and closes.
+    expect(byThreadKey).not.toHaveProperty("env-1:thread-B");
+    expect(ids(filesDockRef(refB))).toEqual(["file:docs/b.md"]);
+
+    store.setFileSurfaceSide("right");
+    byThreadKey = useRightPanelStore.getState().byThreadKey;
+    expect(ids(refA)).toEqual(["diff", "file:README.md", "file:src/app.ts"]);
+    expect(selectThreadRightPanelState(byThreadKey, refA).activeSurfaceId).toBe("file:src/app.ts");
+    expect(Object.keys(byThreadKey).some((key) => key.endsWith("#files-dock"))).toBe(false);
+  });
+
+  it("leaves a hidden file tab closed when it moves", () => {
+    const moved = moveFileSurfacesToSide(
+      {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "diff",
+          surfaces: [
+            { id: "diff", kind: "diff" },
+            {
+              id: "file:a.ts",
+              kind: "file",
+              relativePath: "a.ts",
+              revealLine: null,
+              revealRequestId: 1,
+            },
+          ],
+        },
+      },
+      "left",
+    );
+    expect(moved["env-1:thread-A#files-dock"]).toMatchObject({
+      isOpen: false,
+      activeSurfaceId: "file:a.ts",
+    });
+    expect(moved["env-1:thread-A"]?.surfaces.map((surface) => surface.id)).toEqual(["diff"]);
+  });
+
+  it("reopens a tab closed in the dock through its thread", async () => {
+    const store = useRightPanelStore.getState();
+    store.setFileSurfaceSide("left");
+    store.openFile(refA, "src/app.ts");
+    store.closeSurface(dockA, "file:src/app.ts");
+    const entry = useClosedViewStore.getState().entries[0]!;
+    expect(entry.kind === "panel-tab" && entry.threadRef).toEqual(refA);
+    await reopenClosedView(entry, {
+      workspaceAvailable: true,
+      openPreview: () => {
+        throw new Error("A file tab must not create a browser session");
+      },
+    });
+    expect(ids(dockA)).toEqual(["file:src/app.ts"]);
+  });
+
+  it("drops the dock with its thread", () => {
+    const store = useRightPanelStore.getState();
+    store.setFileSurfaceSide("left");
+    store.openFile(refA, "src/app.ts");
+    store.removeThread(refA);
+    expect(useRightPanelStore.getState().byThreadKey).toEqual({});
   });
 });

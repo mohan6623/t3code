@@ -86,6 +86,12 @@ describe("searchSettings", () => {
     expect(searchSettings("xyzzy")).toEqual([]);
   });
 
+  // Fork: the file explorer side preference.
+  it("finds the file explorer side by its title and by its layout words", () => {
+    expect(searchSettings("file explorer")[0]?.id).toBe("file-explorer-side");
+    expect(searchSettings("files left")[0]?.id).toBe("file-explorer-side");
+  });
+
   it("matches query words across fields and ranks the strongest result first", () => {
     expect(searchSettings("pairing remote", ITEMS).map((item) => item.id)).toEqual([
       "network-access",

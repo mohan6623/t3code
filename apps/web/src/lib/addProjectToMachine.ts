@@ -20,8 +20,11 @@ import { environmentProjectClonesAtom, silenceProjectCloneToasts } from "../stat
 import { projectEnvironment } from "../state/projects";
 import { sourceControlEnvironment } from "../state/sourceControl";
 
-/** Matches the server's read cap: a larger file would arrive truncated. */
-export const COPYABLE_FILE_MAX_BYTES = 1024 * 1024;
+/**
+ * Fork: 5 MB, sent as the read's `maxBytes` (the server's ceiling for it). A larger file,
+ * or any file on a server without `maxBytes` (1 MB cap), arrives truncated and is skipped.
+ */
+export const COPYABLE_FILE_MAX_BYTES = 5 * 1024 * 1024;
 
 const DEFAULT_COPIED_FILE_NAME = /^(?:\.env(?:\..+)?|\.envrc|\.dev\.vars)$/;
 
@@ -123,7 +126,7 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
         appAtomRegistry,
         projectEnvironment.readFile({
           environmentId: input.source.environmentId,
-          input: { cwd: input.source.cwd, relativePath },
+          input: { cwd: input.source.cwd, relativePath, maxBytes: COPYABLE_FILE_MAX_BYTES },
         }),
         { label: "Read file to copy", reportFailure: false, refresh: true },
       );

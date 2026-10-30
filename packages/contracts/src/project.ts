@@ -445,6 +445,9 @@ export const ProjectReadFileInput = Schema.Struct({
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
   // Optional files can be absent without failing the read.
   allowMissing: Schema.optional(Schema.Boolean),
+  // Fork: a larger read cap for copying a file to another machine. The server clamps it to
+  // its own ceiling; older servers ignore it and keep their default cap.
+  maxBytes: Schema.optional(Schema.Number),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 

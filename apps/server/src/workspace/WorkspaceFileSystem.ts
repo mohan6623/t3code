@@ -27,6 +27,8 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+/** Fork: the most a caller may ask for with `maxBytes` (copying a file to another machine). */
+const PROJECT_READ_FILE_MAX_BYTES_CEILING = 5 * 1024 * 1024;
 
 // NTFS reaches .git through trailing dots/spaces, stream suffixes and GIT~1; compare uppercased names.
 const isGitMetadataName = (segment: string) => {
@@ -395,7 +397,11 @@ export const make = Effect.gen(function* () {
             });
           }
 
-          const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);
+          const readCap =
+            input.maxBytes !== undefined && Number.isFinite(input.maxBytes) && input.maxBytes > 0
+              ? Math.min(Math.floor(input.maxBytes), PROJECT_READ_FILE_MAX_BYTES_CEILING)
+              : PROJECT_READ_FILE_MAX_BYTES;
+          const bytesToRead = Math.min(stat.size, readCap);
           const buffer = Buffer.alloc(bytesToRead);
           const { bytesRead } = yield* Effect.tryPromise({
             try: () => handle.read(buffer, 0, bytesToRead, 0),
@@ -422,7 +428,7 @@ export const make = Effect.gen(function* () {
             relativePath: target.relativePath,
             contents: new TextDecoder("utf-8").decode(fileBytes),
             byteLength: stat.size,
-            truncated: stat.size > PROJECT_READ_FILE_MAX_BYTES,
+            truncated: stat.size > readCap,
           };
         }),
       (handle) =>

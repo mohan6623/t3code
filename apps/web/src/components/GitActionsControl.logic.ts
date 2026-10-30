@@ -47,7 +47,7 @@ export interface GitActionProgressPresentation {
 }
 
 /** Fork: the stacked actions whose run offers Cancel: the ones that make a PR. */
-export function isCancellableGitAction(action: GitStackedAction | null | undefined): boolean {
+function isCancellableGitAction(action: GitStackedAction | null | undefined): boolean {
   return action === "create_pr" || action === "commit_push_pr";
 }
 

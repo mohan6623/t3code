@@ -307,9 +307,26 @@ export const ProjectIgnoredFile = Schema.Struct({
 });
 export type ProjectIgnoredFile = typeof ProjectIgnoredFile.Type;
 
+// Fork: a git repository nested in the listed folder, with its own ignored files.
+export const ProjectNestedRepository = Schema.Struct({
+  /** Path from the listed folder, using `/` separators. */
+  relativePath: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  remoteUrl: Schema.NullOr(TrimmedNonEmptyString),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  branchPushed: Schema.Boolean,
+  unpushedCommits: NonNegativeInt,
+  /** Paths relative to the nested repository. */
+  files: Schema.Array(ProjectIgnoredFile),
+  truncated: Schema.Boolean,
+});
+export type ProjectNestedRepository = typeof ProjectNestedRepository.Type;
+
 export const ProjectListIgnoredFilesResult = Schema.Struct({
   files: Schema.Array(ProjectIgnoredFile),
   truncated: Schema.Boolean,
+  /** Fork: repositories nested in a repository root; older servers omit it. */
+  nestedRepositories: Schema.optionalKey(Schema.Array(ProjectNestedRepository)),
 });
 export type ProjectListIgnoredFilesResult = typeof ProjectListIgnoredFilesResult.Type;
 

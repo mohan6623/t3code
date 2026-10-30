@@ -71,6 +71,8 @@ export interface SourceControlCloneOptions {
   readonly onProgress?: (line: GitCloneProgressLine) => Effect.Effect<void>;
   /** Overrides the default clone budget; `null` disables the deadline. */
   readonly timeoutMs?: number | null;
+  /** Fork: checks out this branch instead of the remote's default (`git clone --branch`). */
+  readonly branch?: string | null;
 }
 
 // Older/mobile synchronous RPCs need deadlines; tracked clones use progress and Cancel instead.
@@ -352,7 +354,15 @@ export const make = Effect.gen(function* () {
       .execute({
         operation: "SourceControlRepositoryService.cloneRepository",
         cwd: path.dirname(destinationPath),
-        args: ["clone", "--progress", "--", normalizedCloneUrl, path.basename(destinationPath)],
+        args: [
+          "clone",
+          "--progress",
+          // Fork: nested repositories keep the branch they had on the source.
+          ...(options?.branch ? ["--branch", options.branch] : []),
+          "--",
+          normalizedCloneUrl,
+          path.basename(destinationPath),
+        ],
         timeoutMs: options?.timeoutMs === undefined ? CLONE_TIMEOUT_MS : options.timeoutMs,
         // Buffered output is unused and progress can be huge; cap it while retaining line callbacks.
         maxOutputBytes: 256 * 1024,

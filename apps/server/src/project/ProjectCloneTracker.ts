@@ -1,5 +1,7 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import type {
+  ProjectCloneNestedRepository,
+  ProjectCloneNestedRepositoryInput,
   ProjectCloneSnapshot,
   ProjectCloneStage,
   ProjectCloneStartInput,
@@ -30,6 +32,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
+import { cloneNestedRepository, pendingNestedRepositories } from "./NestedRepositories.ts";
 
 export class ProjectCloneTracker extends Context.Service<
   ProjectCloneTracker,
@@ -85,7 +88,16 @@ interface TrackedClone {
     readonly cloneUrl: string;
     readonly destinationPath: string;
     readonly repository: SourceControlRepositoryInfo | null;
+    /** Fork: cloned below the root once it lands; may carry credentials like `cloneUrl`. */
+    readonly nestedRepositories: ReadonlyArray<ProjectCloneNestedRepositoryInput>;
   };
+}
+
+// Fork: the snapshot key is omitted without nested repositories, so older clients see no change.
+function nestedSnapshot(requests: ReadonlyArray<ProjectCloneNestedRepositoryInput>): {
+  readonly nestedRepositories?: ReadonlyArray<ProjectCloneNestedRepository>;
+} {
+  return requests.length > 0 ? { nestedRepositories: pendingNestedRepositories(requests) } : {};
 }
 
 /** @public */
@@ -209,13 +221,33 @@ export const make = Effect.gen(function* () {
     if (phase === "done") yield* scheduleRemoval(projectId);
   });
 
+  // Fork: records one nested repository's state in the snapshot.
+  const setNested = (projectId: ProjectId, next: ProjectCloneNestedRepository) =>
+    modify(projectId, (tracked) => ({
+      ...tracked,
+      snapshot: {
+        ...tracked.snapshot,
+        nestedRepositories: (tracked.snapshot.nestedRepositories ?? []).map((repository) =>
+          repository.relativePath === next.relativePath
+            ? {
+                ...next,
+                detail:
+                  next.detail === null
+                    ? null
+                    : clampText(next.detail, PROJECT_CLONE_ERROR_MAX_LENGTH),
+              }
+            : repository,
+        ),
+      },
+    })).pipe(Effect.asVoid);
+
   const cloneWatchingForStall = Effect.fn("ProjectCloneTracker.cloneWatchingForStall")(function* (
     projectId: ProjectId,
     tracked: TrackedClone,
   ) {
     const pulses = yield* Queue.sliding<void>(1);
     yield* watchForStall(projectId, pulses).pipe(Effect.forkScoped);
-    return yield* repositories.cloneRepository(
+    const result = yield* repositories.cloneRepository(
       { remoteUrl: tracked.input.cloneUrl, destinationPath: tracked.input.destinationPath },
       {
         onProgress: (update) =>
@@ -223,6 +255,31 @@ export const make = Effect.gen(function* () {
         timeoutMs: null,
       },
     );
+    // Fork: nested repositories follow the root; one that fails never fails the whole clone.
+    for (const request of tracked.input.nestedRepositories) {
+      yield* setNested(projectId, {
+        relativePath: request.relativePath,
+        branch: request.branch,
+        status: "cloning",
+        detail: null,
+      });
+      const outcome = yield* cloneNestedRepository(repositories, result.cwd, request, {
+        onProgress: (update) =>
+          Queue.offer(pulses, undefined).pipe(
+            Effect.andThen(
+              progress(projectId, {
+                ...update,
+                detail: update.detail
+                  ? `${request.relativePath}: ${update.detail}`
+                  : request.relativePath,
+              }),
+            ),
+          ),
+        timeoutMs: null,
+      });
+      yield* setNested(projectId, outcome);
+    }
+    return result;
   }, Effect.scoped);
 
   /**
@@ -275,6 +332,7 @@ export const make = Effect.gen(function* () {
         detail: null,
         stalled: false,
         error: null,
+        ...nestedSnapshot(input.nestedRepositories ?? []),
         startedAt,
         endedAt: null,
         sequence: ++sequence,
@@ -295,6 +353,7 @@ export const make = Effect.gen(function* () {
             cloneUrl: prepared.cloneUrl,
             destinationPath: prepared.destinationPath,
             repository: prepared.repository,
+            nestedRepositories: input.nestedRepositories ?? [],
           },
         });
         return [true, next] as const;
@@ -374,6 +433,7 @@ export const make = Effect.gen(function* () {
           detail: null,
           stalled: false,
           error: null,
+          ...nestedSnapshot(entry.input.nestedRepositories),
           startedAt,
           endedAt: null,
         },

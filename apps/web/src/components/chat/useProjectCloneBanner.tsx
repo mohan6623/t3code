@@ -11,6 +11,7 @@ import { sourceControlEnvironment } from "../../state/sourceControl";
 import { useProjectClone } from "../../state/projectClones";
 import {
   projectCloneDisplayName,
+  projectCloneNestedSummary,
   projectCloneProgressSummary,
   type ScopedProjectRef,
 } from "@t3tools/contracts";
@@ -61,7 +62,7 @@ export function useProjectCloneBanner(activeProjectRef: ScopedProjectRef | null)
     if (activeProjectFileCopy?.phase === "failed" && activeProjectRef) {
       return {
         id: `project-file-copy:${activeProjectRef.projectId}`,
-        variant: "error",
+        variant: activeProjectFileCopy.warning ? "warning" : "error",
         icon: <DownloadIcon />,
         title: activeProjectFileCopy.title,
         description: activeProjectFileCopy.failures.join("\n"),
@@ -79,7 +80,13 @@ export function useProjectCloneBanner(activeProjectRef: ScopedProjectRef | null)
         variant: "info",
         icon: <DownloadIcon />,
         title: `Cloning ${name}`,
-        description: projectCloneProgressSummary(activeProjectClone),
+        // Fork: nested repositories show which of them have landed.
+        description: [
+          projectCloneProgressSummary(activeProjectClone),
+          projectCloneNestedSummary(activeProjectClone),
+        ]
+          .filter((line) => line !== null)
+          .join("\n"),
         actions: (
           <Button
             size="xs"

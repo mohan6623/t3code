@@ -19,8 +19,11 @@ import {
   OrchestratorMcpFailure,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
+  ProjectCloneNestedRepository,
+  ProjectCloneNestedRepositoryInput,
 } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
@@ -64,11 +67,23 @@ const ProjectListTool = Tool.make("t3_project_list", {
   .annotate(Tool.Destructive, false);
 const ProjectReadTool = Tool.make("t3_project_read", {
   ...shared,
-  description: "Read one project: workspace and saved scripts.",
+  // Fork: also lists nested repositories, which t3_project_clone takes to recreate them.
+  description:
+    "Read one project: workspace and saved scripts. `nestedRepositories`: git repos inside it that a clone must recreate; pass them to `t3_project_clone`.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: ProjectId,
   }),
+  success: Schema.Struct({
+    ...Project.fields,
+    nestedRepositories: Schema.optionalKey(Schema.Array(ProjectCloneNestedRepositoryInput)),
+  }),
+  dependencies: [
+    ...shared.dependencies,
+    GitVcsDriver.GitVcsDriver,
+    FileSystem.FileSystem,
+    Path.Path,
+  ],
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
@@ -105,12 +120,17 @@ const ProjectDeleteTool = Tool.make("t3_project_delete", {
 const ProjectCloneTool = Tool.make("t3_project_clone", {
   ...shared,
   description:
-    "Clone a repository (`destinationPath` new or empty). Register after with `t3_project_create`, with the same `environmentId`.",
+    "Clone a repository (`destinationPath` new or empty). Register after with `t3_project_create`, with the same `environmentId`. `nestedRepositories` (from `t3_project_read` on the source) are cloned below it at their branch; each reports cloned, skipped or failed without failing the clone.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     ...SourceControlCloneRepositoryInput.fields,
+    // Fork: child repositories the root repository does not track.
+    nestedRepositories: Schema.optionalKey(Schema.Array(ProjectCloneNestedRepositoryInput)),
   }),
-  success: SourceControlCloneRepositoryResult,
+  success: Schema.Struct({
+    ...SourceControlCloneRepositoryResult.fields,
+    nestedRepositories: Schema.optionalKey(Schema.Array(ProjectCloneNestedRepository)),
+  }),
   dependencies: [
     ...shared.dependencies,
     SourceControlRepositoryService.SourceControlRepositoryService,

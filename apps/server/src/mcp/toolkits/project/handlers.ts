@@ -15,6 +15,8 @@ import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageInt
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import * as NestedRepositories from "../../../project/NestedRepositories.ts";
+import * as WorkspaceRepositories from "../../../workspace/WorkspaceRepositories.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
@@ -281,7 +283,21 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           code: "invalid_request",
           message: "The project was not found.",
         });
-      return result.value;
+      // Fork: nested repositories a clone of this project has to recreate.
+      const nested = yield* NestedRepositories.describeNestedRepositories(
+        result.value.workspaceRoot,
+      ).pipe(
+        Effect.provide(WorkspaceRepositories.layer),
+        Effect.orElseSucceed(
+          (): ReadonlyArray<NestedRepositories.NestedRepositoryDescription> => [],
+        ),
+      );
+      return nested.length === 0
+        ? result.value
+        : {
+            ...result.value,
+            nestedRepositories: nested.map(NestedRepositories.nestedCloneRequest),
+          };
     }),
   ),
   t3_project_create: McpToolAccess.writesEnvironment(
@@ -352,7 +368,8 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
     (input) =>
       Effect.gen(function* () {
         const repositories = yield* Repositories.SourceControlRepositoryService;
-        return yield* repositories.cloneRepository(input).pipe(
+        const { nestedRepositories: nestedRequests = [], ...rootInput } = input;
+        const cloned = yield* repositories.cloneRepository(rootInput).pipe(
           Effect.mapError(
             (error) =>
               new OrchestratorMcpFailure({
@@ -361,6 +378,12 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
               }),
           ),
         );
+        if (nestedRequests.length === 0) return cloned;
+        // Fork: child repositories follow the root; each reports its own outcome.
+        const nestedRepositories = yield* Effect.forEach(nestedRequests, (request) =>
+          NestedRepositories.cloneNestedRepository(repositories, cloned.cwd, request),
+        );
+        return { ...cloned, nestedRepositories };
       }),
     // An existing destination is never adopted.
     { linkedCallers: "allowed" },

@@ -8,6 +8,7 @@ import {
 import {
   type EnvironmentId,
   type ProjectIgnoredFile,
+  type ProjectNestedRepository,
   type ScopedProjectRef,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
@@ -126,7 +127,21 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
         })
       : null,
   );
-  const files = ignoredFiles.data?.files ?? [];
+  // Fork: repositories nested in the project are cloned too; their ignored files list
+  // below the root's with the repository's path in front.
+  const nestedRepositories = ignoredFiles.data?.nestedRepositories ?? [];
+  const files = [
+    ...(ignoredFiles.data?.files ?? []),
+    ...nestedRepositories.flatMap((repository) =>
+      repository.files.map((file) => ({
+        ...file,
+        path: `${repository.relativePath}/${file.path}`,
+      })),
+    ),
+  ];
+  const filesTruncated =
+    ignoredFiles.data?.truncated === true ||
+    nestedRepositories.some((repository) => repository.truncated);
   const [selected, setSelected] = useState<ReadonlySet<string> | null>(null);
   const selectedFiles = selected ?? defaultSelection(files);
   const copyable = files.filter((file) => file.byteLength <= COPYABLE_FILE_MAX_BYTES);
@@ -196,6 +211,13 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
         remoteUrl,
         destinationPath: destinationPath.trim(),
         files: files.filter((file) => selectedFiles.has(file.path)).map((file) => file.path),
+        nestedRepositories: nestedRepositories.map((repository) => ({
+          relativePath: repository.relativePath,
+          remoteUrl: repository.remoteUrl,
+          branch: repository.branch,
+          branchPushed: repository.branchPushed,
+          unpushedCommits: repository.unpushedCommits,
+        })),
       });
       close();
       openClonedProject(scopeProjectRef(target.environmentId, projectId));
@@ -223,8 +245,11 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
           <DialogHeader>
             <DialogTitle>Add to another machine</DialogTitle>
             <DialogDescription>
-              Clone {project?.repositoryIdentity?.displayName ?? project?.title} and bring the local
-              files git does not track.
+              Clone {project?.repositoryIdentity?.displayName ?? project?.title}
+              {nestedRepositories.length > 0
+                ? ` with its ${nestedRepositories.length} nested ${nestedRepositories.length === 1 ? "repository" : "repositories"}`
+                : ""}{" "}
+              and bring the local files git does not track.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -242,7 +267,11 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                 </span>
               </div>
               <div className="flex w-28 flex-col items-center gap-0.5 text-muted-foreground text-xs">
-                <span>git clone</span>
+                <span>
+                  {nestedRepositories.length > 0
+                    ? `${nestedRepositories.length + 1} git clones`
+                    : "git clone"}
+                </span>
                 <span className="flex w-full items-center">
                   <span className="h-px flex-1 bg-border" />
                   <ArrowRightIcon className="-ms-1 size-3.5" aria-hidden />
@@ -322,6 +351,21 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
               />
             </div>
 
+            {nestedRepositories.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <Label>Nested repositories</Label>
+                <div className="max-h-40 overflow-y-auto rounded-md border">
+                  {nestedRepositories.map((repository) => (
+                    <NestedRepositoryRow key={repository.relativePath} repository={repository} />
+                  ))}
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Each is cloned at the same path and branch after the main repository. One that
+                  cannot be cloned is reported and the rest carry on.
+                </p>
+              </div>
+            ) : null}
+
             {canListFiles ? (
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
@@ -369,7 +413,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                     ))}
                   </div>
                 )}
-                {ignoredFiles.data?.truncated ? (
+                {filesTruncated ? (
                   <p className="text-muted-foreground text-xs">
                     Showing the first {files.length} files.
                   </p>
@@ -417,6 +461,44 @@ function defaultSelection(files: readonly ProjectIgnoredFile[]): ReadonlySet<str
         (file) => file.byteLength <= COPYABLE_FILE_MAX_BYTES && isDefaultCopiedFile(file.path),
       )
       .map((file) => file.path),
+  );
+}
+
+/** Fork: what a nested repository's clone will check out, or why it will not. */
+function nestedRepositoryNote(repository: ProjectNestedRepository): {
+  readonly text: string;
+  readonly warning: boolean;
+} {
+  if (repository.remoteUrl === null) return { text: "No remote, skipped", warning: true };
+  if (repository.branch === null) return { text: "Not on a branch, default branch", warning: true };
+  if (!repository.branchPushed) {
+    return { text: `${repository.branch} not pushed, default branch`, warning: true };
+  }
+  if (repository.unpushedCommits > 0) {
+    const count = repository.unpushedCommits;
+    return {
+      text: `${repository.branch}, ${count} unpushed ${count === 1 ? "commit" : "commits"} stay behind`,
+      warning: true,
+    };
+  }
+  return { text: repository.branch, warning: false };
+}
+
+function NestedRepositoryRow({ repository }: { repository: ProjectNestedRepository }) {
+  const note = nestedRepositoryNote(repository);
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1.5 text-sm not-last:border-b">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs">{repository.relativePath}</span>
+      <span
+        className={
+          note.warning
+            ? "min-w-0 shrink truncate text-warning-foreground text-xs"
+            : "min-w-0 shrink truncate text-muted-foreground text-xs"
+        }
+      >
+        {note.text}
+      </span>
+    </div>
   );
 }
 

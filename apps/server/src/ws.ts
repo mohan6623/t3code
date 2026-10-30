@@ -204,6 +204,7 @@ import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration-v2/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as WorkspaceRepositories from "./workspace/WorkspaceRepositories.ts";
+import { withNestedRepositoryFiles } from "./project/NestedRepositories.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
@@ -2779,6 +2780,12 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.projectsListIgnoredFiles]: (input) =>
           workspaceEntries.listIgnoredFiles(input).pipe(
+            // Fork: nested repositories ride along so a clone can recreate them and their files.
+            Effect.flatMap((root) =>
+              withNestedRepositoryFiles(input.cwd, root, (cwd) =>
+                workspaceEntries.listIgnoredFiles({ cwd }),
+              ),
+            ),
             Effect.mapError(
               (cause) =>
                 new ProjectListEntriesError({

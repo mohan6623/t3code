@@ -7,6 +7,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   projectCloneDisplayName,
+  projectCloneNestedSummary,
   projectCloneProgressSummary,
   type EnvironmentId,
   type ProjectCloneSnapshot,
@@ -45,7 +46,13 @@ interface TrackedToast {
 }
 
 function renderKey(clone: ProjectCloneSnapshot): string {
-  return `${clone.phase}:${clone.stage}:${clone.percent ?? ""}:${clone.detail ?? ""}:${clone.stalled === true}:${clone.error ?? ""}`;
+  return `${clone.phase}:${clone.stage}:${clone.percent ?? ""}:${clone.detail ?? ""}:${clone.stalled === true}:${clone.error ?? ""}:${projectCloneNestedSummary(clone) ?? ""}`;
+}
+
+// Fork: the nested repositories' states follow the clone's own line.
+function withNestedSummary(clone: ProjectCloneSnapshot, line: string): string {
+  const nested = projectCloneNestedSummary(clone);
+  return nested === null ? line : `${line}\n${nested}`;
 }
 
 async function runCloneAction(
@@ -121,7 +128,7 @@ function EnvironmentCloneToasts({ environmentId }: { environmentId: EnvironmentI
         const options = stackedThreadToast({
           type: "loading",
           title: `Cloning ${name}`,
-          description: projectCloneProgressSummary(clone),
+          description: withNestedSummary(clone, projectCloneProgressSummary(clone)),
           timeout: 0,
           actionProps: {
             children: "Cancel",
@@ -147,7 +154,7 @@ function EnvironmentCloneToasts({ environmentId }: { environmentId: EnvironmentI
         const options = stackedThreadToast({
           type: "success",
           title: `Cloned ${name}`,
-          description: clone.destinationPath,
+          description: withNestedSummary(clone, clone.destinationPath),
           timeout: 8_000,
           actionProps: {
             children: "Open project",

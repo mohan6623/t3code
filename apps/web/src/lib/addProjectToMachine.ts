@@ -4,11 +4,13 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { scopedProjectKey } from "@t3tools/client-runtime/environment";
-import type {
-  EnvironmentId,
-  ProjectCloneSnapshot,
-  ProjectId,
-  ScopedProjectRef,
+import {
+  projectCloneNestedProblems,
+  type EnvironmentId,
+  type ProjectCloneNestedRepositoryInput,
+  type ProjectCloneSnapshot,
+  type ProjectId,
+  type ScopedProjectRef,
 } from "@t3tools/contracts";
 import { create } from "zustand";
 
@@ -39,6 +41,11 @@ export interface AddProjectToMachineInput {
   readonly remoteUrl: string;
   readonly destinationPath: string;
   readonly files: ReadonlyArray<string>;
+  /**
+   * Fork: git repositories nested in the source project, with paths relative to it. The
+   * target clones each at the same place; files below one that did not land are skipped.
+   */
+  readonly nestedRepositories?: ReadonlyArray<ProjectCloneNestedRepositoryInput>;
 }
 
 function failureMessage(result: Parameters<typeof squashAtomCommandFailure>[0]): string {
@@ -73,7 +80,13 @@ function waitForClone(environmentId: EnvironmentId, projectId: ProjectId) {
 
 export type ProjectFileCopy =
   | { readonly phase: "copying" }
-  | { readonly phase: "failed"; readonly title: string; readonly failures: ReadonlyArray<string> };
+  | {
+      readonly phase: "failed";
+      readonly title: string;
+      readonly failures: ReadonlyArray<string>;
+      /** Fork: only nested repositories had problems; every chosen file landed. */
+      readonly warning?: boolean;
+    };
 
 /** Ignored-file copies still owed to a cloned project, keyed by its scoped project key. */
 const useFileCopies = create<{ copies: Readonly<Record<string, ProjectFileCopy>> }>(() => ({
@@ -120,11 +133,19 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
     }),
   );
 
+  const targetPath = (relativePath: string) =>
+    input.subdirectory ? `${input.subdirectory}/${relativePath}` : relativePath;
+  // Fork: the clone lands at the repository root, so nested paths gain the subdirectory too.
+  const nestedRepositories = (input.nestedRepositories ?? []).map((repository) => ({
+    ...repository,
+    relativePath: targetPath(repository.relativePath),
+  }));
+  const owesFollowUp = reads.length > 0 || nestedRepositories.length > 0;
   const targetRef = { environmentId: input.target.environmentId, projectId: input.projectId };
   const copyKey = scopedProjectKey(targetRef);
   // Marked before the start request, since the clone list can arrive before its reply.
   silenceProjectCloneToasts(targetRef);
-  if (reads.length > 0) setFileCopy(copyKey, { phase: "copying" });
+  if (owesFollowUp) setFileCopy(copyKey, { phase: "copying" });
   const started = await runAtomCommand(
     appAtomRegistry,
     sourceControlEnvironment.startProjectClone,
@@ -136,6 +157,7 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
         createdAt: new Date().toISOString(),
         remoteUrl: input.remoteUrl,
         destinationPath: input.destinationPath,
+        ...(nestedRepositories.length > 0 ? { nestedRepositories } : {}),
       },
     },
     { label: "Add project to machine", reportFailure: false },
@@ -145,7 +167,7 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
     throw new Error(failureMessage(started));
   }
   void suggestAppAccessForRemote(input.target.environmentId, input.remoteUrl);
-  if (reads.length === 0) return;
+  if (!owesFollowUp) return;
 
   void (async () => {
     const clone = await waitForClone(input.target.environmentId, input.projectId);
@@ -154,7 +176,19 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
       return;
     }
     const failed: Array<string> = [];
+    // A target too old to clone nested repositories leaves the field out; none of them landed.
+    const outdatedTarget = nestedRepositories.length > 0 && clone.nestedRepositories === undefined;
+    const missingRepositories = outdatedTarget
+      ? nestedRepositories
+      : (clone.nestedRepositories ?? []).filter((repository) => repository.status !== "cloned");
     for (const read of reads) {
+      const missing = missingRepositories.find((repository) =>
+        targetPath(read.relativePath).startsWith(`${repository.relativePath}/`),
+      );
+      if (missing) {
+        failed.push(`${read.relativePath}: ${missing.relativePath} was not cloned.`);
+        continue;
+      }
       if (!("contents" in read)) {
         failed.push(`${read.relativePath}: ${read.error}`);
         continue;
@@ -166,9 +200,7 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
           environmentId: input.target.environmentId,
           input: {
             cwd: started.value.cwd,
-            relativePath: input.subdirectory
-              ? `${input.subdirectory}/${read.relativePath}`
-              : read.relativePath,
+            relativePath: targetPath(read.relativePath),
             contents: read.contents,
           },
         },
@@ -177,14 +209,24 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
       if (written._tag === "Failure")
         failed.push(`${read.relativePath}: ${failureMessage(written)}`);
     }
+    const nestedProblems = outdatedTarget
+      ? nestedRepositories.map(
+          (repository) =>
+            `${repository.relativePath}: ${input.target.label} cannot clone nested repositories yet; update T3 Code there.`,
+        )
+      : projectCloneNestedProblems(clone);
     setFileCopy(
       copyKey,
-      failed.length === 0
+      failed.length === 0 && nestedProblems.length === 0
         ? null
         : {
             phase: "failed",
-            title: `Could not copy ${failed.length} ${failed.length === 1 ? "file" : "files"} to ${input.target.label}`,
-            failures: failed,
+            title:
+              failed.length === 0
+                ? `Some nested repositories need attention on ${input.target.label}`
+                : `Could not copy ${failed.length} ${failed.length === 1 ? "file" : "files"} to ${input.target.label}`,
+            failures: [...nestedProblems, ...failed],
+            ...(failed.length === 0 ? { warning: true } : {}),
           },
     );
   })();

@@ -168,8 +168,10 @@ import { filesystemEnvironment } from "../state/filesystem";
 import {
   claimWorkspaceBasenameLookup,
   needsWorkspaceBasenameLookup,
+  needsWorkspaceSuffixLookup,
   pickStrippedWorkspaceMatch,
   pickWorkspaceBasenameMatch,
+  pickWorkspaceSuffixMatch,
   stripRepeatedWorkspacePrefix,
   WORKSPACE_BASENAME_LOOKUP_LIMIT,
 } from "@t3tools/client-runtime/workspace-basename-lookup";
@@ -767,7 +769,17 @@ function useChatMarkdownState({
     const strippedPath = isBasename
       ? null
       : stripRepeatedWorkspacePrefix(workspaceRelativePath, cwd);
-    if (!isBasename && strippedPath === null) return null;
+    const isPathTail =
+      !isBasename && strippedPath === null && needsWorkspaceSuffixLookup(workspaceRelativePath);
+    if (!isBasename && strippedPath === null && !isPathTail) return null;
+    if (isPathTail) {
+      // Fork: a short path opens as written when that file exists.
+      const literal = await getFilesystemMetadata({
+        environmentId,
+        input: { paths: [resolveWorkspaceFilePath(workspaceRelativePath, cwd)] },
+      });
+      if (literal._tag !== "Success" || literal.value.entries[0] !== null) return null;
+    }
     const result = await searchProjectEntries({
       environmentId,
       input: {
@@ -778,6 +790,9 @@ function useChatMarkdownState({
       },
     });
     if (result._tag !== "Success") return null;
+    if (isPathTail) {
+      return pickWorkspaceSuffixMatch(workspaceRelativePath, cwd, result.value.entries);
+    }
     if (strippedPath === null) {
       return pickWorkspaceBasenameMatch(workspaceRelativePath, result.value.entries);
     }
@@ -801,6 +816,7 @@ function useChatMarkdownState({
       fileLinkMeta.workspaceLookupPath === null ||
       !cwd ||
       (!needsWorkspaceBasenameLookup(panelPath) &&
+        !needsWorkspaceSuffixLookup(panelPath) &&
         stripRepeatedWorkspacePrefix(panelPath, cwd) === null)
     ) {
       openAt(panelPath);

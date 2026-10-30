@@ -2,7 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   claimWorkspaceBasenameLookup,
+  needsWorkspaceSuffixLookup,
   pickWorkspaceBasenameMatch,
+  pickWorkspaceSuffixMatch,
 } from "@t3tools/client-runtime/workspace-basename-lookup";
 
 describe("pickWorkspaceBasenameMatch", () => {
@@ -59,5 +61,47 @@ describe("claimWorkspaceBasenameLookup", () => {
 
     expect(second()).toBe(true);
     expect(first()).toBe(false);
+  });
+});
+
+describe("pickWorkspaceSuffixMatch", () => {
+  const cwd = "/workspace/signet-solutions/IndiaShipments";
+  const entries = [
+    { path: "frontend/src/lib/profile/phone.ts", kind: "file" as const },
+    { path: "frontend/src/lib/ui/phone.ts", kind: "file" as const },
+    { path: "frontend/src/lib/profile", kind: "directory" as const },
+  ];
+
+  it("finds the one file a short path names from inside a subfolder", () => {
+    expect(pickWorkspaceSuffixMatch("profile/phone.ts", cwd, entries)).toBe(
+      "frontend/src/lib/profile/phone.ts",
+    );
+  });
+
+  it("matches whole segments only", () => {
+    expect(pickWorkspaceSuffixMatch("file/phone.ts", cwd, entries)).toBeNull();
+  });
+
+  it("opens nothing new when the tail is ambiguous", () => {
+    expect(pickWorkspaceSuffixMatch("lib/phone.ts", cwd, entries)).toBeNull();
+  });
+
+  it("folds case only on Windows workspaces", () => {
+    expect(pickWorkspaceSuffixMatch("Profile/phone.ts", cwd, entries)).toBeNull();
+    expect(
+      pickWorkspaceSuffixMatch("Profile\\phone.ts", "C:\\repo", [
+        { path: "src\\profile\\phone.ts", kind: "file" },
+      ]),
+    ).toBe("src\\profile\\phone.ts");
+  });
+});
+
+describe("needsWorkspaceSuffixLookup", () => {
+  it("takes plain multi-segment relative paths only", () => {
+    expect(needsWorkspaceSuffixLookup("profile/phone.ts")).toBe(true);
+    expect(needsWorkspaceSuffixLookup("phone.ts")).toBe(false);
+    expect(needsWorkspaceSuffixLookup("./profile/phone.ts")).toBe(false);
+    expect(needsWorkspaceSuffixLookup("../profile/phone.ts")).toBe(false);
+    expect(needsWorkspaceSuffixLookup("/abs/profile/phone.ts")).toBe(false);
   });
 });

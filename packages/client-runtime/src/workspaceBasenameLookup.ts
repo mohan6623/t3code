@@ -65,6 +65,34 @@ export function stripRepeatedWorkspacePrefix(relativePath: string, cwd: string):
   return null;
 }
 
+// Fork: agents often name a file by a short path from inside a subfolder or nested
+// repo, e.g. `profile/phone.ts` for `frontend/src/lib/profile/phone.ts`. When the
+// literal path is missing, such a path is looked up as a path tail.
+export function needsWorkspaceSuffixLookup(relativePath: string): boolean {
+  const trimmed = relativePath.trim().replaceAll("\\", "/");
+  if (isAbsolutePath(trimmed) || /^(?:~|\.{1,2})\//.test(trimmed)) return false;
+  const segments = trimmed.split("/").filter(Boolean);
+  return segments.length >= 2 && !segments.includes("..") && !segments.includes(".");
+}
+
+// Fork: the one file whose path ends with the whole tail; ambiguous tails open nothing new.
+export function pickWorkspaceSuffixMatch(
+  tail: string,
+  cwd: string,
+  entries: ReadonlyArray<WorkspaceEntryCandidate>,
+): string | null {
+  const caseInsensitive = isWindowsAbsolutePath(cwd);
+  const key = (path: string) => {
+    const normalized = `/${path.trim().replaceAll("\\", "/").replace(/^\/+/, "")}`;
+    return caseInsensitive ? normalized.toLowerCase() : normalized;
+  };
+  const target = key(tail);
+  const matches = entries.filter(
+    (entry) => entry.kind === "file" && key(entry.path).endsWith(target),
+  );
+  return matches.length === 1 ? (matches[0]?.path ?? null) : null;
+}
+
 export function pickStrippedWorkspaceMatch(
   strippedPath: string,
   cwd: string,

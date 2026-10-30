@@ -18,6 +18,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
+import { BranchToolbarBranchSelector } from "../BranchToolbarBranchSelector";
 import BaseGitActionsControl from "../GitActionsControl";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
@@ -52,6 +53,9 @@ const EXPANDED_REPOSITORIES_KEY = "t3code:thread-details:expanded-repositories";
 const ExpandedRepositoriesSchema = Schema.Record(Schema.String, Schema.Boolean);
 /** Oldest entries go first once the record grows past this. */
 const EXPANDED_REPOSITORIES_LIMIT = 300;
+
+/** A child repository's branch row checks out in place, so it never starts from origin. */
+const ignoreStartFromOrigin = () => {};
 
 /** Keeps a collapsed repository's changes visible in its heading. */
 function RepositoryChangesStat(props: { environmentId: EnvironmentId; cwd: string }) {
@@ -316,28 +320,54 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {show.nestedRepositories && props.gitCwd
-                ? nestedRepositories.map((repository) => (
-                    <ThreadDetailsSection
-                      key={repository.relativePath}
-                      headingId={`thread-details-repository-${repository.relativePath.replaceAll("/", "-")}`}
-                      title={repository.name}
-                      separated={density === "full"}
-                      {...repositorySectionProps(props.gitCwd!, repository)}
-                    >
-                      <GitActionsControl
-                        compact={density !== "full"}
-                        showActions={visible.gitActions}
-                        showChanges={visible.changes}
-                        gitCwd={joinWorkspaceRepositoryPath(props.gitCwd!, repository.relativePath)}
-                        activeThreadRef={activeThreadRef}
-                        syncThreadBranch={false}
-                        {...(props.draftId ? { draftId: props.draftId } : {})}
-                        {...(props.onOpenChanges
-                          ? { onOpenChanges: () => props.onOpenChanges!(repository.relativePath) }
-                          : {})}
-                      />
-                    </ThreadDetailsSection>
-                  ))
+                ? nestedRepositories.map((repository) => {
+                    const repositoryCwd = joinWorkspaceRepositoryPath(
+                      props.gitCwd!,
+                      repository.relativePath,
+                    );
+                    return (
+                      <ThreadDetailsSection
+                        key={repository.relativePath}
+                        headingId={`thread-details-repository-${repository.relativePath.replaceAll("/", "-")}`}
+                        title={repository.name}
+                        separated={density === "full"}
+                        {...repositorySectionProps(props.gitCwd!, repository)}
+                      >
+                        <div className="flex flex-col">
+                          {/* Fork: a child repository gets the root's branch row, run in its own working tree. */}
+                          {visible.branch ? (
+                            <BranchToolbarBranchSelector
+                              displayMode="panel"
+                              className="w-full"
+                              environmentId={props.environmentId}
+                              threadId={props.threadId}
+                              {...(props.draftId ? { draftId: props.draftId } : {})}
+                              envLocked={props.envLocked}
+                              startFromOrigin={false}
+                              onStartFromOriginChange={ignoreStartFromOrigin}
+                              onComposerFocusRequest={props.onComposerFocusRequest}
+                              repositoryCwd={repositoryCwd}
+                            />
+                          ) : null}
+                          <GitActionsControl
+                            compact={density !== "full"}
+                            showActions={visible.gitActions}
+                            showChanges={visible.changes}
+                            gitCwd={repositoryCwd}
+                            activeThreadRef={activeThreadRef}
+                            syncThreadBranch={false}
+                            {...(props.draftId ? { draftId: props.draftId } : {})}
+                            {...(props.onOpenChanges
+                              ? {
+                                  onOpenChanges: () =>
+                                    props.onOpenChanges!(repository.relativePath),
+                                }
+                              : {})}
+                          />
+                        </div>
+                      </ThreadDetailsSection>
+                    );
+                  })
                 : null}
 
               {density === "full" && !props.draftId && visible.servers ? (

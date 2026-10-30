@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -60,5 +61,81 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
         ),
       ),
     ),
+  );
+
+  // Fork: each child repository section in the thread details panel has its own branch row.
+  it.effect(
+    "switches and creates refs in a nested child repository without touching the root",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-nested-branch-" });
+        const child = path.join(root, "frontend");
+        const workflow = yield* GitWorkflowService.GitWorkflowService;
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const git = (cwd: string, args: ReadonlyArray<string>) =>
+          driver
+            .execute({
+              operation: "test.nestedBranch",
+              cwd,
+              args: ["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+            })
+            .pipe(Effect.map((result) => result.stdout.trim()));
+        const currentBranch = (cwd: string) => git(cwd, ["branch", "--show-current"]);
+
+        yield* git(root, ["init", "-b", "main"]);
+        yield* git(root, ["commit", "--allow-empty", "-m", "root"]);
+        yield* fileSystem.makeDirectory(child);
+        yield* git(child, ["init", "-b", "develop"]);
+        yield* fileSystem.writeFileString(path.join(child, "app.txt"), "develop\n");
+        yield* git(child, ["add", "app.txt"]);
+        yield* git(child, ["commit", "-m", "develop"]);
+        yield* git(child, ["checkout", "-b", "feature/login"]);
+        yield* fileSystem.writeFileString(path.join(child, "app.txt"), "login\n");
+        yield* git(child, ["commit", "-am", "login"]);
+        yield* git(child, ["checkout", "develop"]);
+
+        const listed = yield* workflow.listRefs({ cwd: child });
+        assert.deepEqual(listed.refs.map((ref) => ref.name).toSorted(), [
+          "develop",
+          "feature/login",
+        ]);
+
+        yield* workflow.switchRef({ cwd: child, refName: "feature/login" });
+        assert.equal(yield* currentBranch(child), "feature/login");
+        assert.equal(yield* currentBranch(root), "main");
+
+        yield* workflow.createRef({ cwd: child, refName: "child-work", switchRef: true });
+        assert.equal(yield* currentBranch(child), "child-work");
+        assert.equal(yield* currentBranch(root), "main");
+        assert.equal(yield* git(root, ["branch", "--list", "child-work"]), "");
+
+        // A dirty child working tree blocks the checkout and keeps the edit, as at the root.
+        yield* fileSystem.writeFileString(path.join(child, "app.txt"), "unsaved\n");
+        const error = yield* workflow
+          .switchRef({ cwd: child, refName: "develop" })
+          .pipe(Effect.flip);
+        assert.equal(error._tag, "GitCommandError");
+        assert.equal(yield* currentBranch(child), "child-work");
+        assert.equal(yield* fileSystem.readFileString(path.join(child, "app.txt")), "unsaved\n");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          GitWorkflowService.layer.pipe(
+            Layer.provide(VcsDriverRegistry.layer),
+            Layer.provide(Layer.mock(GitManager.GitManager)({})),
+            Layer.provide(notAContainer),
+            Layer.provideMerge(GitVcsDriver.layer),
+            Layer.provideMerge(VcsProcess.layer),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3-nested-branch-" }).pipe(
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
   );
 });

@@ -89,6 +89,11 @@ interface BranchToolbarBranchSelectorProps {
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
+  /**
+   * Fork: a nested child repository's working tree. When set, the selector shows and
+   * switches that repository's checkout and leaves the thread's branch and worktree alone.
+   */
+  repositoryCwd?: string;
 }
 
 function toBranchActionErrorMessage(error: unknown): string {
@@ -111,7 +116,9 @@ export function BranchToolbarBranchSelector({
   onStartFromOriginChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
+  repositoryCwd,
 }: BranchToolbarBranchSelectorProps) {
+  const isRepositoryScoped = repositoryCwd !== undefined;
   const composerFloatingLayerProps = useComposerMenuProps();
   const canWriteSourceControl = useEnvironmentScope(environmentId, AuthSourceControlWriteScope);
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
@@ -148,25 +155,29 @@ export function BranchToolbarBranchSelector({
   const activeProject = useProject(activeProjectRef);
 
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
-  const activeThreadBranch =
-    activeThreadBranchOverride !== undefined
+  const activeThreadBranch = isRepositoryScoped
+    ? null
+    : activeThreadBranchOverride !== undefined
       ? activeThreadBranchOverride
       : (serverThread?.branch ?? draftThread?.branch ?? null);
-  const activeWorktreePath = forceNewWorktree
-    ? null
-    : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
-  const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const activeWorktreePath =
+    forceNewWorktree || isRepositoryScoped
+      ? null
+      : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
+  // A child repository acts as its own project root: refs check out in its working tree.
+  const activeProjectCwd = repositoryCwd ?? activeProject?.workspaceRoot ?? null;
   const branchCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
-  const canUpdateThreadBranch = !hasServerThread || canOperateThread;
+  const canUpdateThreadBranch = isRepositoryScoped || !hasServerThread || canOperateThread;
   const canChangeThreadBranch = canWriteSourceControl && canUpdateThreadBranch;
-  const effectiveEnvMode =
-    effectiveEnvModeOverride ??
-    resolveEffectiveEnvMode({
-      activeWorktreePath,
-      hasServerThread,
-      draftThreadEnvMode: draftThread?.envMode,
-    });
+  const effectiveEnvMode = isRepositoryScoped
+    ? "local"
+    : (effectiveEnvModeOverride ??
+      resolveEffectiveEnvMode({
+        activeWorktreePath,
+        hasServerThread,
+        draftThreadEnvMode: draftThread?.envMode,
+      }));
 
   const setThreadBranch = (
     branch: string | null,
@@ -174,6 +185,7 @@ export function BranchToolbarBranchSelector({
     automatic = false,
   ) => {
     if (
+      isRepositoryScoped ||
       !activeThreadId ||
       !activeProject ||
       (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
@@ -362,7 +374,9 @@ export function BranchToolbarBranchSelector({
   const runBranchAction = (action: () => Promise<void>) => {
     if (
       !readEnvironmentScope(environmentId, AuthSourceControlWriteScope) ||
-      (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
+      (hasServerThread &&
+        !isRepositoryScoped &&
+        !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
     ) {
       toastManager.add(
         stackedThreadToast({
@@ -390,11 +404,15 @@ export function BranchToolbarBranchSelector({
       return;
     }
 
-    const selectionTarget = resolveBranchSelectionTarget({
-      activeProjectCwd,
-      activeWorktreePath,
-      refName,
-    });
+    // Fork: a child repository always checks out in its own working tree; git reports a
+    // ref that another worktree holds instead of the thread moving there.
+    const selectionTarget = isRepositoryScoped
+      ? { checkoutCwd: activeProjectCwd, nextWorktreePath: null, reuseExistingWorktree: false }
+      : resolveBranchSelectionTarget({
+          activeProjectCwd,
+          activeWorktreePath,
+          refName,
+        });
 
     if (selectionTarget.reuseExistingWorktree) {
       setThreadBranch(refName.name, selectionTarget.nextWorktreePath);
@@ -631,7 +649,8 @@ export function BranchToolbarBranchSelector({
           !canUpdateThreadBranch ||
           (!canWriteSourceControl &&
             !isSelectingWorktreeBase &&
-            (!activeProjectCwd ||
+            (isRepositoryScoped ||
+              !activeProjectCwd ||
               !resolveBranchSelectionTarget({
                 activeProjectCwd,
                 activeWorktreePath,
@@ -685,7 +704,7 @@ export function BranchToolbarBranchSelector({
           className,
         )}
       >
-        {displayMode !== "panel" ? (
+        {displayMode !== "panel" && !isRepositoryScoped ? (
           <ThreadPullRequestBadgeControl
             render={<ComposerControl size="xs" />}
             badge={prBadge}
@@ -734,7 +753,10 @@ export function BranchToolbarBranchSelector({
             </ComposerContextLabel>
           </ComboboxTrigger>
         </span>
-        {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (
+        {displayMode === "panel" &&
+        !isRepositoryScoped &&
+        prNumber !== undefined &&
+        prUrl !== undefined ? (
           <ThreadDetailsPrRows
             threadRef={threadRef}
             links={serverThread?.pullRequests ?? []}

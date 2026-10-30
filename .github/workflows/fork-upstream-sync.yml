@@ -1,18 +1,25 @@
 name: Fork Upstream Sync
 
 # Once a day, merges the newest official nightly into the fork branch.
-# - A clean merge that typechecks is pushed straight to the branch, which
-#   triggers "Fork Desktop" to build and publish the update.
-# - A conflicting merge is resolved by Claude Code, typechecked, opened as a
-#   pull request, and merged right away. The pull request stays as the record
-#   of how each conflict was resolved. Its merge publishes the update.
+# - A clean merge that passes the pre-commit hook and typechecks is pushed
+#   straight to the branch, which triggers "Fork Desktop" to build and publish
+#   the update.
+# - A conflicting merge, or a clean one the hook rejects, is fixed by Claude
+#   Code, typechecked, opened as a pull request, and merged right away. The
+#   pull request stays as the record of what was changed. Its merge publishes
+#   the update.
+#
+# Upstream's pre-commit hook (.vite-hooks/pre-commit runs `vp staged`, set up
+# in vite.config.ts) formats and lints the staged files and runs knip. Every
+# commit here goes through it; none skips it.
 #
 # Secrets (repository settings):
 # - FORK_SYNC_TOKEN: fine-grained token for this repository only, with
 #   Contents, Workflows, and Pull requests set to read and write. The default
 #   GITHUB_TOKEN cannot push upstream's workflow edits, and its pushes do not
 #   trigger the build.
-# - CLAUDE_CODE_OAUTH_TOKEN: from `claude setup-token`. Only used on conflicts.
+# - CLAUDE_CODE_OAUTH_TOKEN: from `claude setup-token`. Only used when the
+#   merge conflicts or the hook rejects it.
 
 on:
   schedule:
@@ -84,6 +91,8 @@ jobs:
             echo "merged=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The merge is committed only after the dependencies, and with them the
+      # pre-commit hook, are installed, so the hook checks every merge.
       - name: Merge
         id: merge
         if: steps.upstream.outputs.merged == 'false'
@@ -93,7 +102,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          if git merge --no-ff --no-edit -m "Merge upstream $TAG into $FORK_BRANCH" "$TAG"; then
+          if git merge --no-ff --no-commit "$TAG"; then
             echo "conflicts=false" >> "$GITHUB_OUTPUT"
           else
             echo "conflicts=true" >> "$GITHUB_OUTPUT"
@@ -109,31 +118,63 @@ jobs:
           run-install: false
 
       # Conflict markers can break the lockfile, so a failed install is
-      # left for Claude to fix with the rest of the merge.
+      # left for Claude to fix with the rest of the merge. The install's
+      # prepare script sets up the hook; `vp config` covers a skipped one.
       - name: Install dependencies
         if: steps.upstream.outputs.merged == 'false'
         run: |
           vp install && vp run --filter @t3tools/desktop ensure:electron || [[ "${{ steps.merge.outputs.conflicts }}" == "true" ]]
+          [[ -n "$(git config core.hooksPath)" ]] || vp config --no-agent
 
-      - name: Resolve conflicts with Claude Code
-        if: steps.merge.outputs.conflicts == 'true'
+      # A clean merge the hook rejects (usually upstream lint rules that fork
+      # code does not meet yet) goes to Claude instead of failing the job.
+      - name: Commit the clean merge
+        id: commit
+        if: steps.merge.outputs.conflicts == 'false'
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -uo pipefail
+          if git commit --no-edit -m "Merge upstream $TAG into $FORK_BRANCH" 2>&1 | tee "$RUNNER_TEMP/hook-output.txt"; then
+            echo "hook_failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The pre-commit hook rejected the clean merge; Claude Code fixes it."
+            echo "hook_failed=true" >> "$GITHUB_OUTPUT"
+            git rev-parse -q --verify MERGE_HEAD >/dev/null || {
+              echo "::error::The merge state was lost after the failed commit."
+              exit 1
+            }
+          fi
+
+      - name: Resolve the merge with Claude Code
+        id: claude
+        if: steps.merge.outputs.conflicts == 'true' || steps.commit.outputs.hook_failed == 'true'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           TAG: ${{ steps.upstream.outputs.tag }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
         run: |
           set -euo pipefail
           if [[ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]]; then
-            echo "::error::The merge has conflicts. Add the CLAUDE_CODE_OAUTH_TOKEN secret, or merge $TAG by hand."
+            echo "::error::The merge needs fixes (conflicts or pre-commit hook). Add the CLAUDE_CODE_OAUTH_TOKEN secret, or merge $TAG by hand."
             exit 1
           fi
           npm install --global @anthropic-ai/claude-code
           base="$(git merge-base HEAD "$TAG")"
+          if [[ "$CONFLICTS" == "true" ]]; then
+            problem="these files have conflicts:
+
+          $(cat conflicted-files.txt)"
+          else
+            problem="it merged without conflicts, but upstream's pre-commit hook
+          rejected the merge commit with this output:
+
+          $(tail -c 20000 "$RUNNER_TEMP/hook-output.txt")"
+          fi
           cat > /tmp/prompt.md <<EOF
           You are finishing a git merge of the upstream T3 Code nightly $TAG into
           this personal fork's branch $FORK_BRANCH. The merge is in progress and
-          these files have conflicts:
-
-          $(cat conflicted-files.txt)
+          $problem
 
           The fork's own commits (its features) are:
 
@@ -159,9 +200,24 @@ jobs:
             \`vpr typecheck\`, and fix what the merge broke.
           - Run the unit tests of the files you changed with \`vp test run <file>\`
             from the package folder.
-          - Do not commit, push, or edit files the merge did not touch unless a
-            type error needs it.
-          - End with a short summary of each conflict and how you resolved it.
+          - The merge commit must pass upstream's pre-commit hook
+            (.vite-hooks/pre-commit runs \`vp staged\`; the "staged" block in
+            vite.config.ts lists its checks). With everything staged, run its checks
+            on the staged files yourself: \`vp fmt\` and \`vp lint\` on
+            \`git diff --cached --name-only --diff-filter=ACMR HEAD\`, then
+            \`vp run knip:check\`. Fix every error, usually fork code that upstream's
+            new lint rules now reject. Fix the code, do not silence the rule: an
+            effect that only derives or forwards state moves into render or the event
+            handler; a reason comment (\`// oxlint-disable-next-line <rule> -- <why>\`)
+            is only for an effect that really keeps something outside React in step.
+            Tests await a Deferred instead of polling or sleeping. Delete unused
+            disable directives. Shorten comments the comment rules reject. A file knip
+            reports unused is wired up if something should run it, else deleted.
+            Stage the fixes.
+          - Do not commit, push, skip the hook, or edit files the merge did not
+            touch unless a type error or the hook's checks need it.
+          - End with a short summary of each conflict or hook error and how you
+            resolved it.
           EOF
           claude -p "$(cat /tmp/prompt.md)" --model opus --dangerously-skip-permissions \
             --output-format text | tee claude-summary.md
@@ -177,25 +233,35 @@ jobs:
           vpr typecheck
 
       - name: Push the clean merge
-        if: steps.merge.outputs.conflicts == 'false'
+        if: steps.merge.outputs.conflicts == 'false' && steps.commit.outputs.hook_failed == 'false'
         run: git push origin "HEAD:$FORK_BRANCH"
 
       - name: Open and merge a pull request for the resolved merge
-        if: steps.merge.outputs.conflicts == 'true'
+        if: steps.claude.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
           TAG: ${{ steps.upstream.outputs.tag }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
         run: |
           set -euo pipefail
           git add -A
           git reset -q -- claude-summary.md conflicted-files.txt
           if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-            git commit --no-edit -m "Merge upstream $TAG into $FORK_BRANCH"
+            # Runs the pre-commit hook like any commit.
+            if ! git commit --no-edit -m "Merge upstream $TAG into $FORK_BRANCH"; then
+              echo "::error::The pre-commit hook still rejects the merge after Claude's fixes. Merge $TAG by hand."
+              exit 1
+            fi
           fi
           branch="sync/$TAG"
           git push --force origin "HEAD:refs/heads/$branch"
+          if [[ "$CONFLICTS" == "true" ]]; then
+            fixed="resolved the conflicts in"
+          else
+            fixed="fixed what the pre-commit hook rejected in"
+          fi
           {
-            echo "Claude Code resolved the conflicts in this merge of upstream \`$TAG\`. Typecheck passed."
+            echo "Claude Code $fixed this merge of upstream \`$TAG\`. The pre-commit hook and typecheck passed."
             echo
             echo "The sync merges this PR by itself, which builds and publishes the update."
             echo

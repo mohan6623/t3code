@@ -23,12 +23,13 @@ export function shouldUseCompactComposerFooter(
   return width !== null && width < breakpoint;
 }
 
+// Fork: a long draft rests too, clamped to one line, so a scroll frees the
+// timeline behind it; focusing the prompt or reaching the end expands it again.
 export function shouldUseRestingComposerLayout(input: {
   isExistingThread: boolean;
   isMobileViewport: boolean;
   isScrollCollapsed: boolean;
   hasExpandedChrome: boolean;
-  hasMultilinePrompt: boolean;
   timelineOverflows: boolean;
 }): boolean {
   return (
@@ -36,7 +37,6 @@ export function shouldUseRestingComposerLayout(input: {
     !input.isMobileViewport &&
     input.timelineOverflows &&
     input.isScrollCollapsed &&
-    !input.hasMultilinePrompt &&
     !input.hasExpandedChrome
   );
 }

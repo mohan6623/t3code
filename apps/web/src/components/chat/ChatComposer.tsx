@@ -2348,7 +2348,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isMobileViewport,
     isScrollCollapsed: isComposerScrollCollapsed,
     hasExpandedChrome: composerHasExpandedChrome,
-    hasMultilinePrompt,
     timelineOverflows,
   });
   const expandedComposerImages = isComposerResting
@@ -2431,7 +2430,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const canScrollCollapseComposer =
     canTrackComposerScrollGesture &&
     settings.composerCollapseOnScroll &&
-    !hasMultilinePrompt &&
     !composerHasExpandedChrome;
   // Clear rather than mask: once eligibility drops, the composer stays expanded until the next
   // scroll gesture even if it becomes eligible again.

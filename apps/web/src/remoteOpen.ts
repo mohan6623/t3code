@@ -1,4 +1,8 @@
-import type { ConnectionTarget } from "@t3tools/client-runtime/connection";
+import {
+  connectionRoutes,
+  type ConnectionRoute,
+  type ConnectionTarget,
+} from "@t3tools/client-runtime/connection";
 import {
   REMOTE_CAPABLE_EDITOR_IDS,
   type EditorId,
@@ -94,6 +98,23 @@ export function resolveRemoteOpenState(input: {
   return REMOTE_UNAVAILABLE;
 }
 
+/**
+ * Fork: an SSH alias this client saved for the environment, even when the active route is
+ * T3 Connect, whose advertised `<hostname>.local` only works on the same network. Editors
+ * run on this machine and read the same SSH config, so the bare alias reaches the same
+ * login without copying its user name into the link (instabox keeps a login token there).
+ */
+export function savedSshAlias(
+  routes: ReadonlyArray<ConnectionRoute>,
+): { readonly alias: string; readonly username: null } | null {
+  for (const route of routes) {
+    const profile = Option.getOrNull(route.profile);
+    const alias = profile?._tag === "SshConnectionProfile" ? profile.target.alias.trim() : "";
+    if (alias.length > 0) return { alias, username: null };
+  }
+  return null;
+}
+
 function remoteOpenStatesEqual(previous: RemoteOpenState, next: RemoteOpenState): boolean {
   if (previous.mode !== next.mode) return false;
   if (previous.mode !== "remote-links" || next.mode !== "remote-links") return true;
@@ -117,7 +138,9 @@ const remoteOpenResolutionAtom = Atom.family((environmentId: EnvironmentId) =>
       state: resolveRemoteOpenState({
         target: entry.target,
         sshTarget:
-          profile !== null && profile._tag === "SshConnectionProfile" ? profile.target : null,
+          profile !== null && profile._tag === "SshConnectionProfile"
+            ? profile.target
+            : savedSshAlias(connectionRoutes(entry)),
         remoteOpenTargets: presentation?.serverConfig?.remoteOpenTargets,
         isDesktopRenderer: window.desktopBridge !== undefined,
       }),

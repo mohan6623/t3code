@@ -1,12 +1,14 @@
 import {
   PrimaryConnectionTarget,
   RelayConnectionTarget,
+  SshConnectionProfile,
   SshConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import { buildRemoteOpenUrl, EnvironmentId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveRemoteOpenState } from "./remoteOpen";
+import { resolveRemoteOpenState, savedSshAlias } from "./remoteOpen";
 
 const environmentId = EnvironmentId.make("environment-1");
 
@@ -184,5 +186,51 @@ describe("buildRemoteOpenUrl", () => {
         `${editor}, isFile=${isFile}`,
       ).toBe(expected);
     }
+  });
+});
+
+describe("savedSshAlias", () => {
+  const relayRoute = {
+    target: new RelayConnectionTarget({ environmentId, label: "sandbox" }),
+    profile: Option.none(),
+  };
+  const sshRoute = {
+    target: new SshConnectionTarget({ environmentId, label: "sandbox", connectionId: "ssh-1" }),
+    profile: Option.some(
+      new SshConnectionProfile({
+        connectionId: "ssh-1",
+        environmentId,
+        label: "sandbox",
+        target: {
+          alias: "sandbox",
+          hostname: "ssh.instabox.sh",
+          username: "ibssh_logintoken",
+          port: 2222,
+        },
+      }),
+    ),
+  };
+
+  it("opens editors through a saved SSH alias behind a T3 Connect route", () => {
+    const sshTarget = savedSshAlias([relayRoute, sshRoute]);
+    expect(sshTarget).toEqual({ alias: "sandbox", username: null });
+    const state = resolveRemoteOpenState({
+      target: relayRoute.target,
+      sshTarget,
+      isDesktopRenderer: true,
+      remoteOpenTargets: [{ kind: "mdns", host: "instabox-sandbox.local", username: "user" }],
+    });
+    if (state.mode !== "remote-links") throw new Error("Expected a remote link");
+    expect(
+      buildRemoteOpenUrl({
+        editor: "cursor",
+        ...state.host,
+        absolutePath: "/data/home/IndiaShipments-workspace",
+      }),
+    ).toBe("cursor://vscode-remote/ssh-remote+sandbox/data/home/IndiaShipments-workspace");
+  });
+
+  it("finds nothing without an SSH route", () => {
+    expect(savedSshAlias([relayRoute])).toBeNull();
   });
 });

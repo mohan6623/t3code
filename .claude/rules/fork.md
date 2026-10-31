@@ -7,7 +7,7 @@ This checkout is the user's fork of T3 Code, not upstream. Read this before any 
 - Work folder on the main PC: `D:\Self\t3code-merge`, local branch `merge-for-push`.
 - Remote branch: `custom/usage-badge` on `mohan6623/t3code` (the fork's default branch).
 - A push to `custom/usage-badge` builds and publishes a new app update (`.github/workflows/fork-desktop.yml`, about 15 min). A daily job merges upstream nightlies into it.
-- `D:\Self\t3code` is an old copy. Never edit or build there. Its `.t3` folder is only the test app's data.
+- `D:\Self\t3code` is the main checkout. It holds the git data for `t3code-merge` and the other `D:\Self\t3code-*` worktrees, plus uncommitted user edits. Never edit, build in, or delete it. Its `.t3` folder is the test app's data.
 
 ## Rules
 

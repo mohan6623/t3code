@@ -192,6 +192,25 @@ export function FetchedToolOutput(props: {
   );
 }
 
+// Fork: an opened tool call is a framed card whose labelled parts keep what ran
+// apart from what came back, below the row heading.
+function ToolCallSection(props: {
+  readonly label: string;
+  readonly status?: ReactNode;
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <section className={cn("px-2.5 py-2", props.className)}>
+      <div className="mb-1 flex items-center justify-between gap-2 font-sans text-3xs font-medium tracking-wide text-muted-foreground uppercase select-none">
+        <span>{props.label}</span>
+        {props.status}
+      </div>
+      {props.children}
+    </section>
+  );
+}
+
 function ToolCallBody(
   props: ToolOutputState & {
     readonly command?: string;
@@ -203,27 +222,59 @@ function ToolCallBody(
   },
 ) {
   const call = toolCallLines({ command: props.command, args: props.args });
+  const failed = props.exitCode !== undefined && props.exitCode !== 0;
+  const hasInput = Boolean(call.args || call.argsText);
+  // ToolOutput renders nothing for this state, so the part would stay empty.
+  const hasOutput =
+    props.outputSlot !== undefined ||
+    props.images.length > 0 ||
+    Boolean(props.output || props.error) ||
+    props.pending ||
+    props.empty ||
+    failed;
+  if (!call.command && !hasInput && !hasOutput) return null;
   return (
-    <div className={cn("space-y-1.5", monoClassName)}>
-      {call.command ? <ShellCommandBlock command={call.command} /> : null}
-      {call.args ? (
-        <div className="text-foreground/85">
-          {call.args.map(([key, value]) => (
-            <div key={key}>
-              <span className="text-muted-foreground">{key} </span>
-              {key === "code" && isJavaScriptReplTool(props.toolName) ? (
-                <StructuredValue value={value} language="typescript" />
-              ) : (
-                value
-              )}
-            </div>
-          ))}
-        </div>
+    <div
+      className={cn(
+        "divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70",
+        monoClassName,
+      )}
+    >
+      {call.command ? (
+        <ToolCallSection label="Command" className="bg-muted/40">
+          <ShellCommandBlock command={call.command} />
+        </ToolCallSection>
       ) : null}
-      {call.argsText ? <StructuredValue value={call.argsText} highlightJson /> : null}
-      {props.outputSlot ?? <ToolOutput {...props} />}
-      {props.exitCode !== undefined && props.exitCode !== 0 ? (
-        <div className="text-destructive">exit {props.exitCode}</div>
+      {hasInput ? (
+        <ToolCallSection label="Input" className="bg-muted/40">
+          {call.args ? (
+            <div className="text-foreground/85">
+              {call.args.map(([key, value]) => (
+                <div key={key}>
+                  <span className="text-muted-foreground">{key} </span>
+                  {key === "code" && isJavaScriptReplTool(props.toolName) ? (
+                    <StructuredValue value={value} language="typescript" />
+                  ) : (
+                    value
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {call.argsText ? <StructuredValue value={call.argsText} highlightJson /> : null}
+        </ToolCallSection>
+      ) : null}
+      {hasOutput ? (
+        <ToolCallSection
+          label="Output"
+          status={
+            failed ? (
+              <span className="text-destructive normal-case">Exit code {props.exitCode}</span>
+            ) : null
+          }
+        >
+          {props.outputSlot ?? <ToolOutput {...props} />}
+        </ToolCallSection>
       ) : null}
     </div>
   );

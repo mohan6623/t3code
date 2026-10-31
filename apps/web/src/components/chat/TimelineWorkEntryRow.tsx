@@ -110,8 +110,9 @@ export function ThreadReadLabel({
   );
 }
 
+// Fork: framed like the opened tool call card in V2ItemInspector.
 const toolCallExpandedBodyClassName =
-  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
+  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2 font-mono text-secondary-label text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 

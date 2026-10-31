@@ -181,6 +181,7 @@ export function AddProviderInstanceDialog({
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [createdInstanceId, setCreatedInstanceId] = useState<ProviderInstanceId | null>(null);
+  const [seededClaudeHome, setSeededClaudeHome] = useState(false);
 
   // Reserve Codex/Claude default ids because they run before configuration; other unconfigured slots are
   // available.
@@ -274,6 +275,14 @@ export function AddProviderInstanceDialog({
     if (isAcpRegistry && !isLocalAcp && navigation.kind === "navigate" && navigation.step === 2) {
       void handleSave();
       return;
+    }
+    // Fork: the default Claude instance keeps ~/.claude, so an added one gets its own
+    // config folder and signs in to its own account. Seeded once, so clearing it sticks.
+    if (navigation.kind === "navigate" && navigation.step === 2 && driver === "claudeAgent") {
+      if (!seededClaudeHome && configDraft.homePath === undefined) {
+        setConfigDraft({ ...configDraft, homePath: `~/.claude-${instanceId}` });
+      }
+      setSeededClaudeHome(true);
     }
     setWizardStep(navigation.step);
   };

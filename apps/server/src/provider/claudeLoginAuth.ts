@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -173,6 +174,7 @@ export const makeClaudeLoginAuth = Effect.fn("makeClaudeLoginAuth")(function* (o
   readonly onChanged: Effect.Effect<void>;
 }) {
   const pty = yield* Effect.serviceOption(PtyAdapter.PtyAdapter);
+  const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
   const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
   const failure = (operation: string, detail: string, cause?: unknown) =>
     new ProviderSetupError({ instanceId: options.instanceId, operation, detail, cause });
@@ -273,6 +275,12 @@ export const makeClaudeLoginAuth = Effect.fn("makeClaudeLoginAuth")(function* (o
     _methodId: string,
     context: ProviderAuthFlow.ProviderAuthFlowContext,
   ) {
+    // Fork: a new account's config folder may not exist yet.
+    if (Option.isSome(fileSystem)) {
+      yield* fileSystem.value
+        .makeDirectory(options.configDir, { recursive: true })
+        .pipe(Effect.ignore);
+    }
     const exitCode = yield* runInTerminal("start", ["auth", "login", "--claudeai"], context);
     if (exitCode !== 0)
       return yield* failure("start", "Claude sign-in did not finish. Start again.");

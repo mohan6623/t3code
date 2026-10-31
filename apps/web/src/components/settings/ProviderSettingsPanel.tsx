@@ -32,11 +32,12 @@ import {
   getBackgroundActivityPresetSettings,
   resolveServerBackgroundActivitySettings,
 } from "@t3tools/shared/backgroundActivitySettings";
+import { resolveProviderInstallRecipe } from "@t3tools/shared/providerInstall";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import {
@@ -696,6 +697,29 @@ export function EnvironmentProviderSettings({
     },
   );
 
+  // Fork: a provider added from the dialog installs its CLI when its first check finds none.
+  const autoInstallIdsRef = useRef<Set<ProviderInstanceId>>(new Set());
+  const isWindowsEnvironment = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+    (config) => config?.environment.platform.os === "windows",
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the install when the server's first check of a new instance arrives
+  useEffect(() => {
+    for (const provider of serverProviders) {
+      if (!autoInstallIdsRef.current.has(provider.instanceId)) continue;
+      // An unchecked instance reports `installed: false` with a warning; wait for the check.
+      if (!provider.installed && provider.status !== "error") continue;
+      autoInstallIdsRef.current.delete(provider.instanceId);
+      if (
+        provider.enabled &&
+        !provider.installed &&
+        resolveProviderInstallRecipe(provider.driver, isWindowsEnvironment)
+      ) {
+        void runProviderUpdate(provider);
+      }
+    }
+  }, [isWindowsEnvironment, runProviderUpdate, serverProviders]);
+
   interface InstanceRow {
     readonly instanceId: ProviderInstanceId;
     /** Undefined for a default slot the user never configured. */
@@ -1162,7 +1186,10 @@ export function EnvironmentProviderSettings({
           environmentId={environmentId}
           environmentLabel={environmentLabel}
           onOpenChange={setIsAddInstanceDialogOpen}
-          onCreated={setSelectedInstanceId}
+          onCreated={(instanceId) => {
+            autoInstallIdsRef.current.add(instanceId);
+            setSelectedInstanceId(instanceId);
+          }}
         />
       ) : null}
     </>
@@ -1261,6 +1288,17 @@ function ProviderInstanceRow({
       : undefined;
   const isInstanceUpdateRunning =
     isUpdateDispatching || (liveProvider !== undefined && isProviderUpdateActive(liveProvider));
+  // Fork: a missing CLI with a known installer can install from here. An unchecked
+  // provider also reports `installed: false`, but with a warning instead of an error.
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const installTarget =
+    !readOnly &&
+    liveProvider?.enabled === true &&
+    !liveProvider.installed &&
+    liveProvider.status === "error" &&
+    resolveProviderInstallRecipe(driver, serverConfig?.environment.platform.os === "windows")
+      ? liveProvider
+      : undefined;
   const hiddenModels = modelPreferences?.hiddenModels ?? NO_MODELS;
   const modelOrder = modelPreferences?.modelOrder ?? NO_MODELS;
   const favoriteModels = Arr.filterMap(favorites, (favorite) =>
@@ -1432,6 +1470,13 @@ function ProviderInstanceRow({
         !readOnly && updateCandidate
           ? () => {
               if (!isInstanceUpdateRunning) void actions.runProviderUpdate(updateCandidate);
+            }
+          : undefined
+      }
+      onInstall={
+        installTarget
+          ? () => {
+              if (!isInstanceUpdateRunning) void actions.runProviderUpdate(installTarget);
             }
           : undefined
       }

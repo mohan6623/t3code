@@ -169,6 +169,12 @@ computer.
 | Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |
 | fx          | Install [fx](https://fx.sh) with `curl -fsSL https://fx.sh/setup.sh \| bash`, then run `fx login`.                                                        |
 
+When a provider's CLI is missing, its provider card shows **Install**. It runs the
+provider's own installer on the environment's machine. Claude, Codex, Cursor,
+OpenCode, and fx use their install scripts. Grok and Pi use `npm install -g`, as do
+Codex and OpenCode on Windows. Cursor and fx have no Windows installer here. A
+provider added with **Add provider** installs this way after its first check.
+
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
 Cursor's executable is `cursor-agent`, although its login command is

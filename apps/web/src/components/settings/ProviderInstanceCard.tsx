@@ -652,6 +652,8 @@ interface ProviderInstanceCardProps {
   readonly onModelOrderChange: (next: ReadonlyArray<string>) => void;
   readonly onRunUpdate?: (() => void) | undefined;
   readonly onInstallRecommended?: (() => void) | undefined;
+  /** Fork: runs the provider's installer when its CLI is missing on the environment. */
+  readonly onInstall?: (() => void) | undefined;
   readonly isUpdating?: boolean | undefined;
   readonly onAcceptUrlAuth?: ((action: AcpRegistryUrlAuthAction) => void) | undefined;
   readonly environmentId?: EnvironmentId | undefined;
@@ -696,6 +698,7 @@ export function ProviderInstanceCard({
   onModelOrderChange,
   onRunUpdate,
   onInstallRecommended,
+  onInstall,
   isUpdating = false,
   onAcceptUrlAuth,
   environmentId,
@@ -1095,7 +1098,7 @@ export function ProviderInstanceCard({
                   className="pointer-events-auto line-clamp-2 [overflow-wrap:anywhere]"
                 >
                   {updateProgress ? (
-                    `Updating · ${updateProgress}`
+                    `${liveProvider?.installed === false ? "Installing" : "Updating"} · ${updateProgress}`
                   ) : (
                     <>
                       {summary.headline}
@@ -1176,6 +1179,32 @@ export function ProviderInstanceCard({
           {editorStatusNode}
         </div>
       </ProviderStatusDiagnostic>
+      {onInstall ? (
+        <div className="grid max-w-xl gap-1.5 pt-1 text-xs">
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            className="w-fit"
+            disabled={isUpdating}
+            onClick={onInstall}
+          >
+            {isUpdating ? <Spinner /> : <DownloadIcon />}
+            {isUpdating ? "Installing" : `Install ${driverOption?.label ?? displayName}`}
+          </Button>
+          {updateProgress || updateProblem ? (
+            <p
+              aria-live="polite"
+              className={cn(
+                "[overflow-wrap:anywhere]",
+                updateProblem ? "text-warning" : "text-muted-foreground",
+              )}
+            >
+              {updateProgress ?? updateProblem}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {urlAuthAction && onAcceptUrlAuth ? (
         <div className="grid max-w-xl gap-1.5 pt-1 text-xs">
           <p>{urlAuthAction.message}</p>

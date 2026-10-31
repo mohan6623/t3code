@@ -24,6 +24,10 @@ Add another Claude instance in **Settings > Providers**:
 | Claude Work     | `claude`    | Leave empty            |
 | Claude Personal | `claude`    | `~/.claude_personal`   |
 
+An instance added with **Add provider** starts with its own config directory,
+`~/.claude-<instance id>`. Sign in from its provider card; the sign-in uses that
+directory. Clear the field to share the default login instead.
+
 An empty config-directory setting uses Claude Code's normal configuration. The
 custom setting changes `CLAUDE_CONFIG_DIR`, leaving `HOME` and the system keychain
 location intact. Use the same variable for the login command. Setting `HOME`

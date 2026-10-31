@@ -7,7 +7,9 @@ import {
   type ServerProviderUpdatedPayload,
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { resolveProviderInstallRecipe } from "@t3tools/shared/providerInstall";
+import { mergePathEntries, resolveSpawnCommand, setWindowsPath } from "@t3tools/shared/shell";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -289,6 +291,22 @@ function makeUpdateState(input: {
   };
 }
 
+// Fork: the server read PATH at startup, before the installer made its folder.
+const addInstallDirsToPath = Effect.fn("ProviderMaintenanceRunner.addInstallDirsToPath")(function* (
+  binDirs: ReadonlyArray<string>,
+) {
+  const platform = yield* HostProcess.Platform;
+  const home = yield* HostProcess.HomeDirectory;
+  const env = yield* HostProcess.Environment;
+  if (binDirs.length === 0 || home.length === 0) return;
+  const isWindows = platform === "win32";
+  const dirs = binDirs.map((dir) => [home, ...dir.split("/")].join(isWindows ? "\\" : "/"));
+  const merged = mergePathEntries(dirs.join(isWindows ? ";" : ":"), env.PATH ?? env.Path, platform);
+  if (!merged) return;
+  if (isWindows) setWindowsPath(env, merged);
+  else env.PATH = merged;
+});
+
 /** @public */
 export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -364,6 +382,122 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
       }),
     );
 
+  // Fork: a provider whose last check found no CLI runs the provider's own installer.
+  // A provider that has not been checked yet also reports `installed: false`, with a warning.
+  const installMissingProvider = Effect.fn("ProviderMaintenanceRunner.installMissingProvider")(
+    function* (provider: ProviderDriverKind, instanceId: ProviderInstanceId) {
+      const platform = yield* HostProcess.Platform;
+      const recipe = resolveProviderInstallRecipe(provider, platform === "win32");
+      const isMissing = (candidate: ServerProvider | undefined) =>
+        candidate !== undefined && !candidate.installed && candidate.status === "error";
+      const cached = (yield* providerRegistry.getProviders).find(
+        (candidate) => candidate.instanceId === instanceId,
+      );
+      if (!recipe || !isMissing(cached)) return Option.none<ServerProviderUpdatedPayload>();
+      const providers = yield* providerRegistry.refreshInstance(instanceId);
+      // Installed since the last check: never turn an install into an update.
+      if (!isMissing(providers.find((candidate) => candidate.instanceId === instanceId))) {
+        return Option.some<ServerProviderUpdatedPayload>({ providers });
+      }
+
+      const setInstallState = (state: ServerProviderUpdateState) =>
+        providerRegistry.setProviderMaintenanceActionState({ instanceId, action: "update", state });
+      const finish = (state: ServerProviderUpdateState) =>
+        setInstallState(state).pipe(Effect.map((providers) => ({ providers })));
+      const runInstall = Effect.gen(function* () {
+        const startedAt = yield* nowIso;
+        const setRunningMessage = (message: string) =>
+          setInstallState(
+            makeUpdateState({ status: "running", startedAt, finishedAt: null, message }),
+          ).pipe(Effect.asVoid);
+        yield* setRunningMessage(`Running ${recipe.command}`);
+        const result = yield* runProviderMaintenanceCommandWithSpawner({
+          spawner,
+          command: platform === "win32" ? "powershell" : "sh",
+          args:
+            platform === "win32"
+              ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", recipe.command]
+              : ["-c", recipe.command],
+          onProgress: setRunningMessage,
+        });
+        const finishedAt = yield* nowIso;
+        if (result.timedOut || result.exitCode !== 0) {
+          yield* Effect.logWarning("Provider install command failed", {
+            provider,
+            command: recipe.command,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            output: commandOutput(result),
+          });
+          return yield* finish(
+            makeUpdateState({
+              status: "failed",
+              startedAt,
+              finishedAt,
+              message: failureMessage(result),
+              output: commandOutput(result),
+            }),
+          );
+        }
+        yield* addInstallDirsToPath(recipe.binDirs);
+        // Other instances of this driver run the same CLI.
+        const siblings = (yield* providerRegistry.getProviders).filter(
+          (candidate) => candidate.driver === provider && candidate.instanceId !== instanceId,
+        );
+        yield* Effect.forEach(
+          siblings,
+          (sibling) => providerRegistry.refreshInstance(sibling.instanceId),
+          { discard: true },
+        );
+        const installed =
+          (yield* providerRegistry.refreshInstance(instanceId)).find(
+            (candidate) => candidate.instanceId === instanceId,
+          )?.installed === true;
+        return yield* finish(
+          makeUpdateState({
+            status: installed ? "succeeded" : "unchanged",
+            startedAt,
+            finishedAt,
+            message: installed
+              ? "Provider installed."
+              : "The installer finished, but T3 Code cannot find the CLI. Set its binary path in provider settings.",
+            output: commandOutput(result),
+          }),
+        );
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            const failure = Cause.squash(cause);
+            return yield* finish(
+              makeUpdateState({
+                status: "failed",
+                startedAt: null,
+                finishedAt: yield* nowIso,
+                message: failure instanceof Error ? failure.message : "Install command failed.",
+                output: null,
+              }),
+            );
+          }),
+        ),
+      );
+
+      const payload = yield* commandCoordinator.withCommandLock({
+        targetKey: `instance:${instanceId}`,
+        lockKey: `install:${provider}`,
+        onQueued: setInstallState(
+          makeUpdateState({
+            status: "queued",
+            startedAt: null,
+            finishedAt: null,
+            message: "Waiting for another provider install to finish.",
+          }),
+        ).pipe(Effect.asVoid),
+        run: runInstall,
+      });
+      return Option.some(payload);
+    },
+  );
+
   const updateProvider: ProviderMaintenanceRunnerShape["updateProvider"] = Effect.fn(
     "ProviderMaintenanceRunner.updateProvider",
   )(function* (target) {
@@ -374,6 +508,8 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
         : (target.instanceId ?? defaultInstanceIdForDriver(provider));
     const targetVersion = typeof target === "string" ? undefined : target.targetVersion;
     const targetKey = `instance:${instanceId}`;
+    const installed = yield* installMissingProvider(provider, instanceId);
+    if (Option.isSome(installed)) return installed.value;
     const capabilities = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
       instanceId,
       provider,

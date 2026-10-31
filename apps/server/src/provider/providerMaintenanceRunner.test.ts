@@ -306,6 +306,64 @@ describe("providerMaintenanceRunner", () => {
     },
   );
 
+  // Fork: a missing CLI runs the provider's own installer.
+  it.effect("installs a missing provider CLI and adds the installer's folder to PATH", () => {
+    const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin" };
+    const claudeDriver = ProviderDriverKind.make("claudeAgent");
+    const instanceId = ProviderInstanceId.make("claude_work");
+    return Effect.gen(function* () {
+      const { registry, providersRef, updateStatesRef } = yield* makeRegistry({
+        ...baseProvider,
+        instanceId,
+        driver: claudeDriver,
+        installed: false,
+        status: "error",
+        version: null,
+      });
+      const updater = yield* makeTestRunner({
+        ...registry,
+        getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
+          Effect.succeed({ ...lifecycleFor(provider), update: null }),
+        refreshInstance: () =>
+          Ref.updateAndGet(providersRef, (providers) =>
+            providers.map((provider) =>
+              calls.length > 0
+                ? { ...provider, installed: true, status: "ready" as const }
+                : provider,
+            ),
+          ),
+      });
+
+      yield* updater.updateProvider({ provider: claudeDriver, instanceId });
+      assert.deepStrictEqual(calls, [
+        { command: "sh", args: ["-c", "curl -fsSL https://claude.ai/install.sh | bash"] },
+      ]);
+      assert.strictEqual(env.PATH, "/home/dev/.local/bin:/usr/bin");
+      assert.deepStrictEqual(
+        (yield* Ref.get(updateStatesRef)).map((state) => [state.status, state.message]),
+        [
+          ["queued", "Waiting for another provider install to finish."],
+          ["running", "Running curl -fsSL https://claude.ai/install.sh | bash"],
+          ["succeeded", "Provider installed."],
+        ],
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          layerNonWindowsPlatform,
+          Layer.succeed(HostProcess.HomeDirectory, "/home/dev"),
+          Layer.succeed(HostProcess.Environment, env),
+          layerLatestVersionHttpClient("0.0.0"),
+          layerMockSpawner((command, args) => {
+            calls.push({ command, args });
+            return { stdout: "installed" };
+          }),
+        ),
+      ),
+    );
+  });
+
   it.effect("spawns the updater with the environment its capabilities declare", () => {
     const seen: Array<NodeJS.ProcessEnv | undefined> = [];
     return Effect.gen(function* () {

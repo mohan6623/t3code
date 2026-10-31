@@ -3302,6 +3302,8 @@ export default function ChatView(props: ChatViewProps) {
     threadPanelOpen,
     threadPanelPresentation,
     threadPanelPopoverHandle,
+    // Fork: hover peek of the closed details card.
+    threadPanelPeekKey: activeThreadKey,
     threadPanelShortcutLabel: shortcutLabelForCommand(keybindings, "threadPanel.toggle"),
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,

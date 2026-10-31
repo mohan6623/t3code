@@ -9,6 +9,7 @@ import type { ThreadPanelPresentation } from "../../rightPanelLayout";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { scheduleThreadDetailsPeek } from "./threadDetailsPeek";
 
 export interface PanelLayoutControlsProps {
   showThreadPanelControl?: boolean;
@@ -20,6 +21,8 @@ export interface PanelLayoutControlsProps {
   threadPanelOpen: boolean;
   threadPanelPresentation: ThreadPanelPresentation;
   threadPanelPopoverHandle?: ReturnType<typeof PopoverCreateHandle>;
+  /** Fork: the scoped thread key whose closed details card peeks while the toggle is hovered. */
+  threadPanelPeekKey?: string | null;
   threadPanelShortcutLabel: string | null;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
@@ -40,6 +43,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   threadPanelOpen,
   threadPanelPresentation,
   threadPanelPopoverHandle,
+  threadPanelPeekKey = null,
   threadPanelShortcutLabel,
   rightPanelAvailable,
   rightPanelOpen,
@@ -49,11 +53,19 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleThreadPanel,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
+  // Fork: hovering the toggle while the panel is closed peeks the details card.
+  const peekKey = threadPanelOpen ? null : threadPanelPeekKey;
   const threadPanelToggle = (
     <Toggle
       className="relative shrink-0 [-webkit-app-region:no-drag]"
       pressed={threadPanelOpen}
       onPressedChange={threadPanelPresentation === "popover" ? undefined : onToggleThreadPanel}
+      {...(peekKey !== null
+        ? {
+            onMouseEnter: () => scheduleThreadDetailsPeek(peekKey),
+            onMouseLeave: () => scheduleThreadDetailsPeek(null),
+          }
+        : {})}
       aria-label="Toggle thread details panel"
       variant="ghost"
       size="sm"

@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
 import { Popover, PopoverPopup, PopoverCreateHandle } from "../ui/popover";
@@ -18,6 +19,12 @@ import {
 } from "./threadDetailsCardLayout";
 import { observeResize } from "../../lib/observeResize";
 import { requestWorkspaceFocus } from "../../lib/workspaceFocus";
+import {
+  endThreadDetailsPeek,
+  holdThreadDetailsPeek,
+  scheduleThreadDetailsPeek,
+  useThreadDetailsPeekStore,
+} from "./threadDetailsPeek";
 
 export function ThreadDetailsCard({
   threadRef,
@@ -47,6 +54,12 @@ export function ThreadDetailsCard({
   const popoverOpen = useRightPanelStore((state) =>
     selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "popover"),
   );
+  // Fork: a hover peek shows the closed card in the popover, in either mode.
+  const peeking = useThreadDetailsPeekStore(
+    (state) => state.threadKey !== null && state.threadKey === scopedThreadKey(threadRef),
+  );
+  const peekShown = peeking && !(mode === "inline" ? inlineOpen : popoverOpen);
+  const inPopup = mode === "popover" || peekShown;
   const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${contentKey}`;
   const [measurements, setMeasurements] = useState({
     key: measurementKey,
@@ -116,10 +129,9 @@ export function ThreadDetailsCard({
     <div
       className={cn(
         "dropdown-glass isolate contain-paint grid max-h-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-2xl",
-        mode === "popover" &&
-          "max-h-[min(calc(100dvh-6.5rem),calc(var(--available-height,100dvh)-1rem))]",
+        inPopup && "max-h-[min(calc(100dvh-6.5rem),calc(var(--available-height,100dvh)-1rem))]",
       )}
-      style={placement ? { maxHeight: height } : undefined}
+      style={placement && !inPopup ? { maxHeight: height } : undefined}
       onContextMenu={onContextMenu}
       data-thread-details-card
     >
@@ -131,7 +143,7 @@ export function ThreadDetailsCard({
   return (
     <Popover
       handle={handle}
-      open={mode === "popover" && popoverOpen}
+      open={(mode === "popover" && popoverOpen) || peekShown}
       onOpenChange={(open, details) => {
         const target =
           details.reason === "focus-out"
@@ -143,7 +155,10 @@ export function ThreadDetailsCard({
           details.cancel();
           return;
         }
-        useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", open);
+        endThreadDetailsPeek();
+        // Fork: a click on the toggle while peeking pins the popover open.
+        const pin = peekShown && details.reason === "trigger-press";
+        useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", open || pin);
       }}
     >
       {placement && inlineOpen ? (
@@ -175,9 +190,16 @@ export function ThreadDetailsCard({
         role="dialog"
         data-workspace-focus-key={`details:${threadRef.environmentId}:${threadRef.threadId}`}
         initialFocus={() => {
-          requestWorkspaceFocus({ area: "details" });
+          // Fork: a hover peek leaves focus where the user is typing.
+          if (!peekShown) requestWorkspaceFocus({ area: "details" });
           return false;
         }}
+        {...(peekShown
+          ? {
+              onMouseEnter: holdThreadDetailsPeek,
+              onMouseLeave: () => scheduleThreadDetailsPeek(null),
+            }
+          : {})}
         anchor={anchor}
         align="end"
         // Account for the find panel's 8px card padding.
@@ -188,7 +210,7 @@ export function ThreadDetailsCard({
         variant="panel"
         padding="none"
       >
-        {mode === "popover" ? (
+        {inPopup ? (
           <div data-density={density} data-thread-details-panel="popover">
             {card}
           </div>

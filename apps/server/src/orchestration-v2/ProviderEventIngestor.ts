@@ -531,6 +531,8 @@ export const layer: Layer.Layer<
         readonly cost: number;
       }>
     >();
+    /** Fork: `child:account` shares that are still a live token estimate, not finished-turn cost. */
+    const estimatedChildShares = new Set<string>();
     const notSubagentThreads = new Set<ThreadId>();
     const childTokensReport = (
       input: ProviderEventIngestInput,
@@ -589,13 +591,38 @@ export const layer: Layer.Layer<
               const index = limits.findIndex(
                 (share) => share.providerInstanceId === entry.instanceId,
               );
+              // A finished turn's real cost replaces the live estimate.
+              const estimated = estimatedChildShares.delete(`${childThreadId}:${entry.instanceId}`);
               const share = limitShare(
                 entry.instanceId,
                 entry.model,
-                (index === -1 ? 0 : limits[index]!.cost) + entry.cost,
+                (index === -1 || estimated ? 0 : limits[index]!.cost) + entry.cost,
               );
               if (index === -1) limits.push(share);
               else limits[index] = share;
+            }
+            // Fork: until its first turn ends, a running subagent's share is its live
+            // token count at its account's average cost per token.
+            const perToken = calibration.costPerToken(input.providerInstanceId);
+            const estimateKey = `${childThreadId}:${input.providerInstanceId}`;
+            const estimateIndex = limits.findIndex(
+              (share) => share.providerInstanceId === input.providerInstanceId,
+            );
+            if (
+              costs === undefined &&
+              perToken !== undefined &&
+              tokens > 0 &&
+              (estimateIndex === -1 || estimatedChildShares.has(estimateKey))
+            ) {
+              const share = limitShare(
+                input.providerInstanceId,
+                turnModel(input),
+                tokens * perToken,
+              );
+              if (estimateIndex === -1) limits.push(share);
+              else limits[estimateIndex] = share;
+              if (estimatedChildShares.size >= 4096) estimatedChildShares.clear();
+              estimatedChildShares.add(estimateKey);
             }
             const now = yield* DateTime.now;
             const payload: OrchestrationV2Subagent = {

@@ -2445,7 +2445,7 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
       recorded.push({ instanceId, ...(model === undefined ? {} : { model }), cost });
     },
     limitShares: ({ cost }) => [{ id: "primary", label: "Session", percent: cost * 100 }],
-    costPerToken: () => undefined,
+    costPerToken: () => 1e-6,
   });
   return Effect.gen(function* () {
     const now = yield* DateTime.now;
@@ -2461,6 +2461,9 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
       Math.abs((entry?.usage?.limits?.[0]?.cost ?? 0) - 2 * cost) < 1e-6;
     // Each turn's cost lands on a detached fiber, so the test waits for the sink to commit both.
     const parentCostWritten = yield* Deferred.make<void>();
+    const parentEstimateWritten = yield* Deferred.make<void>();
+    const estimated = (entry: OrchestrationV2Subagent | undefined) =>
+      Math.abs((entry?.usage?.limits?.[0]?.cost ?? 0) - 0.05) < 1e-6;
     const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2.pipe(
       Effect.provide(
         Layer.fresh(ProviderEventIngestor.layer).pipe(Layer.provide(layerCalibration)),
@@ -2481,7 +2484,14 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
                       settled(event.payload),
                   )
                     ? Deferred.succeed(parentCostWritten, undefined)
-                    : Effect.void,
+                    : input.events.some(
+                          (event) =>
+                            event.type === "subagent.updated" &&
+                            event.threadId === rootEvent.threadId &&
+                            estimated(event.payload),
+                        )
+                      ? Deferred.succeed(parentEstimateWritten, undefined)
+                      : Effect.void,
                 ),
               ),
         }),
@@ -2578,6 +2588,36 @@ it.effect("adds a delegated subagent's finished turn to its account and its pare
         },
       },
     });
+    // While the first turn runs, the row shows 50k live tokens at 1e-6 per token.
+    yield* ingest(childThreadId, {
+      type: "provider_thread.updated",
+      driver: CODEX_DRIVER,
+      providerThread: {
+        id: providerThreadId,
+        driver: CODEX_DRIVER,
+        providerInstanceId: modelSelection.instanceId,
+        providerSessionId,
+        appThreadId: childThreadId,
+        ownerNodeId: null,
+        nativeThreadRef: {
+          driver: CODEX_DRIVER,
+          nativeId: "native-costed-child",
+          strength: "strong",
+        },
+        nativeConversationHeadRef: null,
+        status: "idle",
+        firstRunOrdinal: null,
+        lastRunOrdinal: null,
+        handoffIds: [],
+        forkedFrom: null,
+        contextUsage: { usedTokens: 50_000 },
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    yield* Deferred.await(parentEstimateWritten);
+
+    // The finished turns' real cost replaces the estimate.
     yield* ingest(childThreadId, finishedTurn("costed-turn-1", 1));
     yield* ingest(childThreadId, finishedTurn("costed-turn-1", 1));
     yield* ingest(childThreadId, finishedTurn("costed-turn-2", 2));

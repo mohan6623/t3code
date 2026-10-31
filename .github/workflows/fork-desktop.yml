@@ -326,8 +326,10 @@ jobs:
           path: release
           merge-multiple: true
 
-      # The app's update popup shows this body under "What's changed", so it lists the
-      # commits since the previous release: the fork's own first, then upstream's.
+      # The app's update popup reads only the part above <details>, in order: the
+      # `**vX** · stats` line becomes its GitHub link and the bullets its list
+      # (apps/desktop/src/updates/releaseNotes.ts). Any other line there would
+      # replace the list, so the build details stay in the fold.
       - name: Check out history for release notes
         uses: actions/checkout@v6
         with:
@@ -342,30 +344,51 @@ jobs:
         run: |
           set -euo pipefail
           cd src
-          prev="$(gh release list --limit 10 --json tagName --jq '.[].tagName' | grep -vx "v$VERSION" | head -n 1 || true)"
-          if [ -n "$prev" ] && git rev-parse -q --verify "$prev^{commit}" >/dev/null; then
-            range="$prev..$GITHUB_SHA"
-          else
-            prev=""
-            range="$GITHUB_SHA~20..$GITHUB_SHA"
-          fi
-          log="$(git log --no-merges --format='%ae%x09%s' "$range")"
-          fork="$(printf '%s\n' "$log" | awk -F'\t' -v e="$FORK_EMAIL" 'NF > 1 && $1 == e { print "- " $2 }' | head -n 30)"
-          upstream="$(printf '%s\n' "$log" | awk -F'\t' -v e="$FORK_EMAIL" 'NF > 1 && $1 != e { print "- " $2 }')"
-          upstream_count="$(printf '%s' "$upstream" | grep -c '^- ' || true)"
-          notes="$RUNNER_TEMP/release-notes.md"
-          {
-            if [ -n "$fork" ]; then printf '%s\n' "$fork"; fi
-            if [ "$upstream_count" -gt 0 ]; then
-              printf '\n**From upstream (%s):**\n' "$upstream_count"
-              printf '%s\n' "$upstream" | head -n 15
-              if [ "$upstream_count" -gt 15 ]; then printf -- '- ...and %s more\n' "$((upstream_count - 15))"; fi
+          # The newest earlier release this build grows from bounds the commit list.
+          prev=""
+          for tag in $(gh release list --limit 20 --json tagName --jq '.[].tagName'); do
+            if [ "$tag" != "v$VERSION" ] && git rev-parse -q --verify "$tag^{commit}" >/dev/null &&
+              git merge-base --is-ancestor "$tag" "$GITHUB_SHA"; then
+              prev="$tag"
+              break
             fi
-            if [ -z "$fork" ] && [ "$upstream_count" -eq 0 ]; then printf -- '- Rebuild with no new commits.\n'; fi
-            printf '\n---\nFork build of `%s` (since %s).\n' "${GITHUB_SHA:0:10}" "${prev:-the last 20 commits}"
-            printf 'Windows: run the `.exe`. macOS (Apple Silicon): open the `.dmg`; the first launch needs System Settings > Privacy & Security > Open Anyway.\n'
-          } > "$notes"
-          cat "$notes"
+          done
+          if [ -n "$prev" ]; then range="$prev..$GITHUB_SHA"; else range="$GITHUB_SHA~20..$GITHUB_SHA"; fi
+          git log --no-merges --format='%ae%x09%s' "$range" > "$RUNNER_TEMP/commits.tsv"
+          # The popup lists the fork's commits, then up to 10 upstream ones without
+          # CI, dependency or test noise. Backticks keep `@name` from mentioning anyone.
+          awk -F'\t' -v email="$FORK_EMAIL" -v version="$VERSION" -v sha="${GITHUB_SHA:0:10}" \
+            -v since="${prev:-the last 20 commits}" '
+            function plural(n, word) { return n " " word (n == 1 ? "" : "s") }
+            NF < 2 { next }
+            {
+              subject = substr($0, length($1) + 2)
+              gsub(/@[A-Za-z0-9_\/.-]+/, "`&`", subject)
+              if ($1 == email) { fork[++nf] = subject; next }
+              upstream[++nu] = subject
+              if (nn >= 10 || subject ~ /^((ci|chore|build|tests?|docs|refactor|style)(\([^)]*\))?|[a-z]+\((ci|deps|release|tests?)\))!?: /) next
+              sub(/^[a-z]+(\([^)]*\))?!?: /, "", subject)
+              notable[++nn] = toupper(substr(subject, 1, 1)) substr(subject, 2)
+            }
+            END {
+              if (nf && nu) stats = plural(nf, "fork change") ", " nu " from upstream"
+              else if (nf) stats = plural(nf, "fork change")
+              else if (nu) stats = plural(nu, "upstream change")
+              else stats = "no new commits"
+              printf "**v%s** · %s\n\n", version, stats
+              for (i = 1; i <= nf && i <= 15; i++) print "- " fork[i]
+              for (i = 1; i <= nn; i++) print "- " notable[i]
+              if (!nf && !nu) print "- Rebuild with no new commits."
+              printf "\n<details>\n<summary>Full changelog</summary>\n\nFork build of `%s` (since %s).\n", sha, since
+              if (nf) { printf "\n**Fork (%d):**\n\n", nf; for (i = 1; i <= nf; i++) print "- " fork[i] }
+              if (nu) {
+                printf "\n**From upstream (%d):**\n\n", nu
+                for (i = 1; i <= nu && i <= 300; i++) print "- " upstream[i]
+                if (nu > 300) printf "- ...and %d more\n", nu - 300
+              }
+              printf "\n</details>\n"
+            }' "$RUNNER_TEMP/commits.tsv" > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
 
       # electron-updater reads the newest prerelease whose tag carries the
       # "nightly" channel, then fetches nightly.yml (Windows) or

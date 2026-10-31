@@ -7943,6 +7943,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       remoteChild,
       status: command.status,
       result: command.result,
+      ...(command.usage === undefined ? {} : { usage: command.usage }),
       completedAt: now,
       updatedAt: now,
     };

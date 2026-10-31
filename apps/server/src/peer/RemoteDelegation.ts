@@ -7,6 +7,7 @@ import {
   type OrchestratorMcpTaskCancelResult,
   type OrchestratorMcpThreadTimelineItem,
   type OrchestrationV2RemoteTaskChild,
+  type OrchestrationV2SubagentUsage,
   type OrchestrationV2Subagent,
   type ProjectId,
   type ProviderInstanceId,
@@ -368,6 +369,7 @@ const make = Effect.gen(function* () {
     result: string,
     stoppedThere: "ran-out" | "stopped" | undefined,
     stopCount?: number,
+    usage?: OrchestrationV2SubagentUsage,
   ) {
     const attempt = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
     yield* threads
@@ -380,6 +382,7 @@ const make = Effect.gen(function* () {
         result,
         ...(stoppedThere === undefined ? {} : { stoppedThere }),
         ...(stopCount === undefined ? {} : { stopCount }),
+        ...(usage === undefined ? {} : { usage }),
       })
       .pipe(
         Effect.catch((error) =>
@@ -502,6 +505,15 @@ const make = Effect.gen(function* () {
     Effect.orElseSucceed(() => undefined),
   );
 
+  /** Fork: the task's usage there; an older environment reports none. */
+  const remoteUsage = (scope: ThreadScope, remote: OrchestrationV2RemoteTaskChild) =>
+    forwarding
+      .readThread(scope, remote.environmentId, { threadId: remote.threadId, limit: 1 })
+      .pipe(
+        Effect.map((read) => read.thread.usage),
+        Effect.orElseSucceed(() => undefined),
+      );
+
   /** A task's thread there that ended without a reply. */
   const noReply = "(The thread in the linked environment ended without a reply.)";
 
@@ -620,6 +632,8 @@ const make = Effect.gen(function* () {
         reply === undefined ? "failed" : "completed",
         reply ?? "The thread in the linked environment has no run to follow.",
         "ran-out",
+        undefined,
+        yield* remoteUsage(scope, remote),
       );
       return yield* settled(parentThreadId, taskId);
     }
@@ -635,6 +649,8 @@ const make = Effect.gen(function* () {
       terminalStatus(resultRun.status),
       result ?? noReply,
       "ran-out",
+      undefined,
+      yield* remoteUsage(scope, remote),
     );
     return yield* settled(parentThreadId, taskId);
   });

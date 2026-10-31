@@ -280,11 +280,28 @@ function RemoteSubagentRow(props: {
             on {remoteChild.label} · {threadRelationshipStatusLabel(status)}
           </span>
         </TooltipTrigger>
-        <TooltipPopup side="left">
-          {environment === null
-            ? `Runs on ${remoteChild.label}. Connect to it to open the thread there.`
-            : `Open on ${remoteChild.label}`}
-        </TooltipPopup>
+        {/* Fork: the same card as a local subagent, so its tokens and limit estimate show. */}
+        <ThreadHoverCardPopup side="left">
+          <SubagentTooltipContent
+            title={title}
+            model={props.agent.model}
+            providerInstanceId={props.agent.providerInstanceId}
+            origin={props.agent.origin}
+            provider={props.provider}
+            driver={props.provider?.driver}
+            status={status}
+            result={props.agent.result}
+            progress={props.agent.progress}
+            usage={props.agent.usage}
+            footer={
+              <div className="pl-0.5 text-xs text-muted-foreground">
+                {environment === null
+                  ? `Runs on ${remoteChild.label}. Connect to it to open the thread there.`
+                  : `Open on ${remoteChild.label}`}
+              </div>
+            }
+          />
+        </ThreadHoverCardPopup>
       </Tooltip>
     </li>
   );

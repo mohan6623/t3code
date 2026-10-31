@@ -38,6 +38,7 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2RunStatus,
+  OrchestrationV2SubagentUsage,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
@@ -451,6 +452,8 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   settledAt: Schema.NullOr(IsoDateTime),
   snoozed: Schema.Boolean,
   snoozedUntil: Schema.NullOr(IsoDateTime),
+  /** Fork: tokens and limit estimate of a thread delegated from a linked environment. */
+  usage: Schema.optional(OrchestrationV2SubagentUsage),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

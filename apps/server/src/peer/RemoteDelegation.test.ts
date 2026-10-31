@@ -8,6 +8,7 @@ import {
   MessageId,
   NodeId,
   type OrchestrationV2Run,
+  type OrchestrationV2ThreadProjection,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -233,9 +234,30 @@ const boxToolkitLayer = (thread: BoxThread) => {
       const shell = yield* shellOf(threadId);
       const status = yield* Ref.get(thread.status);
       const runless = yield* Ref.get(thread.runless);
-      return shell === null
-        ? (null as never)
-        : { ...idleThreadProjection(shell), runs: runless ? [] : [runOf(status)] };
+      if (shell === null) return null as never;
+      // Fork: a thread delegated from the laptop reports its usage, from one finished turn.
+      const delegatedFrom = yield* Ref.get(thread.delegatedFrom);
+      const base = idleThreadProjection(shell);
+      const providerThreadId = ProviderThreadId.make("provider-thread:box");
+      return {
+        ...base,
+        thread: { ...base.thread, ...(delegatedFrom === null ? {} : { delegatedFrom }) },
+        runs: runless ? [] : [runOf(status)],
+        providerThreads: [
+          { id: providerThreadId, driver: "codex", providerInstanceId: instanceId },
+        ] as unknown as OrchestrationV2ThreadProjection["providerThreads"],
+        providerTurns: [
+          {
+            providerThreadId,
+            tokenUsage: { usedTokens: 42_000 },
+            turnTokenUsage: {
+              inputTokens: 1_000_000,
+              cachedInputTokens: 800_000,
+              outputTokens: 10_000,
+            },
+          },
+        ] as unknown as OrchestrationV2ThreadProjection["providerTurns"],
+      };
     });
   // One record per command id, as its receipt replays a repeat.
   const recordStop = (commandId: string, kind: "interrupt" | "thread.stop" | "delegated-tasks") =>
@@ -828,6 +850,12 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
       yield* Deferred.succeed(thread.finished, undefined);
       const task = yield* taskResult(a, delegated.taskId);
       expect(task).toMatchObject({ status: "completed", result: "All 412 tests pass on the box." });
+      // Fork: the box reports the task's tokens and cost, so its hover card shows them here.
+      expect(task?.usage).toMatchObject({
+        totalTokens: 42_000,
+        limits: [{ providerInstanceId: instanceId, windows: [] }],
+      });
+      expect(task?.usage?.limits?.[0]?.cost).toBeGreaterThan(0);
       // The parent's live run claims the result, as for a child here.
       const parentRun = (yield* a.orchestrator.getThreadProjection(parentThreadId)).runs.find(
         (run) => run.id === parentRunId,

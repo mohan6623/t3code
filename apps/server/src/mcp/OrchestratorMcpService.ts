@@ -7,8 +7,11 @@ import {
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   TurnItemId,
+  type OrchestrationV2ProviderThread,
+  type OrchestrationV2ProviderTurn,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
+  type OrchestrationV2SubagentUsage,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
@@ -58,12 +61,14 @@ import {
   type RuntimeMode,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
+  type ProviderInstanceId,
   type ServerProvider,
   type ServerProviderModel,
   ThreadId,
   isOrchestrationV2WorkActive,
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
+import { totalTurnTokens, turnCostScore } from "@t3tools/shared/usageCost";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import {
@@ -121,6 +126,7 @@ import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+import { UsageCalibration, type UsageCalibrationShape } from "../usage/UsageCalibration.ts";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
@@ -831,6 +837,44 @@ function threadDetail(
   };
 }
 
+/**
+ * Fork: a thread's tokens and its estimated share of each account's limits, from its
+ * provider turns. The tokens are its latest context size, as a local subagent row shows.
+ */
+function delegatedThreadUsage(
+  records: {
+    readonly providerThreads: ReadonlyArray<OrchestrationV2ProviderThread>;
+    readonly providerTurns: ReadonlyArray<OrchestrationV2ProviderTurn>;
+  },
+  model: string,
+  calibration: UsageCalibrationShape,
+): OrchestrationV2SubagentUsage | undefined {
+  const owners = new Map(records.providerThreads.map((thread) => [thread.id, thread]));
+  const costs = new Map<ProviderInstanceId, number>();
+  let processed = 0;
+  let context: number | undefined;
+  for (const turn of records.providerTurns) {
+    context = turn.tokenUsage?.usedTokens ?? context;
+    const owner = owners.get(turn.providerThreadId);
+    if (turn.turnTokenUsage === undefined || owner === undefined) continue;
+    processed += totalTurnTokens(turn.turnTokenUsage);
+    const cost = turnCostScore(owner.driver, model, turn.turnTokenUsage);
+    costs.set(owner.providerInstanceId, (costs.get(owner.providerInstanceId) ?? 0) + cost);
+  }
+  const totalTokens = Math.round(context ?? processed);
+  if (totalTokens === 0 && costs.size === 0) return undefined;
+  const limits = [...costs]
+    .filter(([, cost]) => cost > 0)
+    .map(([instanceId, cost]) => ({
+      providerInstanceId: instanceId,
+      cost: Math.round(cost * 1e6) / 1e6,
+      windows: calibration
+        .limitShares({ instanceId, model, cost })
+        .map((window) => ({ ...window, percent: Math.round(window.percent * 1e4) / 1e4 })),
+    }));
+  return { totalTokens, ...(limits.length === 0 ? {} : { limits }) };
+}
+
 function threadRun(run: OrchestrationV2Run): OrchestratorMcpThreadRun {
   return {
     runId: run.id,
@@ -963,6 +1007,7 @@ function timelineItem(input: {
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+  const calibration = yield* UsageCalibration;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
@@ -2885,14 +2930,29 @@ const make = Effect.gen(function* () {
           }
         }
       }
+      // Fork: a thread delegated from a linked environment reports its usage, so the task there shows it.
+      const usage =
+        target.thread.delegatedFrom === undefined
+          ? undefined
+          : yield* threadManagement
+              .getThreadRecords(target.thread.id, ["providerThreads", "providerTurns"])
+              .pipe(
+                Effect.map((records) =>
+                  delegatedThreadUsage(records, target.thread.modelSelection.model, calibration),
+                ),
+                Effect.orElseSucceed(() => undefined),
+              );
       return {
-        thread: threadDetail(
-          scope,
-          target,
-          timeline.totalItems,
-          shell,
-          yield* Clock.currentTimeMillis,
-        ),
+        thread: {
+          ...threadDetail(
+            scope,
+            target,
+            timeline.totalItems,
+            shell,
+            yield* Clock.currentTimeMillis,
+          ),
+          ...(usage === undefined ? {} : { usage }),
+        },
         recentRuns: target.runs
           .toSorted((left, right) => right.ordinal - left.ordinal)
           .slice(0, input.runLimit ?? DEFAULT_THREAD_RUN_LIMIT)

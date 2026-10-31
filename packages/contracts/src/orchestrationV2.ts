@@ -3470,6 +3470,8 @@ const OrchestrationV2InternalCommand = Schema.Union([
     stoppedThere: Schema.optional(Schema.Literals(["ran-out", "stopped"])),
     /** The stop generation this report acknowledges; absent for the original unnumbered stop. */
     stopCount: Schema.optional(NonNegativeInt),
+    /** Fork: the task's usage as its environment reported it. */
+    usage: Schema.optional(OrchestrationV2SubagentUsage),
   }),
   /**
    * Owes a stop to the thread there of a remote task that already has its result, as Stop on

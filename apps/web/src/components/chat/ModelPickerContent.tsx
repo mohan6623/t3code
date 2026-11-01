@@ -22,7 +22,6 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { ChevronRightIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
@@ -758,11 +757,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     const modelKeys = visibleModels.map((model) =>
       modelPickerModelKey(model.instanceId, model.slug),
     );
-    if (!legacySection) {
-      return modelKeys;
-    }
-    modelKeys.splice(legacySection.currentModels.length, 0, legacySection.key);
-    return modelKeys;
+    // The toggle trails the list, so expanding it reveals older models above it.
+    return legacySection ? [...modelKeys, legacySection.key] : modelKeys;
   })();
   const filteredModelByKey = ((): ReadonlyMap<string, ModelPickerItem> =>
     new Map(
@@ -784,7 +780,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   };
 
   const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
-    if (event.defaultPrevented || event.repeat || isCommandPaletteOpen()) {
+    if (
+      event.defaultPrevented ||
+      event.repeat ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      isCommandPaletteOpen()
+    ) {
       return;
     }
 
@@ -929,6 +931,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 setSearchQuery(e.target.value);
               }}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) {
+                  (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+                  e.stopPropagation();
+                  return;
+                }
                 if (
                   showSidebar &&
                   !e.altKey &&
@@ -994,18 +1001,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                       aria-expanded={legacySection.isExpanded}
                       className="group w-full cursor-pointer"
                     >
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="text-sm font-normal leading-snug">Legacy models</div>
-                        <div className="mt-1 text-xs font-normal leading-snug text-muted-foreground">
-                          {legacySection.legacyModels.length} models
-                        </div>
-                      </div>
-                      <ChevronRightIcon
-                        className={cn(
-                          "size-4 transition-transform",
-                          legacySection.isExpanded && "rotate-90",
-                        )}
-                      />
+                      <span className="text-sm leading-snug text-muted-foreground group-hover:text-foreground group-data-highlighted:text-foreground">
+                        {legacySection.isExpanded ? "Show less" : "Show more"}
+                      </span>
                     </ComboboxItem>
                   );
                 }

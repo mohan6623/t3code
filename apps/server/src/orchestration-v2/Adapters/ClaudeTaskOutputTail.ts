@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as OS from "node:os";
+import * as NodeOS from "node:os";
 
 /** The SDK withholds stdout until tool results; tail task_started files for live output.
  * The private Claude layout can change; failures omit live output and retain the final result. */
@@ -21,11 +21,21 @@ const MAX_READ_BYTES = 256 * 1024;
 export function claudeTaskOutputRoot(
   environment: Readonly<Record<string, string | undefined>> | undefined,
   path: Path.Path,
+  cwd: string | null,
+  platform: NodeJS.Platform,
 ): string | undefined {
   const override = environment?.CLAUDE_CODE_TMPDIR?.trim();
   const uid = process.getuid?.();
-  if (uid === undefined) return path.join(override || OS.tmpdir(), "claude");
-  return path.join(override || "/tmp", `claude-${uid}`);
+  if (uid === undefined) return path.resolve(cwd ?? ".", override || NodeOS.tmpdir(), "claude");
+  // Claude Code's macOS build falls back to /tmp and ignores the TMPDIR that
+  // launchd always sets. Its other builds use `os.tmpdir()`, which reads these
+  // from the environment it was launched with. A relative value is relative
+  // to Claude's working directory, not this server's.
+  const fallback =
+    platform === "darwin"
+      ? "/tmp"
+      : environment?.TMPDIR || environment?.TMP || environment?.TEMP || "/tmp";
+  return path.resolve(cwd ?? ".", override || fallback, `claude-${uid}`);
 }
 
 const locate = Effect.fn("ClaudeTaskOutputTail.locate")(function* (input: {

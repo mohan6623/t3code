@@ -231,6 +231,7 @@ function SidebarProvider({
       peek ? SIDEBAR_PEEK_OPEN_DELAY_MS : SIDEBAR_PEEK_CLOSE_DELAY_MS,
     );
   };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the pending peek timer on unmount
   React.useEffect(
     () => () => {
       if (peekTimerRef.current !== null) clearTimeout(peekTimerRef.current);
@@ -738,7 +739,10 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col gap-2 px-[var(--sidebar-content-inset)] py-1", className)}
+      className={cn(
+        "flex flex-col gap-2 px-[var(--sidebar-content-inset)] pt-1 pb-[var(--sidebar-content-inset)]",
+        className,
+      )}
       data-sidebar="footer"
       data-slot="sidebar-footer"
       {...props}

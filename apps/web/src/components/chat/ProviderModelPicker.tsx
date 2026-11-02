@@ -253,7 +253,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <TooltipTrigger
               render={
                 <span
-                  className="min-w-0 flex-1 overflow-hidden truncate"
+                  className={cn(
+                    "min-w-0 flex-1 overflow-hidden truncate",
+                    // Long names such as "Fusion (Claude Opus 5.5 Medium + SWE-2 High)" would push the composer.
+                    props.isComposerOwned && "max-w-56",
+                  )}
                   data-chat-provider-model-picker-label="true"
                 />
               }

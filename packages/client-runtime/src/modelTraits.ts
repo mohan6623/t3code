@@ -11,10 +11,24 @@ import {
 } from "@t3tools/shared/model";
 import { REASONING_EFFORT_OPTION_IDS } from "./state/threadExecution.ts";
 
-export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
+const REASONING_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([
   ...REASONING_EFFORT_OPTION_IDS,
   "thinking",
 ]);
+
+/** The model's reasoning control: a known effort id, or a select its agent marked as reasoning. */
+export function isReasoningControl(descriptor: ProviderOptionDescriptor): boolean {
+  return (
+    (descriptor.type === "select" && descriptor.role === "reasoning") ||
+    REASONING_DESCRIPTOR_IDS.has(descriptor.id)
+  );
+}
+
+export function isReasoningSelect(
+  descriptor: ProviderOptionDescriptor,
+): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> {
+  return descriptor.type === "select" && isReasoningControl(descriptor);
+}
 
 export function replaceDescriptorCurrentValue(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
@@ -102,7 +116,11 @@ export function buildTraitsTriggerDisplay(input: {
   ultrathinkPromptControlled: boolean;
   modelSelection?: ModelSelection | null;
   reportedModelSelection?: ModelSelection | null | undefined;
-}): { label: string } {
+}): {
+  label: string;
+  /** "Fast" or "Ultrafast" when a speed option is on. */
+  speedLabel: string | null;
+} {
   let fastModeFallbackLabel: string | null = null;
   let speedLabel: string | null = null;
   let reasoningLabelIndex = -1;
@@ -148,11 +166,7 @@ export function buildTraitsTriggerDisplay(input: {
               input.reportedModelSelection,
             );
     if (typeof label === "string" && label.length > 0) {
-      if (
-        reasoningLabelIndex === -1 &&
-        descriptor.type === "select" &&
-        REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
-      ) {
+      if (reasoningLabelIndex === -1 && isReasoningSelect(descriptor)) {
         reasoningLabelIndex = labels.length;
       }
       labels.push(label);
@@ -160,7 +174,7 @@ export function buildTraitsTriggerDisplay(input: {
   }
 
   if (labels.length === 0 && fastModeFallbackLabel !== null) {
-    return { label: fastModeFallbackLabel };
+    return { label: fastModeFallbackLabel, speedLabel };
   }
   if (speedLabel) {
     if (reasoningLabelIndex >= 0) {
@@ -169,5 +183,5 @@ export function buildTraitsTriggerDisplay(input: {
       labels.push(speedLabel);
     }
   }
-  return { label: labels.join(" · ") };
+  return { label: labels.join(" · "), speedLabel };
 }

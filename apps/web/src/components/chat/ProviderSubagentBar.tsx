@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-execution";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import type { ContextWindowSnapshot } from "~/lib/contextWindow";
 import { tickTextContent } from "~/lib/tickTextContent";
@@ -21,6 +22,7 @@ export function ProviderSubagentBar(props: {
   readonly onOpenParent: (() => void) | null;
   /** Fork: the subagent's own context use, when its provider reports one. */
   readonly contextWindow?: ContextWindowSnapshot | null | undefined;
+  readonly actions?: ReactNode;
 }) {
   const { status } = props;
   const live = status !== null && isOrchestrationV2WorkActive(status.status);
@@ -72,6 +74,7 @@ export function ProviderSubagentBar(props: {
       {props.contextWindow ? (
         <ContextWindowMeter usage={props.contextWindow} modelDisplayName={props.modelLabel} />
       ) : null}
+      {props.actions}
       {props.onOpenParent ? (
         <Button size="sm" variant="ghost" onClick={props.onOpenParent}>
           <ArrowUpLeftIcon />

@@ -4,7 +4,8 @@ import {
   type VcsRepository,
 } from "@t3tools/contracts";
 
-const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
+/** Session-invariant; harnesses with a native system-prompt append can carry it once per session. */
+export const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
 Link each PR you create, take over, or push to: link_pull_request, or link_pull_requests for several, full URL, every stack layer, as your next call. Host tools do not link for you. If linking fails, say so. Skip PRs you only read or review, and PRs named only as background. Call watch_pull_request when asked to monitor or babysit, or when work you were asked to do, such as a merge, still waits on checks or reviews, even after an earlier unwatch. Finish any needed branch update and push first, then watch and end your turn. Otherwise act now or hand back. Delegated children never watch, even if the brief says babysit. After PR work, a child's last line is: PR <full URL>, head <SHA>, checks and reviews <state>. Links and watches persist across pushes. For PR waits, no sleep, loops, gh --watch, Monitor or ScheduleWakeup. Before handback, call unwatch_pull_request on any PR you watch.
 </pull_request_linking>`;
 
@@ -15,6 +16,8 @@ export function buildRuntimeInstructions(runtime: {
   readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
   readonly repositories?: ReadonlyArray<VcsRepository> | undefined;
+  /** False when the session's system prompt already carries the linking instructions. */
+  readonly pullRequestLinking?: boolean;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -28,7 +31,7 @@ export function buildRuntimeInstructions(runtime: {
   return [
     runtimeInfo,
     buildWorkspaceRepositoriesInstructions(runtime.repositories),
-    PULL_REQUEST_LINKING_INSTRUCTIONS,
+    runtime.pullRequestLinking === false ? "" : PULL_REQUEST_LINKING_INSTRUCTIONS,
   ]
     .filter((section) => section.length > 0)
     .join("\n\n");

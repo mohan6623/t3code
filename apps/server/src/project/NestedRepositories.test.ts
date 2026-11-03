@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { ProjectId } from "@t3tools/contracts";
@@ -38,7 +39,7 @@ const layerTest = Layer.empty.pipe(
   Layer.provideMerge(WorkspaceRepositories.layer),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provide(configLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const git = Effect.fn("test.git")(function* (cwd: string, args: ReadonlyArray<string>) {

@@ -7,6 +7,7 @@ import type {
   ProjectCloneStartInput,
   ProjectCloneStartResult,
   ProjectId,
+  SourceControlCloneProtocol,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import {
@@ -90,6 +91,7 @@ interface TrackedClone {
     readonly repository: SourceControlRepositoryInfo | null;
     /** Fork: cloned below the root once it lands; may carry credentials like `cloneUrl`. */
     readonly nestedRepositories: ReadonlyArray<ProjectCloneNestedRepositoryInput>;
+    readonly protocol: SourceControlCloneProtocol;
   };
 }
 
@@ -248,7 +250,11 @@ export const make = Effect.gen(function* () {
     const pulses = yield* Queue.sliding<void>(1);
     yield* watchForStall(projectId, pulses).pipe(Effect.forkScoped);
     const result = yield* repositories.cloneRepository(
-      { remoteUrl: tracked.input.cloneUrl, destinationPath: tracked.input.destinationPath },
+      {
+        remoteUrl: tracked.input.cloneUrl,
+        destinationPath: tracked.input.destinationPath,
+        protocol: tracked.input.protocol,
+      },
       {
         onProgress: (update) =>
           Queue.offer(pulses, undefined).pipe(Effect.andThen(progress(projectId, update))),
@@ -354,6 +360,7 @@ export const make = Effect.gen(function* () {
             destinationPath: prepared.destinationPath,
             repository: prepared.repository,
             nestedRepositories: input.nestedRepositories ?? [],
+            protocol: input.protocol ?? "auto",
           },
         });
         return [true, next] as const;

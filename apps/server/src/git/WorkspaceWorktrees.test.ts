@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -15,7 +16,7 @@ const layerTest = (baseDir: string) =>
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(VcsProcess.layer),
     Layer.provideMerge(ServerConfig.layerTest(baseDir, baseDir)),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
 const git = (cwd: string, args: ReadonlyArray<string>) =>
@@ -107,7 +108,7 @@ it.effect("creates, renames and removes an isolated run across repositories", ()
         created.path,
       );
     }).pipe(Effect.provide(layerTest(baseDir)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("removes nested worktrees after the workspace file is gone", () =>
@@ -142,7 +143,7 @@ it.effect("removes nested worktrees after the workspace file is gone", () =>
         created.path,
       );
     }).pipe(Effect.provide(layerTest(baseDir)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("uses t3-<hash> in every repository when one has a plain t3 branch", () =>
@@ -176,7 +177,7 @@ it.effect("uses t3-<hash> in every repository when one has a plain t3 branch", (
         "t3-abcd1234",
       );
     }).pipe(Effect.provide(layerTest(baseDir)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("keeps a container that holds anything besides its worktrees and links", () =>
@@ -203,7 +204,7 @@ it.effect("keeps a container that holds anything besides its worktrees and links
       assert.isFalse(yield* fileSystem.exists(path.join(created.path, "api")));
       assert.equal(yield* fileSystem.readFileString(path.join(created.path, "notes.md")), "mine\n");
     }).pipe(Effect.provide(layerTest(baseDir)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("with a workspace file, links files, dot-folders and listed folders only", () =>
@@ -242,5 +243,5 @@ it.effect("with a workspace file, links files, dot-folders and listed folders on
         "team.code-workspace",
       ]);
     }).pipe(Effect.provide(layerTest(baseDir)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

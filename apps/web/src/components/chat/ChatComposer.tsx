@@ -4,7 +4,11 @@ import { runnerSprite } from "./composerRunnerSprites";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { BackgroundThreadContext } from "./backgroundThread";
-import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
+import {
+  resolveRuntimeModeOptions,
+  runtimeModeConfig,
+  runtimeModeOptions as runtimeModes,
+} from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -295,8 +299,6 @@ function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   deadline.current = 0;
   return armed;
 }
-
-const runtimeModeOptions = runtimeModes.map((mode) => ({ mode, ...runtimeModeConfig[mode] }));
 
 export interface ChatComposerHandle {
   focusAtEnd: () => void;
@@ -947,12 +949,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     : (compatibleRuntimeModes[0] ?? runtimeMode);
   // Modes above an administrator's ceiling stay listed, disabled with the reason.
   const managedPolicy = useManagedPolicy(environmentId);
-  const compatibleRuntimeModeOptions = runtimeModeOptions
-    .filter((option) => compatibleRuntimeModes.includes(option.mode))
-    .map((option) => {
-      const disabledReason = managedRuntimeModeDenial(managedPolicy, option.mode);
-      return disabledReason === undefined ? option : { ...option, disabledReason };
-    });
+  const compatibleRuntimeModeOptions = resolveRuntimeModeOptions(
+    compatibleRuntimeModes,
+    managedPolicy,
+  );
   // A thread or draft already above the ceiling would be refused; offer the broadest mode left.
   const runtimeModeCeilingDenial = managedRuntimeModeDenial(managedPolicy, compatibleRuntimeMode);
   const runtimeModeCeilingFallback =

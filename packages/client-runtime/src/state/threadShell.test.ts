@@ -313,7 +313,8 @@ describe("v2 thread shell lists", () => {
     registry.dispose();
   });
 
-  it("lists a task a linked environment runs for a listed thread under that thread", () => {
+  // Fork: the task is a full thread there, so it stays listed beside its parent.
+  it("lists a task a linked environment runs for a listed thread, and under that thread", () => {
     const { registry, threads, snapshotAtom, catalogValueAtom } = makeHarness([
       environmentId,
       remoteEnvironmentId,
@@ -356,7 +357,10 @@ describe("v2 thread shell lists", () => {
       registry
         .get(threads.navigationThreadShellsAtom)
         .map((thread) => `${thread.environmentId}/${thread.id}`);
-    expect(listed()).toEqual([`${environmentId}/${parent.id}`]);
+    expect(listed()).toEqual([
+      `${environmentId}/${parent.id}`,
+      `${remoteEnvironmentId}/${task.id}`,
+    ]);
 
     // The helper the task started there asks for approval: the parent here hears of it.
     registry.set(snapshotAtom(remoteEnvironmentId), {
@@ -391,7 +395,10 @@ describe("v2 thread shell lists", () => {
     });
     expect(listed()).toEqual([`${remoteEnvironmentId}/${task.id}`]);
     registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [parent] });
-    expect(listed()).toEqual([`${environmentId}/${parent.id}`]);
+    expect(listed()).toEqual([
+      `${environmentId}/${parent.id}`,
+      `${remoteEnvironmentId}/${task.id}`,
+    ]);
     const catalog = registry.get(catalogValueAtom);
     const entries = new Map(catalog.entries);
     entries.set(environmentId, { ...entries.get(environmentId)!, enabled: false });

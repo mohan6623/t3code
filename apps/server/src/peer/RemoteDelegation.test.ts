@@ -586,8 +586,21 @@ const makeLaptop = (
       Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
       Layer.provideMerge(Layer.merge(layerOrchestrator, ServerSettings.layerTest())),
     );
-    const layerHere = McpHttpServer.layerOrchestratorToolkit.pipe(
+    const layerHere = Layer.merge(
+      McpHttpServer.layerOrchestratorToolkit,
+      McpHttpServer.layerProjectRegistration,
+    ).pipe(
       Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+      Layer.provide(DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer))),
+      Layer.provide(
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/p" }),
+      ),
+      Layer.provide(Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({})),
+      Layer.provide(
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-remote-delegation-laptop-" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
       Layer.provideMerge(
         RemoteDelegation.layer.pipe(
           Layer.provideMerge(PeerForwarding.layer),
@@ -945,6 +958,23 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
         state: "acknowledged",
         observedByRunId: parentRunId,
       });
+
+      // Fork: an agent's own launch there is not a task, even when it names itself
+      // as the parent; that thread would be hidden there yet missing from Lineage.
+      const launched = yield* a.call("t3_thread_launch", {
+        environmentId: box.environmentId,
+        projectId: boxProject,
+        title: "Founder call",
+        modelSelection,
+        message: "Transcribe the call.",
+        delegatedFrom: {
+          environmentId: laptop.environmentId,
+          threadId: parentThreadId,
+          title: "x",
+        },
+      });
+      expect(launched.isError, JSON.stringify(launched.content)).toBe(false);
+      expect(yield* Ref.get(thread.delegatedFrom)).toBeNull();
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

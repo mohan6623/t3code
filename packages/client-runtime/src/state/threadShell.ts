@@ -69,8 +69,6 @@ export function isShownUnderParent(
   return !isListedThreadLineage(lineage) || delegatedUnderParent.has(threadKey(ref));
 }
 
-const noThreadsUnderParent: ReadonlySet<string> = new Set();
-
 /** Provider-native
     subagents ask on their parent, so they are skipped. */
 function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
@@ -665,12 +663,33 @@ export function createEnvironmentThreadShellAtoms(input: {
     return next;
   }).pipe(Atom.withLabel("environment-quiet-thread-shell-list"));
 
-  // Fork: a task a linked environment runs is a full thread the user may drive, and a
-  // `delegatedFrom` mark alone cannot prove its parent lists it, so it stays in the lists
-  // (and in its parent's Lineage). Kept as an empty set so upstream's callers merge cleanly.
-  const delegatedUnderParentAtom = Atom.make((): ReadonlySet<string> => noThreadsUnderParent).pipe(
-    Atom.withLabel("environment-delegated-under-parent"),
-  );
+  let previousDelegatedUnderParent: ReadonlySet<string> = new Set();
+  const delegatedUnderParentAtom = Atom.make((get) => {
+    const environmentIds = new Set(enabledEnvironmentIds(get(input.catalogValueAtom)));
+    const next = new Set<string>();
+    for (const environmentId of environmentIds) {
+      for (const thread of get(environmentThreadsAtom(environmentId))) {
+        const parent = thread.delegatedFrom;
+        if (
+          parent !== undefined &&
+          environmentIds.has(parent.environmentId) &&
+          // An archived parent leaves navigation; its task there stays listed on its own.
+          get(environmentThreadIndexAtom(parent.environmentId)).get(parent.threadId)?.archivedAt ===
+            null
+        ) {
+          next.add(threadKey({ environmentId, threadId: thread.id }));
+        }
+      }
+    }
+    if (
+      next.size === previousDelegatedUnderParent.size &&
+      [...next].every((key) => previousDelegatedUnderParent.has(key))
+    ) {
+      return previousDelegatedUnderParent;
+    }
+    previousDelegatedUnderParent = next;
+    return next;
+  }).pipe(Atom.withLabel("environment-delegated-under-parent"));
 
   let previousNavigationShells: ReadonlyArray<EnvironmentThreadShell> = [];
   const navigationThreadShellsAtom = Atom.make((get) => {

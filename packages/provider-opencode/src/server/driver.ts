@@ -54,6 +54,10 @@ import {
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
+import {
   enrichProviderSnapshotWithVersionAdvisory,
   makeCachedProviderMaintenanceResolution,
   makeManualOnlyProviderMaintenanceCapabilities,
@@ -209,13 +213,16 @@ export const OpenCodeDriver: ProviderDriver<
       driverKind: DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: OpenCode signs in from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: false });
     const effectiveConfig = {
       ...config,
       enabled,
@@ -487,6 +494,24 @@ export const OpenCodeDriver: ProviderDriver<
       ),
     );
 
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "OpenCode",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd: host.paths.cwd,
+      environment: processEnv,
+      bindingKey: `opencode:${processEnv.XDG_DATA_HOME?.trim() || "default"}`,
+      methods: [
+        {
+          id: "opencode-auth-login",
+          name: "OpenCode provider login",
+          description:
+            "Connect a model provider account with `opencode auth login` in a terminal on this environment.",
+          args: ["auth", "login"],
+        },
+      ],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
     return {
       instanceId,
       driverKind: DRIVER_KIND,
@@ -546,6 +571,7 @@ export const OpenCodeDriver: ProviderDriver<
             }),
       orchestrationAdapter,
       textGeneration,
+      auth,
     } satisfies ProviderInstance;
   }),
 };

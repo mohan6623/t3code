@@ -34,6 +34,10 @@ import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import { applyCodexModelCatalog } from "../codexModelCatalog.ts";
 import type { ProviderDriver, ProviderInstance } from "@t3tools/provider-core/server/driver";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
+import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import {
   enrichProviderSnapshotWithVersionAdvisory,
@@ -165,13 +169,16 @@ export const CodexDriver: ProviderDriver<
         : config,
     );
     const continuationIdentity = codexContinuationIdentity(homeLayout);
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: an existing-CLI Codex signs in and out from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: true });
     yield* materializeCodexShadowHome(homeLayout).pipe(
       Effect.mapError(
         (cause) =>
@@ -316,6 +323,32 @@ export const CodexDriver: ProviderDriver<
     // until the outcome, and bound the wait so a hung app-server cannot hold the account lock.
     // Auth overlays use effectiveHomePath; the continuation key would conflate them with shared homes.
     const accountKey = homeLayout.effectiveHomePath ?? homeLayout.sharedHomePath;
+    // Fork: `codex login` writes auth.json into this instance's own home.
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "Codex",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd: process.cwd(),
+      environment: { ...processEnv, CODEX_HOME: accountKey },
+      bindingKey: `codex:${accountKey}`,
+      accountDirectory: accountKey,
+      methods: [
+        {
+          id: "chatgpt-device-code",
+          name: "ChatGPT with a code",
+          description: "Open the link on any device and enter the code. Works for remote machines.",
+          args: ["login", "--device-auth"],
+        },
+        {
+          id: "chatgpt-browser",
+          name: "ChatGPT in a browser on this machine",
+          description: "Codex opens its sign-in page here and waits for the browser to return.",
+          args: ["login"],
+        },
+      ],
+      logoutArgs: ["logout"],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
     const consumeResetCredit: NonNullable<ProviderInstance["consumeResetCredit"]> = () =>
       resetCreditCoordinator
         .redeem(accountKey, (idempotencyKey) =>
@@ -380,6 +413,7 @@ export const CodexDriver: ProviderDriver<
       snapshot,
       snapshotForCwd,
       consumeResetCredit,
+      auth,
       orchestrationAdapter,
       textGeneration,
     } satisfies ProviderInstance;

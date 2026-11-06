@@ -22,6 +22,8 @@ describe("mergeProviderInstanceEnvironment", () => {
         [
           { name: "CODEX_HOME", value, sensitive: false },
           { name: "CLAUDE_CONFIG_DIR", value, sensitive: false },
+          { name: "GROK_HOME", value, sensitive: false },
+          { name: "PI_CODING_AGENT_DIR", value, sensitive: false },
           { name: "CUSTOM_VALUE", value, sensitive: false },
         ],
         baseEnv,
@@ -30,6 +32,8 @@ describe("mergeProviderInstanceEnvironment", () => {
       expect(environment).toEqual({
         CODEX_HOME: path.join("/home/ada", tail),
         CLAUDE_CONFIG_DIR: path.join("/home/ada", tail),
+        GROK_HOME: path.join("/home/ada", tail),
+        PI_CODING_AGENT_DIR: path.join("/home/ada", tail),
         CUSTOM_VALUE: value,
       });
       expect(baseEnv).toEqual({

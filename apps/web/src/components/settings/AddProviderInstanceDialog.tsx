@@ -143,6 +143,21 @@ interface AddProviderInstanceDialogProps {
   readonly onCreated?: (instanceId: ProviderInstanceId) => void;
 }
 
+// Fork: these CLIs keep their login in the folder this variable names, so an added
+// instance gets its own folder and its own account. It shows in the instance's environment.
+function accountHomeEnvironment(
+  driver: string,
+  instanceId: string,
+): { environment?: ReadonlyArray<ProviderInstanceEnvironmentVariable> } {
+  const variable =
+    driver === "grok"
+      ? { name: "GROK_HOME", value: `~/.grok-${instanceId}` }
+      : driver === "pi"
+        ? { name: "PI_CODING_AGENT_DIR", value: `~/.pi-${instanceId}/agent` }
+        : undefined;
+  return variable === undefined ? {} : { environment: [{ ...variable, sensitive: false }] };
+}
+
 export function AddProviderInstanceDialog({
   open,
   environmentId,
@@ -184,7 +199,7 @@ export function AddProviderInstanceDialog({
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [createdInstanceId, setCreatedInstanceId] = useState<ProviderInstanceId | null>(null);
-  const [seededClaudeHome, setSeededClaudeHome] = useState(false);
+  const [seededAccountHome, setSeededAccountHome] = useState(false);
 
   // Reserve Codex/Claude default ids because they run before configuration; other unconfigured slots are
   // available.
@@ -279,13 +294,21 @@ export function AddProviderInstanceDialog({
       void handleSave();
       return;
     }
-    // Fork: the default Claude instance keeps ~/.claude, so an added one gets its own
-    // config folder and signs in to its own account. Seeded once, so clearing it sticks.
-    if (navigation.kind === "navigate" && navigation.step === 2 && driver === "claudeAgent") {
-      if (!seededClaudeHome && configDraft.homePath === undefined) {
-        setConfigDraft({ ...configDraft, homePath: `~/.claude-${instanceId}` });
+    // Fork: the default instance keeps the CLI's own login folder, so an added one gets
+    // its own and signs in to its own account. Seeded once, so clearing it sticks.
+    // A Codex auth overlay keeps sessions and config shared; only auth.json is its own.
+    const homeField =
+      driver === "claudeAgent" ? "homePath" : driver === "codex" ? "shadowHomePath" : undefined;
+    if (navigation.kind === "navigate" && navigation.step === 2 && homeField !== undefined) {
+      if (
+        !seededAccountHome &&
+        configDraft[homeField] === undefined &&
+        !driverLocks?.configKeys.has(homeField)
+      ) {
+        const folder = driver === "codex" ? "codex" : "claude";
+        setConfigDraft({ ...configDraft, [homeField]: `~/.${folder}-${instanceId}` });
       }
-      setSeededClaudeHome(true);
+      setSeededAccountHome(true);
     }
     setWizardStep(navigation.step);
   };
@@ -396,6 +419,7 @@ export function AddProviderInstanceDialog({
       ...(normalizedAccentColor ? { accentColor: normalizedAccentColor } : {}),
       ...(hasConfig ? { config } : {}),
       ...(isLocalAcp && localEnvironment.length > 0 ? { environment: localEnvironment } : {}),
+      ...(driverLocks ? {} : accountHomeEnvironment(driver, instanceId)),
     };
     const brandedId = ProviderInstanceId.make(instanceId);
     setIsSaving(true);

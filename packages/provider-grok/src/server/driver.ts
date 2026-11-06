@@ -28,6 +28,10 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
+import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { discoverGrokSkills } from "./skills.ts";
 import {
@@ -130,13 +134,16 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv, Path.Path> 
       driverKind: DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: Grok signs in from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: false });
     const effectiveConfig = { ...config, enabled } satisfies GrokSettings;
     const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
       resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
@@ -245,6 +252,27 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv, Path.Path> 
             ),
           ]).pipe(Effect.map(([machineSnapshot, skills]) => ({ ...machineSnapshot, skills })));
 
+    // Fork: GROK_HOME holds the login, so an instance with its own GROK_HOME is its own account.
+    const grokHome = processEnv.GROK_HOME?.trim();
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "Grok",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd,
+      environment: processEnv,
+      bindingKey: `grok:${grokHome || "default"}`,
+      ...(grokHome ? { accountDirectory: grokHome } : {}),
+      methods: [
+        {
+          id: "grok-login",
+          name: "Grok account",
+          description: "Sign in with your xAI account in a terminal on this environment.",
+          args: ["login"],
+        },
+      ],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
+
     return {
       instanceId,
       driverKind: DRIVER_KIND,
@@ -254,6 +282,7 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv, Path.Path> 
       enabled,
       snapshot,
       snapshotForCwd,
+      auth,
       orchestrationAdapter,
       textGeneration,
     } satisfies ProviderInstance;

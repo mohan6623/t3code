@@ -14,6 +14,10 @@ import {
 } from "@t3tools/provider-core/server/driver";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
@@ -89,13 +93,16 @@ export const KiroDriver: ProviderDriver<KiroSettings, KiroDriverEnv> = {
       driverKind: DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: Kiro signs in from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: true });
     const effectiveConfig = { ...config, enabled } satisfies KiroSettings;
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<KiroSettings>>({
@@ -140,6 +147,25 @@ export const KiroDriver: ProviderDriver<KiroSettings, KiroDriverEnv> = {
         ),
       );
 
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "Kiro",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd: yield* HostProcess.HomeDirectory,
+      environment: processEnv,
+      bindingKey: "kiro",
+      methods: [
+        {
+          id: "kiro-login",
+          name: "Kiro account",
+          description:
+            "Sign in with Builder ID, Identity Center, Google or GitHub in a terminal on this environment.",
+          args: ["login"],
+        },
+      ],
+      logoutArgs: ["logout"],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
     return {
       instanceId,
       driverKind: DRIVER_KIND,
@@ -150,6 +176,7 @@ export const KiroDriver: ProviderDriver<KiroSettings, KiroDriverEnv> = {
       snapshot,
       orchestrationAdapter,
       textGeneration: unsupportedTextGeneration,
+      auth,
     } satisfies ProviderInstance;
   }),
 };

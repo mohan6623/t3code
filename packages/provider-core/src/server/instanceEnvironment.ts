@@ -4,6 +4,14 @@ import * as Effect from "effect/Effect";
 
 import { expandHomePath } from "./pathExpansion.ts";
 
+// Fork: GROK_HOME and PI_CODING_AGENT_DIR also hold a login, so added accounts can set them with `~`.
+const PROVIDER_HOME_VARIABLES = new Set([
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "GROK_HOME",
+  "PI_CODING_AGENT_DIR",
+]);
+
 export const mergeProviderInstanceEnvironment = Effect.fn(function* (
   environment: ProviderInstanceEnvironment | undefined,
   baseEnv: NodeJS.ProcessEnv = process.env,
@@ -27,10 +35,9 @@ export const mergeProviderInstanceEnvironment = Effect.fn(function* (
         if (inherited.toUpperCase() === name) delete next[inherited];
       }
     }
-    next[name] =
-      name === "CODEX_HOME" || name === "CLAUDE_CONFIG_DIR"
-        ? expandHomePath(variable.value, home)
-        : variable.value;
+    next[name] = PROVIDER_HOME_VARIABLES.has(name)
+      ? expandHomePath(variable.value, home)
+      : variable.value;
   }
   return next;
 });

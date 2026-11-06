@@ -1,4 +1,5 @@
 // User-wide ~/.pi/agent state makes continuation identity use default instance grouping.
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import { PiSettings } from "../settings.ts";
 import * as Effect from "effect/Effect";
@@ -29,6 +30,10 @@ import {
 import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
+import {
   makeCachedProviderMaintenanceResolution,
   makePackageManagedProviderMaintenanceResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
@@ -49,6 +54,7 @@ const UPDATE = makePackageManagedProviderMaintenanceResolver({
 });
 
 export type PiDriverEnv =
+  | SecureRandom.SecureRandom
   | PiAdapterV2DriverEnv
   | ProviderHost.ProviderHost
   | ChildProcessSpawner.ChildProcessSpawner
@@ -102,12 +108,15 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       driverKind: DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: Pi signs in from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: false });
     const effectiveConfig = { ...config, enabled } satisfies PiSettings;
     const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
       resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
@@ -179,6 +188,28 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
       ),
     );
 
+    // Fork: PI_CODING_AGENT_DIR holds Pi's login, so an instance with its own folder is its own account.
+    const piAgentDir = processEnv.PI_CODING_AGENT_DIR?.trim();
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "Pi",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd: cwd,
+      environment: processEnv,
+      bindingKey: `pi:${piAgentDir || "default"}`,
+      ...(piAgentDir ? { accountDirectory: piAgentDir } : {}),
+      methods: [
+        {
+          id: "pi-login",
+          name: "Pi /login",
+          description:
+            "Pi opens in a terminal on this environment. Type /login, finish, then type /quit.",
+          args: [],
+          anyExitCode: true,
+        },
+      ],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
     return {
       instanceId,
       driverKind: DRIVER_KIND,
@@ -213,6 +244,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
             ),
       orchestrationAdapter,
       textGeneration,
+      auth,
     } satisfies ProviderInstance;
   }),
 };

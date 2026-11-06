@@ -11,22 +11,20 @@ import {
   type ProviderInstanceId,
   type ServerProviderAuth,
 } from "@t3tools/contracts";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
-import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import { ChildProcess } from "effect/process";
 
 import * as ProviderAuthFlow from "@t3tools/provider-core/server/providerAuthFlow";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
+import { runTerminalCommand } from "@t3tools/provider-core/server/terminalLogin";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as ServerSettings from "../serverSettings.ts";
 
 const METHOD_ID = "claude-subscription";
-const TRANSCRIPT_LIMIT = 16_384;
 const SETUP_TOKEN_VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /** The web app matches this auth type to offer a subscription sign-in. */
@@ -192,84 +190,22 @@ export const makeClaudeLoginAuth = Effect.fn("makeClaudeLoginAuth")(function* (o
       );
 
   /** Runs one `claude auth` command in a terminal; with a context, the user sees and types in it. */
-  const runInTerminal = Effect.fnUntraced(function* (
+  const runInTerminal = (
     operation: string,
     args: ReadonlyArray<string>,
     context: ProviderAuthFlow.ProviderAuthFlowContext | null,
-  ) {
-    if (Option.isNone(pty))
-      return yield* failure(
-        operation,
-        "In-app sign-in needs a terminal, and this environment has none.",
-      );
-    // A terminal starts a program by its full path; on Windows a bare name or an npm shim fails.
-    const resolved = yield* resolveSpawnCommand(options.binaryPath, args, {
-      env,
-      bypassNpmShim: true,
+  ) =>
+    runTerminalCommand({
+      pty,
+      providerName: "Claude",
+      instanceId: options.instanceId,
+      operation,
+      binaryPath: options.binaryPath,
+      args,
+      cwd: options.cwd,
+      environment: env,
+      context,
     });
-    const program = resolved.shell
-      ? { shell: env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", resolved.command] }
-      : { shell: resolved.command, args: [...resolved.args] };
-    const exited = yield* Deferred.make<number>();
-    const output = yield* Queue.sliding<string>(64);
-    const process = yield* pty.value
-      .spawn({
-        ...program,
-        cwd: options.cwd,
-        cols: 80,
-        rows: 24,
-        env,
-      })
-      .pipe(
-        Effect.mapError((cause) =>
-          failure(operation, "Could not open the Claude sign-in terminal.", cause),
-        ),
-      );
-    const detachData = process.onData((data) => {
-      Queue.offerUnsafe(output, data.slice(-TRANSCRIPT_LIMIT));
-    });
-    const detachExit = process.onExit(({ exitCode }) => {
-      Deferred.doneUnsafe(exited, Effect.succeed(exitCode));
-    });
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        detachData();
-        detachExit();
-        try {
-          process.kill();
-        } catch {}
-      }),
-    );
-    if (context !== null) {
-      let transcript = "";
-      let outputOffset = 0;
-      const update = () =>
-        context.setInteraction(
-          { type: "terminal", id: "terminal", output: transcript, outputOffset },
-          (response) =>
-            response.type === "terminal"
-              ? Effect.try({
-                  try: () => {
-                    if (response.size) process.resize(response.size.cols, response.size.rows);
-                    if (response.data) process.write(response.data);
-                  },
-                  catch: () => failure("respond", "The Claude sign-in terminal has closed."),
-                })
-              : Effect.void,
-        );
-      yield* update();
-      yield* Queue.take(output).pipe(
-        Effect.flatMap((data) => {
-          outputOffset += data.length;
-          transcript = (transcript + data).slice(-TRANSCRIPT_LIMIT);
-          return update();
-        }),
-        Effect.forever,
-        Effect.forkScoped,
-      );
-    }
-    return yield* Deferred.await(exited);
-  });
 
   const authenticate = Effect.fn("ClaudeLoginAuth.authenticate")(function* (
     _methodId: string,

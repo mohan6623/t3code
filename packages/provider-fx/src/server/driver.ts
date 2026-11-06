@@ -24,6 +24,10 @@ import {
 } from "@t3tools/provider-core/server/driver";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
 import { discoverFxSkills } from "./skills.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
 import {
@@ -96,13 +100,16 @@ export const FxDriver: ProviderDriver<FxSettings, FxDriverEnv> = {
       driverKind: FX_DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: FX_DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: fx signs in from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: false });
     const effectiveConfig = { ...config, enabled } satisfies FxSettings;
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<FxSettings>>({
@@ -145,6 +152,23 @@ export const FxDriver: ProviderDriver<FxSettings, FxDriverEnv> = {
         ),
       );
 
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "fx",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd: yield* HostProcess.HomeDirectory,
+      environment: processEnv,
+      bindingKey: "fx",
+      methods: [
+        {
+          id: "fx-login",
+          name: "fx account",
+          description: "Sign in with fx in a terminal on this environment.",
+          args: ["login"],
+        },
+      ],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
     return {
       instanceId,
       driverKind: FX_DRIVER_KIND,
@@ -165,6 +189,7 @@ export const FxDriver: ProviderDriver<FxSettings, FxDriverEnv> = {
             ]).pipe(Effect.map(([machineSnapshot, skills]) => ({ ...machineSnapshot, skills }))),
       orchestrationAdapter,
       textGeneration: unsupportedTextGeneration,
+      auth,
     } satisfies ProviderInstance;
   }),
 };

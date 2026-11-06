@@ -1,3 +1,4 @@
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import { ProviderDriverKind } from "@t3tools/contracts";
 import { MuseSettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -31,6 +32,10 @@ import {
 } from "@t3tools/provider-core/server/driver";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import {
+  makeTerminalLoginAuth,
+  withTerminalSignIn,
+} from "@t3tools/provider-core/server/terminalLogin";
+import {
   makeCachedProviderMaintenanceResolution,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "@t3tools/provider-core/server/maintenanceResolver";
@@ -45,6 +50,7 @@ const DRIVER_KIND = ProviderDriverKind.make("muse");
 const decodeMuseSettings = Schema.decodeSync(MuseSettings);
 
 export type MuseDriverEnv =
+  | SecureRandom.SecureRandom
   | IdAllocator.IdAllocatorV2
   | McpProviderSessions.McpProviderSessions
   | ProviderHost.ProviderHost
@@ -97,13 +103,16 @@ export const MuseDriver: ProviderDriver<
       driverKind: DRIVER_KIND,
       instanceId,
     });
-    const stampIdentity = withInstanceIdentity({
+    const stampInstanceIdentity = withInstanceIdentity({
       instanceId,
       driverKind: DRIVER_KIND,
       displayName,
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Fork: Muse Code signs in from settings; see terminalLogin.ts.
+    const stampIdentity = (draft: Parameters<typeof stampInstanceIdentity>[0]) =>
+      withTerminalSignIn(stampInstanceIdentity(draft), { canLogout: false });
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const resolveInstallation = yield* makeCachedProviderMaintenanceResolution(
       resolveProviderMaintenanceCapabilitiesEffect(museMaintenance, {
@@ -189,6 +198,23 @@ export const MuseDriver: ProviderDriver<
       environment: processEnvironment,
       modelCatalog,
     });
+    const auth = yield* makeTerminalLoginAuth({
+      instanceId,
+      providerName: "Muse Code",
+      binaryPath: effectiveConfig.binaryPath,
+      cwd: cwd,
+      environment: processEnvironment,
+      bindingKey: "muse",
+      methods: [
+        {
+          id: "muse-login",
+          name: "Muse account",
+          description: "Sign in with Muse Code in a terminal on this environment.",
+          args: ["login"],
+        },
+      ],
+      onChanged: snapshot.refresh.pipe(Effect.asVoid),
+    });
     return {
       instanceId,
       driverKind: DRIVER_KIND,
@@ -199,6 +225,7 @@ export const MuseDriver: ProviderDriver<
       snapshot: { ...snapshot, resolveMaintenance },
       orchestrationAdapter,
       textGeneration,
+      auth,
     } satisfies ProviderInstance;
   }),
 };

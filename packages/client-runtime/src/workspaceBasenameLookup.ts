@@ -21,6 +21,19 @@ function basenameOfPath(path: string): string {
   return separatorIndex >= 0 ? path.slice(separatorIndex + 1) : path;
 }
 
+function segmentCount(path: string): number {
+  return path.split(/[\\/]+/).filter(Boolean).length;
+}
+
+// Fork: nested checkouts (e.g. `frontend/.claude/worktrees/<name>/`) repeat a repo's files
+// deeper down, so among same-named matches the one closest to the workspace root wins.
+function shallowestUnique<T extends WorkspaceEntryCandidate>(matches: ReadonlyArray<T>): T | null {
+  const depths = matches.map((entry) => segmentCount(entry.path));
+  const minDepth = Math.min(...depths);
+  const shallowest = matches.filter((_, index) => depths[index] === minDepth);
+  return shallowest.length === 1 ? (shallowest[0] ?? null) : null;
+}
+
 export function needsWorkspaceBasenameLookup(relativePath: string): boolean {
   const trimmed = relativePath.trim();
   return (
@@ -39,8 +52,8 @@ export function pickWorkspaceBasenameMatch(
   const target = basename.trim();
   if (!target) return null;
   const files = entries.filter((entry) => entry.kind === "file");
-  const exact = files.find((entry) => basenameOfPath(entry.path) === target);
-  if (exact) return exact.path;
+  const exact = files.filter((entry) => basenameOfPath(entry.path) === target);
+  if (exact.length > 0) return (shallowestUnique(exact) ?? exact[0])?.path ?? null;
   const folded = target.toLowerCase();
   const foldedMatches = files.filter(
     (entry) => basenameOfPath(entry.path).toLowerCase() === folded,
@@ -75,7 +88,8 @@ export function needsWorkspaceSuffixLookup(relativePath: string): boolean {
   return segments.length >= 2 && !segments.includes("..") && !segments.includes(".");
 }
 
-// Fork: the one file whose path ends with the whole tail; ambiguous tails open nothing new.
+// Fork: the file whose path ends with the whole tail, preferring the shallowest one;
+// tails still tied (`frontend/src/x` and `backend/src/x`) open nothing new.
 export function pickWorkspaceSuffixMatch(
   tail: string,
   cwd: string,
@@ -90,7 +104,7 @@ export function pickWorkspaceSuffixMatch(
   const matches = entries.filter(
     (entry) => entry.kind === "file" && key(entry.path).endsWith(target),
   );
-  return matches.length === 1 ? (matches[0]?.path ?? null) : null;
+  return shallowestUnique(matches)?.path ?? null;
 }
 
 export function pickStrippedWorkspaceMatch(

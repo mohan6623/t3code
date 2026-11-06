@@ -17,6 +17,12 @@ describe("pickWorkspaceBasenameMatch", () => {
     expect(pickWorkspaceBasenameMatch("ChatView.tsx", entries)).toBe(
       "apps/web/src/components/ChatView.tsx",
     );
+    expect(
+      pickWorkspaceBasenameMatch("ChatView.tsx", [
+        { path: ".claude/worktrees/a/apps/web/src/components/ChatView.tsx", kind: "file" },
+        ...entries,
+      ]),
+    ).toBe("apps/web/src/components/ChatView.tsx");
   });
 
   // regression: #6297 a bare filename resolves to a file, never a same-named directory
@@ -84,6 +90,22 @@ describe("pickWorkspaceSuffixMatch", () => {
 
   it("opens nothing new when the tail is ambiguous", () => {
     expect(pickWorkspaceSuffixMatch("lib/phone.ts", cwd, entries)).toBeNull();
+  });
+
+  it("prefers the copy nearest the root over nested worktree copies", () => {
+    const tail = "src/components/reports/journeys/dashboard.journey.test.tsx";
+    const copies = [
+      { path: `frontend/.claude/worktrees/audit-1031-fe/${tail}`, kind: "file" as const },
+      { path: `frontend/${tail}`, kind: "file" as const },
+      { path: `frontend/.claude/worktrees/audit-1029-fe/${tail}`, kind: "file" as const },
+    ];
+    expect(pickWorkspaceSuffixMatch(tail, cwd, copies)).toBe(`frontend/${tail}`);
+    expect(
+      pickWorkspaceSuffixMatch("src/app.ts", cwd, [
+        { path: "frontend/src/app.ts", kind: "file" },
+        { path: "backend/src/app.ts", kind: "file" },
+      ]),
+    ).toBeNull();
   });
 
   it("folds case only on Windows workspaces", () => {

@@ -82,18 +82,17 @@ export function ThreadDetailsUsage({
   );
 }
 
-/** The thread's context window. The bar fills as context is used; the tick marks auto-compaction. */
+/** The thread's context window. The bar fills as context is used, up to where it compacts. */
 export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowSnapshot }) {
-  const maxTokens = usage.maxTokens != null && usage.maxTokens > 0 ? usage.maxTokens : null;
+  // Fork: the bar ends at the auto-compact setting when it is below the model's window,
+  // matching the composer's circle; the model's window moves to the tooltip.
+  const maxTokens = usage.limitTokens != null && usage.limitTokens > 0 ? usage.limitTokens : null;
+  const modelWindow = usage.maxTokens ?? null;
   const used =
     maxTokens !== null && usage.usedPercentage !== null
       ? Math.round(Math.max(0, Math.min(100, usage.usedPercentage)))
       : null;
   const threshold = usage.autoCompactThreshold ?? null;
-  const tick =
-    maxTokens !== null && threshold !== null && threshold > 0 && threshold < maxTokens
-      ? (threshold / maxTokens) * 100
-      : null;
   const usedTokens = formatContextWindowTokens(usage.usedTokens);
   return (
     <ThreadDetailsSection
@@ -106,7 +105,6 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
           label="Context"
           fill={used}
           tone={used === null ? null : used >= 90 ? "error" : used >= 80 ? "warning" : null}
-          tick={tick}
           muted
           value={
             maxTokens !== null
@@ -128,6 +126,11 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
               {threshold !== null && threshold > 0 ? (
                 <span className="text-muted-foreground">
                   {formatContextWindowCompactionMessage(null, threshold)}
+                </span>
+              ) : null}
+              {modelWindow !== null && maxTokens !== null && maxTokens < modelWindow ? (
+                <span className="text-muted-foreground">
+                  Model window: {modelWindow.toLocaleString("en-US")} tokens
                 </span>
               ) : null}
             </>

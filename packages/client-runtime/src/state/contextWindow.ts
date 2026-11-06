@@ -36,11 +36,39 @@ type NullableContextWindowUsage = {
 };
 
 export type ContextWindowSnapshot = NullableContextWindowUsage & {
+  /** Fork: where the context ends: the auto-compact limit when set below `maxTokens`. */
+  readonly limitTokens: number | null;
   readonly remainingTokens: number | null;
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
 };
+
+// Fork: a configured auto-compact limit below the model's window is where the context
+// really ends, so usage percentages count against it.
+function contextLimit(
+  usedTokens: number,
+  maxTokens: number | null,
+  autoCompactThreshold: number | null | undefined,
+) {
+  const limitTokens =
+    autoCompactThreshold != null &&
+    autoCompactThreshold > 0 &&
+    (maxTokens === null || autoCompactThreshold < maxTokens)
+      ? autoCompactThreshold
+      : maxTokens;
+  const usedPercentage =
+    limitTokens !== null && limitTokens > 0
+      ? Math.min(100, (usedTokens / limitTokens) * 100)
+      : null;
+  return {
+    limitTokens,
+    remainingTokens:
+      limitTokens === null ? null : Math.max(0, Math.round(limitTokens - usedTokens)),
+    usedPercentage,
+    remainingPercentage: usedPercentage === null ? null : Math.max(0, 100 - usedPercentage),
+  };
+}
 
 /** Newest report by timestamp; snapshots order turns by provider thread. */
 export function latestProviderTurnTokenUsage(
@@ -82,18 +110,11 @@ export function deriveLatestContextWindowSnapshot(
   if (liveUsage != null) {
     const usedTokens = Math.max(0, liveUsage.usedTokens);
     const maxTokens = liveUsage.maxTokens ?? null;
-    const usedPercentage =
-      maxTokens !== null && maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
-    const remainingTokens =
-      maxTokens !== null ? Math.max(0, Math.round(maxTokens - usedTokens)) : null;
-    const remainingPercentage = usedPercentage !== null ? Math.max(0, 100 - usedPercentage) : null;
     return {
       usedTokens,
       totalProcessedTokens: null,
       maxTokens,
-      remainingTokens,
-      usedPercentage,
-      remainingPercentage,
+      ...contextLimit(usedTokens, maxTokens, liveUsage.autoCompactThreshold),
       inputTokens: liveUsage.inputTokens ?? null,
       cachedInputTokens: liveUsage.cachedInputTokens ?? null,
       outputTokens: liveUsage.outputTokens ?? null,
@@ -120,15 +141,11 @@ export function deriveLatestContextWindowSnapshot(
   ) {
     const maxTokens = asFiniteNumber(providerUsage.maxTokens);
     const usedTokens = providerUsage.usedTokens;
-    const usedPercentage =
-      maxTokens !== null && maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
     return {
       usedTokens,
       totalProcessedTokens: asFiniteNumber(providerUsage.totalProcessedTokens),
       maxTokens,
-      remainingTokens: maxTokens === null ? null : Math.max(0, Math.round(maxTokens - usedTokens)),
-      usedPercentage,
-      remainingPercentage: usedPercentage === null ? null : Math.max(0, 100 - usedPercentage),
+      ...contextLimit(usedTokens, maxTokens, providerUsage.autoCompactThreshold),
       inputTokens: asFiniteNumber(providerUsage.inputTokens),
       cachedInputTokens: asFiniteNumber(providerUsage.cachedInputTokens),
       outputTokens: asFiniteNumber(providerUsage.outputTokens),
@@ -157,20 +174,11 @@ export function deriveLatestContextWindowSnapshot(
       continue;
     }
 
-    const maxTokens = null;
-    const usedPercentage =
-      maxTokens !== null && maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
-    const remainingTokens =
-      maxTokens !== null ? Math.max(0, Math.round(maxTokens - usedTokens)) : null;
-    const remainingPercentage = usedPercentage !== null ? Math.max(0, 100 - usedPercentage) : null;
-
     return {
       usedTokens,
       totalProcessedTokens: asFiniteNumber(payload.beforeTokenCount),
-      maxTokens,
-      remainingTokens,
-      usedPercentage,
-      remainingPercentage,
+      maxTokens: null,
+      ...contextLimit(usedTokens, null, null),
       inputTokens: null,
       cachedInputTokens: null,
       outputTokens: null,

@@ -35,6 +35,12 @@ export function ContextWindowMeter(props: {
   const totalProcessedTokens = usage.totalProcessedTokens ?? null;
   const showTotalProcessed = totalProcessedTokens !== null && totalProcessedTokens > 0;
   const isOverloaded = normalizedPercentage > 90;
+  // Fork: a lower auto-compact setting is where context ends; the model's window is shown beside it.
+  const modelWindowTokens = usage.maxTokens ?? null;
+  const compactsBeforeWindow =
+    usage.limitTokens !== null &&
+    modelWindowTokens !== null &&
+    usage.limitTokens < modelWindowTokens;
   const usageColor = isOverloaded
     ? "var(--color-error)"
     : "color-mix(in oklab, var(--color-muted-foreground) 72%, transparent)";
@@ -51,7 +57,7 @@ export function ContextWindowMeter(props: {
             variant="ghost-muted"
             className="size-6"
             aria-label={
-              usage.maxTokens !== null && usedPercentage
+              usage.limitTokens !== null && usedPercentage
                 ? `Context window ${usedPercentage} used`
                 : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
             }
@@ -99,13 +105,13 @@ export function ContextWindowMeter(props: {
         <div className="flex flex-col gap-2 p-(--floating-content-inset)">
           <div className="flex items-center justify-between gap-3">
             <div className="font-medium text-muted-foreground text-xs">Context Window</div>
-            {usage.maxTokens !== null && usedPercentage ? (
+            {usage.limitTokens !== null && usedPercentage ? (
               <div className="text-secondary-label text-2xs tabular-nums">
                 <span>{usedPercentage}</span>
                 <span className="mx-1">·</span>
                 <span>
                   {formatContextWindowTokens(usage.usedTokens)}/
-                  {formatContextWindowTokens(usage.maxTokens ?? null)}
+                  {formatContextWindowTokens(usage.limitTokens)}
                 </span>
               </div>
             ) : (
@@ -114,7 +120,7 @@ export function ContextWindowMeter(props: {
               </div>
             )}
           </div>
-          {usage.maxTokens !== null ? (
+          {usage.limitTokens !== null ? (
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60"
               role="progressbar"
@@ -128,6 +134,22 @@ export function ContextWindowMeter(props: {
                 style={{ width: `${normalizedPercentage}%`, backgroundColor: usageColor }}
               />
             </div>
+          ) : null}
+          {compactsBeforeWindow ? (
+            <>
+              <div className="flex items-center justify-between gap-3 text-2xs leading-4">
+                <span className="text-secondary-label">Auto-compacts at</span>
+                <span className="font-medium tabular-nums text-secondary-label">
+                  {formatContextWindowTokens(usage.limitTokens)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-2xs leading-4">
+                <span className="text-secondary-label">Model window</span>
+                <span className="font-medium tabular-nums text-secondary-label">
+                  {formatContextWindowTokens(modelWindowTokens)}
+                </span>
+              </div>
+            </>
           ) : null}
           {showTotalProcessed ? (
             <div className="flex items-center justify-between gap-3 text-2xs leading-4">
@@ -145,7 +167,7 @@ export function ContextWindowMeter(props: {
               </span>
             </div>
           ) : null}
-          {usage.compactsAutomatically ? (
+          {usage.compactsAutomatically && !compactsBeforeWindow ? (
             <div className="mt-1 text-pretty text-secondary-label text-2xs font-medium">
               {formatContextWindowCompactionMessage(modelDisplayName, usage.autoCompactThreshold)}
             </div>

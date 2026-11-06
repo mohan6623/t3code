@@ -605,6 +605,8 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
       /** Omitted when it only restates the id. */
       label: Schema.optional(Schema.String),
       options: Schema.optional(Schema.Array(OrchestratorMcpModelOption)),
+      /** Fork: set while this model's usage limit is used up. */
+      usageLimit: Schema.optional(Schema.String),
     }),
   ),
   /** Models left out of `models`: unlisted visible models, or matches past the cap with `search`. */

@@ -1938,6 +1938,137 @@ describe("OrchestratorMcpService provider resolution", () => {
     }),
   );
 
+  it.effect("delegation avoids and refuses a model whose usage limit is used up", () =>
+    Effect.gen(function* () {
+      const altInstanceId = ProviderInstanceId.make("codex-alt");
+      const outInstanceId = ProviderInstanceId.make("codex-out");
+      const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      const task = {
+        id: taskId,
+        threadId: parentThreadId,
+        runId: parentRunId,
+        parentNodeId,
+        origin: "app_owned",
+        createdBy: "agent",
+        driver: ProviderDriverKind.make("codex"),
+        providerInstanceId: altInstanceId,
+        providerThreadId: null,
+        childThreadId,
+        nativeTaskRef: null,
+        prompt: "Summarize the diff.",
+        title: null,
+        model: "gpt-5.4",
+        status: "running",
+        result: null,
+        startedAt: null,
+        completedAt: null,
+      };
+      let delegated = false;
+      const limited: ServerProvider = {
+        ...providerSnapshot({
+          instanceId: codexInstanceId,
+          driver: ProviderDriverKind.make("codex"),
+          model: "gpt-5.4",
+        }),
+        usageLimits: {
+          checkedAt: "2026-09-13T00:00:00.000Z",
+          windows: [
+            {
+              id: "weekly",
+              kind: "weekly",
+              label: "Weekly",
+              usedPercent: 100,
+              resetsAt: "2026-09-20T00:00:00.000Z",
+            },
+          ],
+        },
+      };
+      const layerDependencies = Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          hasReceipt: () => Effect.succeed(false),
+          getThreadRecords: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId
+                ? parentProjection(delegated ? [task] : [])
+                : childProjection,
+            ),
+          isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+          assertProviderInstanceEnabled: () => Effect.void,
+          dispatch: (command) =>
+            Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  delegated = true;
+                }),
+              ),
+              Effect.as({
+                sequence: 1,
+                storedEvents: [
+                  {
+                    sequence: 1,
+                    commandId: null,
+                    event: { type: "subagent.updated", payload: task },
+                  },
+                ],
+              } as never),
+            ),
+        }),
+        providerRegistryLayer([
+          limited,
+          { ...limited, instanceId: outInstanceId },
+          providerSnapshot({
+            instanceId: altInstanceId,
+            driver: ProviderDriverKind.make("codex"),
+            model: "gpt-5.4",
+          }),
+        ]),
+        adapterRegistryLayer([codexInstanceId, altInstanceId, outInstanceId]),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        ServerSettings.layerTest(),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const capabilities = yield* service.capabilities(scope);
+        const limitedEntry = capabilities.providers.find(
+          (provider) => provider.providerInstanceId === outInstanceId,
+        );
+        assert.equal(
+          limitedEntry?.models[0]?.usageLimit,
+          "Usage limit reached: Weekly is at 100%, resets 2026-09-20T00:00:00.000Z.",
+        );
+        assert.isFalse(limitedEntry?.canRunChildTask);
+
+        const result = yield* service.delegateTask(scope, {
+          task: "Summarize the diff.",
+          target: { driverKind: ProviderDriverKind.make("codex") },
+          mode: "async",
+          clientRequestId: "delegate-driver-skip-limited-1",
+        });
+        assert.equal(result.status, "running");
+        const commands = yield* Ref.get(dispatched);
+        const request = commands[0] as { modelSelection: { instanceId: string } };
+        assert.equal(request.modelSelection.instanceId, altInstanceId);
+
+        const refused = yield* Effect.flip(
+          service.delegateTask(scope, {
+            task: "Summarize the diff.",
+            target: { providerInstanceId: outInstanceId },
+            mode: "async",
+            clientRequestId: "delegate-limited-instance-1",
+          }),
+        );
+        assert.equal(refused.code, "provider_unavailable");
+        assert.include(refused.message, "Usage limit reached: Weekly is at 100%");
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+    }),
+  );
+
   it.effect(
     "retrying an accepted driver-only delegation replays even after the project disables every candidate",
     () =>

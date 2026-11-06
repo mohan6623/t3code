@@ -72,6 +72,7 @@ import {
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
 import { totalTurnTokens, turnCostScore } from "@t3tools/shared/usageCost";
+import { exhaustedUsageWindow } from "@t3tools/shared/usageLimits";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import {
@@ -389,6 +390,19 @@ function knownOptions(
 ): ReadonlyArray<ProviderOptionSelection> | undefined {
   if (options === undefined || descriptors === undefined) return options;
   return options.filter((option) => descriptors.some((descriptor) => descriptor.id === option.id));
+}
+
+// Fork: delegation kept starting tasks on providers whose usage was already used up
+// (e.g. Cursor's "Other Models" pool); the limit bars the UI shows now gate it too.
+function usageLimitNote(
+  provider: ServerProvider,
+  model: string,
+  nowMs: number,
+): string | undefined {
+  const window = exhaustedUsageWindow(provider, nowMs, model);
+  if (!window) return undefined;
+  const resets = window.resetsAt === undefined ? "" : `, resets ${window.resetsAt}`;
+  return `Usage limit reached: ${window.label} is at ${Math.round(window.usedPercent)}%${resets}.`;
 }
 
 /** Skip checks without descriptors; reject duplicate IDs because consumers disagree on precedence. */
@@ -1384,6 +1398,14 @@ const make = Effect.gen(function* () {
     const requestedInstanceId = input.target?.providerInstanceId;
     const requestedDriver = input.target?.driverKind;
     const orchestrationCapableInstanceIds = yield* loadOrchestrationCapableInstanceIds();
+    const nowMs = yield* Clock.currentTimeMillis;
+    const inheritedSelection = input.parent.thread.modelSelection;
+    const requestedModel = input.target?.model;
+    const modelFor = (provider: ServerProvider) =>
+      requestedModel ??
+      (provider.instanceId === inheritedSelection.instanceId
+        ? inheritedSelection.model
+        : provider.models[0]?.slug);
     let instanceId = requestedInstanceId;
 
     if (instanceId === undefined && requestedDriver !== undefined) {
@@ -1404,10 +1426,15 @@ const make = Effect.gen(function* () {
       const inheritedCandidate = healthyCandidates.find(
         (candidate) => candidate.instanceId === input.parent.thread.modelSelection.instanceId,
       );
+      const isLimited = (candidate: ServerProvider) => {
+        const model = modelFor(candidate);
+        return model !== undefined && usageLimitNote(candidate, model, nowMs) !== undefined;
+      };
+      // Limited instances go last, so the check below explains why if all are limited.
       const orderedCandidates = [
         ...(inheritedCandidate === undefined ? [] : [inheritedCandidate]),
         ...healthyCandidates.filter((candidate) => candidate !== inheritedCandidate),
-      ];
+      ].toSorted((left, right) => Number(isLimited(left)) - Number(isLimited(right)));
       for (const candidate of orderedCandidates) {
         const enabledForProject =
           input.skipProjectEnablementFilter === true ||
@@ -1455,13 +1482,7 @@ const make = Effect.gen(function* () {
       );
     }
 
-    const inheritedSelection = input.parent.thread.modelSelection;
-    const requestedModel = input.target?.model;
-    const model =
-      requestedModel ??
-      (instanceId === inheritedSelection.instanceId
-        ? inheritedSelection.model
-        : provider.models[0]?.slug);
+    const model = modelFor(provider);
     if (model === undefined) {
       return yield* failure(
         "model_unavailable",
@@ -1476,6 +1497,18 @@ const make = Effect.gen(function* () {
       return yield* failure(
         "model_unavailable",
         `Model ${requestedModel} is not advertised by provider ${instanceId}.`,
+      );
+    }
+    // A replay starts nothing, and the parent's own instance is evidently still serving it
+    // (e.g. extra usage past 100%), so neither is refused.
+    const limitNote =
+      input.skipProjectEnablementFilter === true || instanceId === inheritedSelection.instanceId
+        ? undefined
+        : usageLimitNote(provider, model, nowMs);
+    if (limitNote !== undefined) {
+      return yield* failure(
+        "provider_unavailable",
+        `Provider ${instanceId} cannot run model ${model} now. ${limitNote}`,
       );
     }
 
@@ -2361,6 +2394,7 @@ const make = Effect.gen(function* () {
       );
       const inherited = parent?.thread.modelSelection;
       const searchTerms = input.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+      const nowMs = yield* Clock.currentTimeMillis;
       return {
         parentThreadId: parent?.thread.id ?? null,
         inheritedProviderInstanceId: inherited?.instanceId ?? null,
@@ -2384,10 +2418,12 @@ const make = Effect.gen(function* () {
               parent.thread.projectId,
               provider.instanceId,
             );
-          const constraints = providerConstraints(
-            enabledForCaller ? provider : { ...provider, enabled: false },
-            orchestrationCapableInstanceIds.has(provider.instanceId),
-          );
+          const constraints = [
+            ...providerConstraints(
+              enabledForCaller ? provider : { ...provider, enabled: false },
+              orchestrationCapableInstanceIds.has(provider.instanceId),
+            ),
+          ];
           const { listed, omitted } = listCapabilityModels({
             provider,
             preferences: settings.providerModelPreferences?.[provider.instanceId],
@@ -2400,20 +2436,26 @@ const make = Effect.gen(function* () {
                   favorite.provider === provider.instanceId && favorite.model === model.slug,
               ),
           });
+          const models = listed.map((model) => {
+            const options = model.capabilities?.optionDescriptors ?? [];
+            const usageLimit = usageLimitNote(provider, model.slug, nowMs);
+            return {
+              id: model.slug,
+              ...(model.name.toLowerCase() === model.slug.toLowerCase()
+                ? {}
+                : { label: model.name }),
+              ...(options.length === 0 ? {} : { options: options.map(capabilityModelOption) }),
+              ...(usageLimit === undefined ? {} : { usageLimit }),
+            };
+          });
+          if (models.length > 0 && models.every((model) => model.usageLimit !== undefined)) {
+            constraints.push("Every listed model has reached its usage limit.");
+          }
           return {
             providerInstanceId: provider.instanceId,
             driverKind: provider.driver,
             displayName: provider.displayName ?? null,
-            models: listed.map((model) => {
-              const options = model.capabilities?.optionDescriptors ?? [];
-              return {
-                id: model.slug,
-                ...(model.name.toLowerCase() === model.slug.toLowerCase()
-                  ? {}
-                  : { label: model.name }),
-                ...(options.length === 0 ? {} : { options: options.map(capabilityModelOption) }),
-              };
-            }),
+            models,
             ...(omitted === 0 ? {} : { omittedModels: omitted }),
             ...(provider.supportedRuntimeModes === undefined ||
             provider.supportedRuntimeModes.length === 0
@@ -2421,7 +2463,7 @@ const make = Effect.gen(function* () {
               : { runtimeModes: [...provider.supportedRuntimeModes] }),
             canRunChildTask: constraints.length === 0,
             canRunCrossProviderChildTask: constraints.length === 0,
-            constraints: [...constraints],
+            constraints,
           };
         }),
         features: {

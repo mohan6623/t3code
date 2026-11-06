@@ -52,6 +52,21 @@ describe("UsageCalibration", () => {
     expect(costPerToken(state, "maxx")).toBeCloseTo(3 / 1_000_000);
   });
 
+  it("counts a finished turn's cost whose limits rose while it ran", () => {
+    const state: CalibrationState = {};
+    observeLimits(state, "maxx", limits(10, 2), NOW);
+    recordCost(state, "maxx", "claude-sonnet-5-5", 3, 1);
+    observeLimits(state, "maxx", limits(13, 3), NOW);
+    // A long turn: its limits rise live, its cost arrives only when it ends.
+    observeLimits(state, "maxx", limits(16, 4), NOW);
+    observeLimits(state, "maxx", limits(19, 5), NOW);
+    recordCost(state, "maxx", "claude-sonnet-5-5", 6, 1);
+    const session = limitShares(state, "maxx", "claude-sonnet-5-5", 6).find(
+      (share) => share.id === "five_hour",
+    );
+    expect(session?.percent).toBeCloseTo(6);
+  });
+
   it("evens out whole-percent rounding over several updates", () => {
     const state: CalibrationState = {};
     observeLimits(state, "maxx", limits(0, 0), NOW);

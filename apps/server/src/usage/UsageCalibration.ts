@@ -139,7 +139,11 @@ export function observeLimits(
   return changed;
 }
 
-/** Each learned limit's share of `cost`; limits still learning are left out. */
+/**
+ * Each learned limit's share of `cost`; limits still learning are left out.
+ * Codex reports limits live during a turn but its cost only when the turn ends, so a
+ * finished turn's rise is already counted while its cost still waits as pending.
+ */
 export function limitShares(
   state: CalibrationState,
   instanceId: string,
@@ -148,11 +152,12 @@ export function limitShares(
 ): ReadonlyArray<LimitWindowShare> {
   const entry = state[instanceId];
   if (entry === undefined) return [];
-  return Object.entries(entry.windows).flatMap(([id, window]) =>
-    window.sumPercent >= MIN_PERCENT_SEEN && window.sumCost > 0 && windowCountsModel(id, model)
-      ? [{ id, label: window.label, percent: (cost * window.sumPercent) / window.sumCost }]
-      : [],
-  );
+  return Object.entries(entry.windows).flatMap(([id, window]) => {
+    const seenCost = window.sumCost + window.pendingCost;
+    return window.sumPercent >= MIN_PERCENT_SEEN && seenCost > 0 && windowCountsModel(id, model)
+      ? [{ id, label: window.label, percent: (cost * window.sumPercent) / seenCost }]
+      : [];
+  });
 }
 
 /** Cost per token on this account so far, for subagents that report only a total. */

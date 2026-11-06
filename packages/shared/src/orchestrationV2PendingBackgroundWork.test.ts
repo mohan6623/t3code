@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderInstanceId, ProviderThreadId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import {
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
@@ -162,6 +163,7 @@ describe("derivePendingBackgroundWork", () => {
           title: "npm test",
           nativeItemRef: { nativeId: "cmd-1" },
           input: "npm test",
+          startedAt: DateTime.makeUnsafe(1_000),
         },
         {
           id: "item-2" as never,
@@ -173,7 +175,9 @@ describe("derivePendingBackgroundWork", () => {
         },
       ],
     });
-    expect(tasks).toEqual([{ taskId: "cmd-1", description: "npm test", kind: "command" }]);
+    expect(tasks).toEqual([
+      { taskId: "cmd-1", description: "npm test", kind: "command", startedAt: 1_000 },
+    ]);
   });
 
   it("dedupes roster entries against turn items by native task id", () => {

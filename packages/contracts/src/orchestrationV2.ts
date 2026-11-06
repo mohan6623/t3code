@@ -1046,6 +1046,8 @@ const PendingBackgroundTaskFields = {
    * subagent. Only the agent knows whether a command is a wait or a dev server it left running.
    */
   awaited: Schema.optional(Schema.Literal(true)),
+  /** Fork: epoch ms when T3 first saw this work running. */
+  startedAt: Schema.optional(NonNegativeInt),
 };
 
 /**
@@ -1081,10 +1083,11 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
   (kind) => Schema.Struct({ ...PendingBackgroundTaskFields, kind }),
-  ({ taskId, description, parentTaskId }) => ({
+  ({ taskId, description, parentTaskId, startedAt }) => ({
     taskId,
     ...(description === undefined ? {} : { description }),
     ...(parentTaskId === undefined ? {} : { parentTaskId }),
+    ...(startedAt === undefined ? {} : { startedAt }),
     kind: "background_task",
   }),
 );

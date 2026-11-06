@@ -6,6 +6,7 @@ import {
   type PendingBackgroundWorkItem,
 } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import * as Haptics from "expo-haptics";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,6 +16,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { environmentThreadShells } from "../../state/threads";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 const KIND_LABELS = {
   subagent: "Subagent",
@@ -67,6 +69,13 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
   );
 }
 
+/** Fork: how long it has run, in whole seconds. */
+function RunningFor(props: { readonly startedAt: number }) {
+  const nowMs = useVisibleSecondClock(true);
+  const elapsed = Math.floor((nowMs - props.startedAt) / 1_000) * 1_000;
+  return <>{` · running ${formatDuration(Math.max(1_000, elapsed))}`}</>;
+}
+
 function BackgroundWorkRow(props: {
   readonly item: PendingBackgroundWorkItem;
   readonly onOpen: (threadId: ThreadId) => void;
@@ -85,7 +94,10 @@ function BackgroundWorkRow(props: {
       />
       <View className="min-w-0 flex-1">
         <Text className="font-t3-medium text-sm text-foreground">{item.label}</Text>
-        <Text className="text-xs text-foreground-muted">{KIND_LABELS[item.kind]}</Text>
+        <Text className="text-xs text-foreground-muted">
+          {KIND_LABELS[item.kind]}
+          {item.startedAt === undefined ? null : <RunningFor startedAt={item.startedAt} />}
+        </Text>
       </View>
       {childThreadId === undefined ? null : (
         <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />

@@ -400,6 +400,12 @@ export interface PendingBackgroundWorkItem {
   /** Fork: a command's shell line, and where its live output streams. */
   readonly command: string | undefined;
   readonly output: { readonly threadId: ThreadId; readonly itemId: TurnItemId } | undefined;
+  /** Fork: epoch ms it was first seen running; absent from older servers. */
+  readonly startedAt: number | undefined;
+  /** Fork: the agent resumes when it ends, rather than leaving it running. */
+  readonly awaited: boolean;
+  /** Fork: the task that started it, such as a subagent. */
+  readonly parentTaskId: string | undefined;
 }
 
 export interface PendingBackgroundWorkPresentation {
@@ -464,6 +470,9 @@ export function presentPendingBackgroundWork(
           task.outputItemId !== undefined
             ? { threadId: task.outputThreadId, itemId: task.outputItemId }
             : undefined,
+        startedAt: task.startedAt,
+        awaited: backgroundWorkHoldsCompletion([task]),
+        parentTaskId: task.parentTaskId,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.

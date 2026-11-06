@@ -7,6 +7,7 @@ import type {
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Predicate from "effect/Predicate";
 
 import { resolveT3McpToolId } from "./t3McpToolPresentation.ts";
@@ -136,6 +137,7 @@ type PendingBackgroundWorkTurnItem = {
   readonly monitor?: boolean | undefined;
   readonly prompt?: string | undefined;
   readonly childThreadId?: ThreadId | null;
+  readonly startedAt?: OrchestrationV2TurnItem["startedAt"];
 };
 
 function isLatestRunSettledForBackgroundWait(
@@ -180,7 +182,12 @@ function pendingTaskFromTurnItem(
   item: PendingBackgroundWorkTurnItem,
 ): PendingBackgroundWorkTask {
   const description = descriptionFromTurnItem(item);
-  const named = { taskId, ...(description === undefined ? {} : { description }) };
+  const named = {
+    taskId,
+    ...(description === undefined ? {} : { description }),
+    // Fork: how long it has run.
+    ...(item.startedAt == null ? {} : { startedAt: DateTime.toEpochMillis(item.startedAt) }),
+  };
   switch (item.type) {
     case "subagent":
       return {

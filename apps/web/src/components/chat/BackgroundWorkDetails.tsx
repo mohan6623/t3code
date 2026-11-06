@@ -1,5 +1,6 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { PendingBackgroundWorkItem } from "@t3tools/client-runtime/state/thread-execution";
+import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import {
   BotIcon,
   ChevronLeftIcon,
@@ -10,7 +11,10 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { useNowSecond } from "~/hooks/useNowSecond";
+import { usePrimarySettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
+import { formatDayAwareTimestamp } from "~/timestampFormat";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { CommandOutputPanel, useCommandOutputStreaming } from "./CommandOutputPanel";
@@ -42,6 +46,12 @@ const KIND_NAME: Record<WorkKind, string> = {
   subagent: "Agent",
   background_task: "Task",
 };
+
+/** Whole seconds, ticking; mounted only inside the open popover. */
+function RunningFor(props: { readonly startedAt: number }) {
+  const elapsed = Math.floor((useNowSecond() - props.startedAt) / 1_000) * 1_000;
+  return <>{formatDuration(Math.max(1_000, elapsed))}</>;
+}
 
 function RunningDot() {
   return (
@@ -85,6 +95,7 @@ export function BackgroundWorkDetails(props: {
           <BackgroundWorkItemDetails
             environmentId={props.environmentId}
             item={selected}
+            items={props.items}
             onBack={onlyItem ? undefined : () => setSelectedTaskId(null)}
             onOpenThread={props.onOpenThread}
           />
@@ -130,6 +141,11 @@ function BackgroundWorkList(props: {
                           </span>
                         ) : null}
                       </span>
+                      {item.startedAt === undefined ? null : (
+                        <span className="shrink-0 text-muted-foreground tabular-nums">
+                          <RunningFor startedAt={item.startedAt} />
+                        </span>
+                      )}
                       <RunningDot />
                       <ChevronRightIcon
                         aria-hidden
@@ -150,6 +166,7 @@ function BackgroundWorkList(props: {
 function BackgroundWorkItemDetails(props: {
   readonly environmentId: EnvironmentId;
   readonly item: PendingBackgroundWorkItem;
+  readonly items: ReadonlyArray<PendingBackgroundWorkItem>;
   readonly onBack: (() => void) | undefined;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
@@ -157,6 +174,11 @@ function BackgroundWorkItemDetails(props: {
   const streamsOutput = useCommandOutputStreaming(props.environmentId);
   const Icon = KIND_ICON[item.kind];
   const childThreadId = item.childThreadId;
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
+  const parent =
+    item.parentTaskId === undefined
+      ? undefined
+      : (props.items.find((other) => other.taskId === item.parentTaskId)?.label ?? "A subagent");
   return (
     <div className="min-w-0 space-y-2.5 text-xs">
       <div className="flex min-w-0 items-center gap-1.5 font-medium">
@@ -182,7 +204,25 @@ function BackgroundWorkItemDetails(props: {
         <dd className="flex items-center gap-1.5">
           <RunningDot />
           Running
+          {item.startedAt === undefined ? null : (
+            <span className="text-muted-foreground tabular-nums">
+              for <RunningFor startedAt={item.startedAt} /> · since{" "}
+              {formatDayAwareTimestamp(new Date(item.startedAt).toISOString(), timestampFormat)}
+            </span>
+          )}
         </dd>
+        {item.kind === "subagent" ? null : (
+          <>
+            <dt className="text-muted-foreground">Agent</dt>
+            <dd>{item.awaited ? "Waits for it to finish" : "Carries on without it"}</dd>
+          </>
+        )}
+        {parent === undefined ? null : (
+          <>
+            <dt className="text-muted-foreground">Started by</dt>
+            <dd className="min-w-0 truncate">{parent}</dd>
+          </>
+        )}
       </dl>
       {item.command ? (
         <div className="space-y-1">

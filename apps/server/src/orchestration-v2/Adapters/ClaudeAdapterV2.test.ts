@@ -72,6 +72,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as Clock from "effect/Clock";
 import * as TestClock from "effect/testing/TestClock";
 import { Tool } from "effect/ai";
 import { formatClaudeResumeCompactionQuestion } from "@t3tools/shared/claudeCompaction";
@@ -9809,6 +9810,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         });
         const marks = (tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>) =>
           tasks.map((task) => [task.taskId, task.awaited === true]);
+        const starts = (tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>) =>
+          Object.fromEntries(tasks.map((task) => [task.taskId, task.startedAt]));
 
         yield* harness.runtime.startTurn(
           makeClaudeTestTurnInput({
@@ -9824,7 +9827,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           harness.sdkMessages,
           roster([WAKE_TASK_ID, "dev-server"], "00000000-0000-4000-8000-000000000301"),
         );
-        yield* nextRoster((tasks) => tasks.length === 2);
+        const firstSeenAt = yield* Clock.currentTimeMillis;
+        assert.deepStrictEqual(starts(yield* nextRoster((tasks) => tasks.length === 2)), {
+          [WAKE_TASK_ID]: firstSeenAt,
+          "dev-server": firstSeenAt,
+        });
+        yield* TestClock.adjust(1_000);
 
         const marked = yield* awaitBackgroundTasks({
           providerThread: harness.providerThread,
@@ -9847,13 +9855,15 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           harness.sdkMessages,
           roster(["dev-server", WAKE_TASK_ID], "00000000-0000-4000-8000-000000000302"),
         );
-        assert.deepStrictEqual(
-          marks(yield* nextRoster((tasks) => tasks[0]?.taskId === "dev-server")),
-          [
-            ["dev-server", false],
-            [WAKE_TASK_ID, true],
-          ],
-        );
+        const replaced = yield* nextRoster((tasks) => tasks[0]?.taskId === "dev-server");
+        assert.deepStrictEqual(marks(replaced), [
+          ["dev-server", false],
+          [WAKE_TASK_ID, true],
+        ]);
+        assert.deepStrictEqual(starts(replaced), {
+          "dev-server": firstSeenAt,
+          [WAKE_TASK_ID]: firstSeenAt,
+        });
 
         // Once the task leaves the roster, a reused id starts unmarked.
         yield* Queue.offer(
@@ -9865,10 +9875,15 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           harness.sdkMessages,
           roster(["dev-server", WAKE_TASK_ID], "00000000-0000-4000-8000-000000000304"),
         );
-        assert.deepStrictEqual(marks(yield* nextRoster((tasks) => tasks.length === 2)), [
+        const relisted = yield* nextRoster((tasks) => tasks.length === 2);
+        assert.deepStrictEqual(marks(relisted), [
           ["dev-server", false],
           [WAKE_TASK_ID, false],
         ]);
+        assert.deepStrictEqual(starts(relisted), {
+          "dev-server": firstSeenAt,
+          [WAKE_TASK_ID]: firstSeenAt + 1_000,
+        });
 
         yield* awaitBackgroundTasks({
           providerThread: harness.providerThread,
@@ -10039,6 +10054,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             taskId: longRunning.taskId,
             kind: "monitor",
             description: "Monitor 0",
+            startedAt: 0,
             command: "sleep 8 && echo MONITOR_DONE",
             outputThreadId: harness.threadId,
             outputItemId: TurnItemId.make(
@@ -10732,7 +10748,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             (event) => event.providerThread.id === providerThreadA.id,
           )?.providerThread.pendingBackgroundTasks;
           assert.deepEqual(rosterAAfterSettle ?? [], [
-            { taskId: taskA, description: "work on A", kind: "command" },
+            { taskId: taskA, description: "work on A", kind: "command", startedAt: 0 },
           ]);
           assert.isTrue(yield* hasPendingBackgroundWork);
           assert.isTrue(yield* hasPendingBackgroundWorkForThread(providerThreadA));

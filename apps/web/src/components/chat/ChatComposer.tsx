@@ -176,6 +176,7 @@ import {
   formatInlineContextReference,
   insertInlineContextReference,
   inlineContextReferenceReplacement,
+  withInsertedNote,
 } from "~/lib/composerContextReferences";
 import {
   attachmentContextRecord,
@@ -341,7 +342,7 @@ export interface ChatComposerHandle {
     prompt?: string;
     detectTrigger?: boolean;
   }) => void;
-  addTerminalContext: (selection: TerminalContextSelection) => void;
+  addTerminalContext: (selection: TerminalContextSelection, note?: string) => void;
   getSendContext: () => {
     answeringPendingUserInput: boolean;
     prompt: string;
@@ -3330,7 +3331,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             : null,
         );
       },
-      addTerminalContext: (selection: TerminalContextSelection) => {
+      addTerminalContext: (selection: TerminalContextSelection, note?: string) => {
         if (!activeThread || isChoiceOnlyPendingQuestion || isLiteralPendingAnswer) return;
         const snapshot = readComposerSnapshotStable();
         const context = {
@@ -3339,10 +3340,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           createdAt: new Date().toISOString(),
           ...selection,
         };
-        const insertion = insertInlineContextReference(
-          snapshot.value,
-          snapshot.expandedCursor,
-          terminalContextReference(context),
+        const insertion = withInsertedNote(
+          insertInlineContextReference(
+            snapshot.value,
+            snapshot.expandedCursor,
+            terminalContextReference(context),
+          ),
+          note,
         );
         const nextCollapsedCursor = collapseExpandedComposerCursor(
           insertion.prompt,

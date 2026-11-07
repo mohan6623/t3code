@@ -69,6 +69,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "rightPanel.new",
   "threadPanel.toggle",
   "rightPanel.toggleMaximized",
+  // Fork: shows or hides the composer under a maximized panel.
+  "rightPanel.toggleComposer",
   "rightPanel.close",
   "view.reopenClosed",
   "pullRequest.copyNumber",

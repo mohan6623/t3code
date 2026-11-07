@@ -84,7 +84,7 @@ interface PersistentThreadTerminalDrawerProps {
   newShortcutLabel: string | undefined;
   closeShortcutLabel: string | undefined;
   keybindings: ResolvedKeybindingsConfig;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onAddTerminalContext: (selection: TerminalContextSelection, note?: string) => void;
 }
 
 export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDrawer({
@@ -227,11 +227,11 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     if (visible) focusActiveDrawerTerminal(threadRef);
   });
 
-  const handleAddTerminalContext = (selection: TerminalContextSelection) => {
+  const handleAddTerminalContext = (selection: TerminalContextSelection, note?: string) => {
     if (!visible) {
       return;
     }
-    onAddTerminalContext(selection);
+    onAddTerminalContext(selection, note);
   };
 
   if (!project || (!terminalUiState.terminalOpen && !active) || !cwd) {
@@ -296,7 +296,7 @@ export interface PersistentThreadTerminalPanelProps {
   surface: Extract<RightPanelSurface, { kind: "terminal" }>;
   launchContext: PersistentTerminalLaunchContext | null;
   keybindings: ResolvedKeybindingsConfig;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onAddTerminalContext: (selection: TerminalContextSelection, note?: string) => void;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
   onNewTerminal: () => void;

@@ -49,6 +49,8 @@ const PREVIEW_FORWARDED_COMMANDS = [
   "sidebar.toggle",
   "rightPanel.toggle",
   "rightPanel.toggleMaximized",
+  // Fork: the maximized panel's composer.
+  "rightPanel.toggleComposer",
   "preview.focusUrl",
 ] as const;
 

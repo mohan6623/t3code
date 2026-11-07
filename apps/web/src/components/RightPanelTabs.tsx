@@ -113,6 +113,8 @@ export interface RightPanelTabsProps {
    */
   side?: "left" | "right";
   maximized?: boolean;
+  /** Fork: room kept under the content for the composer of a maximized panel. */
+  contentBottomInset?: number;
   open?: boolean;
   keybindings: ResolvedKeybindingsConfig;
   getShortcutContext: () => ShortcutMatchContext;
@@ -1604,7 +1606,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           />
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        style={props.contentBottomInset ? { paddingBottom: props.contentBottomInset } : undefined}
+        data-right-panel-surface-content
+      >
         {props.activeSurfaceId === null && filesDock ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <Button

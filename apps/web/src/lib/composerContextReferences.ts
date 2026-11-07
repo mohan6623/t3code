@@ -70,6 +70,19 @@ export function insertInlineContextReference(
   };
 }
 
+/** Fork: the note a user wrote while tagging a selection follows its reference. */
+export function withInsertedNote(
+  insertion: { prompt: string; cursor: number },
+  note: string | undefined,
+): { prompt: string; cursor: number } {
+  const text = note?.trim();
+  if (!text) return insertion;
+  const before = insertion.prompt.slice(0, insertion.cursor);
+  const after = insertion.prompt.slice(insertion.cursor);
+  const inserted = /^\s/.test(after) ? text : `${text} `;
+  return { prompt: `${before}${inserted}${after}`, cursor: before.length + inserted.length };
+}
+
 export function appendInlineContextReference(
   prompt: string,
   reference: ComposerContextReference,

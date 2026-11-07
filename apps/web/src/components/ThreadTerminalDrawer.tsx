@@ -51,6 +51,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { readTextFromClipboard, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
+import { SelectionNoteCard } from "./SelectionNote";
 import {
   observeSelectionActions,
   resolveSelectionActionPosition,
@@ -400,6 +401,7 @@ function terminalSelectionLineRange(position: { start: { y: number }; end: { y: 
 
 export type TerminalContextMenuAction =
   | "add-to-chat"
+  | "add-to-chat-note"
   | "copy"
   | "paste"
   | "select-all"
@@ -407,11 +409,15 @@ export type TerminalContextMenuAction =
 
 function terminalSelectionMenuItems(options?: {
   canAddToChat?: boolean;
-}): ContextMenuItem<"add-to-chat" | "copy">[] {
+}): ContextMenuItem<"add-to-chat" | "add-to-chat-note" | "copy">[] {
   return [
     ...(options?.canAddToChat === false
       ? []
-      : ([{ id: "add-to-chat", label: "Add to chat" }] satisfies ContextMenuItem<"add-to-chat">[])),
+      : ([
+          { id: "add-to-chat", label: "Add to chat" },
+          // Fork: the same, with a note the agent reads beside the lines.
+          { id: "add-to-chat-note", label: "Add to chat with note…" },
+        ] satisfies ContextMenuItem<"add-to-chat" | "add-to-chat-note">[])),
     { id: "copy", label: "Copy" },
   ];
 }
@@ -480,7 +486,7 @@ interface TerminalViewportProps {
   runtimeEnv?: Record<string, string>;
   providerInstanceId?: ProviderInstanceId;
   onSessionExited: () => void;
-  onAddTerminalContext?: (selection: TerminalContextSelection) => void;
+  onAddTerminalContext?: (selection: TerminalContextSelection, note?: string) => void;
   /** Focuses the viewport when it mounts; otherwise focus arrives through `focusTerminal`. */
   autoFocus?: boolean;
   visible: boolean;
@@ -588,13 +594,20 @@ function TerminalSessionViewport({
   const hasHandledExitRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
+  // Fork: the selection waiting for its note before it goes to the composer.
+  const [noteRequest, setNoteRequest] = useState<{
+    position: { x: number; y: number };
+    selection: TerminalContextSelection;
+  } | null>(null);
   const readKeybindings = useEffectEvent(() => keybindings);
   const handleSessionExited = useEffectEvent(() => {
     if (hasTerminalWriteAccess()) onSessionExited();
   });
-  const handleAddTerminalContext = useEffectEvent((selection: TerminalContextSelection) => {
-    onAddTerminalContext?.(selection);
-  });
+  const handleAddTerminalContext = useEffectEvent(
+    (selection: TerminalContextSelection, note?: string) => {
+      onAddTerminalContext?.(selection, note);
+    },
+  );
   const canAddSelectionToChat = useEffectEvent(() => onAddTerminalContext !== undefined);
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
   const terminalFontFamily = useClientSettings((settings) =>
@@ -859,6 +872,16 @@ function TerminalSessionViewport({
         terminalRef.current?.focus();
       };
 
+      const requestSelectionNote = (action: {
+        position: { x: number; y: number };
+        clipboardText: string;
+        selection: TerminalContextSelection;
+      }) => {
+        const current = readSelectionAction();
+        const chosen = current?.clipboardText === action.clipboardText ? current : action;
+        setNoteRequest({ position: chosen.position, selection: chosen.selection });
+      };
+
       const reportIfCurrent = (requestId: number, error: unknown, fallback: string) => {
         if (requestId !== selectionActionRequestIdRef.current) return;
         const activeTerminal = terminalRef.current;
@@ -941,6 +964,9 @@ function TerminalSessionViewport({
               addSelectionToChat(selectionAction.clipboardText);
             }
             return;
+          case "add-to-chat-note":
+            if (selectionAction && canAddSelectionToChat()) requestSelectionNote(selectionAction);
+            return;
           case "copy":
             if (selectionAction) await copySelection(selectionAction.clipboardText, requestId);
             return;
@@ -989,6 +1015,9 @@ function TerminalSessionViewport({
         switch (clicked) {
           case "add-to-chat":
             if (canAddSelectionToChat()) addSelectionToChat(nextAction.clipboardText);
+            return;
+          case "add-to-chat-note":
+            if (canAddSelectionToChat()) requestSelectionNote(nextAction);
             return;
           case "copy":
             await copySelection(nextAction.clipboardText, requestId);
@@ -1225,12 +1254,37 @@ function TerminalSessionViewport({
     };
   };
   return (
-    <div
-      ref={attachContainer}
-      tabIndex={-1}
-      className="relative h-full w-full overflow-hidden bg-(--terminal-background)"
-    />
+    <>
+      <div
+        ref={attachContainer}
+        tabIndex={-1}
+        className="relative h-full w-full overflow-hidden bg-(--terminal-background)"
+      />
+      {noteRequest ? (
+        <SelectionNoteCard
+          position={noteRequest.position}
+          label={terminalSelectionLabel(noteRequest.selection)}
+          onCancel={() => {
+            setNoteRequest(null);
+            terminalRef.current?.focus();
+          }}
+          onSubmit={(note) => {
+            setNoteRequest(null);
+            terminalRef.current?.clearSelection();
+            handleAddTerminalContext(noteRequest.selection, note);
+          }}
+        />
+      ) : null}
+    </>
   );
+}
+
+function terminalSelectionLabel(selection: TerminalContextSelection): string {
+  const lines =
+    selection.lineStart === selection.lineEnd
+      ? `line ${selection.lineStart}`
+      : `lines ${selection.lineStart}–${selection.lineEnd}`;
+  return `${selection.terminalLabel} · ${lines}`;
 }
 
 interface ThreadTerminalDrawerProps {
@@ -1258,7 +1312,7 @@ interface ThreadTerminalDrawerProps {
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string, threadRef?: ScopedThreadRef) => void;
   onHeightChange: (height: number) => void;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onAddTerminalContext: (selection: TerminalContextSelection, note?: string) => void;
   keybindings: ResolvedKeybindingsConfig;
   terminalLabelsById?: ReadonlyMap<string, string>;
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
@@ -1333,7 +1387,7 @@ function TerminalSplitPanes({
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
   threadId: ThreadId;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onAddTerminalContext: (selection: TerminalContextSelection, note?: string) => void;
   visible: boolean;
   keybindings: ResolvedKeybindingsConfig;
 }) {

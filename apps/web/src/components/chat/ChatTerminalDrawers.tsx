@@ -23,6 +23,8 @@ import {
 interface ChatTerminalDrawersProps {
   readonly activeThreadKey: string | null;
   readonly activeTerminalOpen: boolean;
+  /** Fork: a maximized panel with its composer hides the active drawer without closing it. */
+  readonly hidden?: boolean;
   readonly composerHeight: number;
   readonly launchContext: PersistentTerminalLaunchContext | null;
   readonly splitShortcutLabel: string | undefined;
@@ -30,7 +32,7 @@ interface ChatTerminalDrawersProps {
   readonly newShortcutLabel: string | undefined;
   readonly closeShortcutLabel: string | undefined;
   readonly keybindings: ResolvedKeybindingsConfig;
-  readonly onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  readonly onAddTerminalContext: (selection: TerminalContextSelection, note?: string) => void;
 }
 
 /**
@@ -93,7 +95,7 @@ export function ChatTerminalDrawers(props: ChatTerminalDrawersProps) {
       key={mountedThreadKey}
       threadRef={mountedThreadRef}
       threadId={mountedThreadRef.threadId}
-      active={mountedThreadKey === activeThreadKey}
+      active={mountedThreadKey === activeThreadKey && props.hidden !== true}
       composerHeight={mountedThreadKey === activeThreadKey ? props.composerHeight : 0}
       launchContext={mountedThreadKey === activeThreadKey ? props.launchContext : null}
       splitShortcutLabel={props.splitShortcutLabel}

@@ -130,8 +130,8 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   const hasReachedSplitLimit =
     (activeTerminalGroup?.terminalIds.length ?? 0) >= MAX_TERMINALS_PER_GROUP;
   /*__HOOK__*/
-  const addTerminalContextToDraft = (selection: TerminalContextSelection) => {
-    composerRef.current?.addTerminalContext(selection);
+  const addTerminalContextToDraft = (selection: TerminalContextSelection, note?: string) => {
+    composerRef.current?.addTerminalContext(selection, note);
   };
   const addTerminalContextToDraftStable = useStableCallback(addTerminalContextToDraft);
   const setTerminalOpen = (open: boolean) => {

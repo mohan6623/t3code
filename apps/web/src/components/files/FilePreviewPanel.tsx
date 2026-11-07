@@ -97,7 +97,9 @@ import {
   nextFileCommentId,
   normalizeFileCommentRange,
   remapFileCommentAnnotations,
+  findSelectionSourceLines,
 } from "./fileCommentAnnotations";
+import { TextSelectionNoteToolbar } from "../SelectionNote";
 import { installFileEditorDismissal } from "./fileEditorDismissal";
 import {
   FILE_LINK_REVEAL_ATTRIBUTE,
@@ -933,17 +935,13 @@ function RenderedMarkdownSurface({
   relativePath,
   contents,
   threadRef,
+  composerDraftTarget,
   workspaceMutationId,
   readOnly,
   onPendingChange,
 }: Omit<
   EditableFileSurfaceProps,
-  | "resolvedTheme"
-  | "composerDraftTarget"
-  | "revealLine"
-  | "revealRequestId"
-  | "wordWrap"
-  | "onPostRender"
+  "resolvedTheme" | "revealLine" | "revealRequestId" | "wordWrap" | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
   readOnly: boolean;
@@ -951,29 +949,73 @@ function RenderedMarkdownSurface({
 }) {
   const saveTarget = { environmentId, cwd, relativePath };
   useFileSaveSession(saveTarget, onPendingChange);
+  const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
+  // Fork: a text selection here can go to the composer with a note, like a line comment.
+  const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
+  const addSelection = (text: string, note: string) => {
+    const lines = findSelectionSourceLines(contents, text);
+    const comment = lines
+      ? buildFileReviewComment({
+          id: nextFileCommentId(),
+          filePath: relativePath,
+          ...lines,
+          text: note,
+          contents,
+        })
+      : {
+          ...buildFileReviewComment({
+            id: nextFileCommentId(),
+            filePath: relativePath,
+            startLine: 1,
+            endLine: 1,
+            text: note,
+            contents: "",
+          }),
+          rangeLabel: "Selection",
+          diff: text,
+        };
+    addReviewComment(composerDraftTarget, comment);
+  };
 
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <FileMarkdownPreview
-        text={contents}
-        cwd={cwd}
-        relativePath={relativePath}
-        threadRef={threadRef}
-        workspaceMutationId={workspaceMutationId}
-        onTaskListChange={
-          readOnly
-            ? undefined
-            : ({ markerOffset, checked }) => {
-                const currentContents =
-                  getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-                  contents;
-                const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
-                if (nextContents === currentContents) return;
-                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                changeFileSaveSession(saveTarget, nextContents);
-              }
-        }
+      <TextSelectionNoteToolbar
+        element={selectionRoot}
+        label={(text) => {
+          const lines = findSelectionSourceLines(contents, text);
+          const name = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+          return lines
+            ? `${name} · ${formatFileCommentRange(lines.startLine, lines.endLine)}`
+            : name;
+        }}
+        onAdd={addSelection}
       />
+      <div ref={setSelectionRoot}>
+        <FileMarkdownPreview
+          text={contents}
+          cwd={cwd}
+          relativePath={relativePath}
+          threadRef={threadRef}
+          workspaceMutationId={workspaceMutationId}
+          onTaskListChange={
+            readOnly
+              ? undefined
+              : ({ markerOffset, checked }) => {
+                  const currentContents =
+                    getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+                    contents;
+                  const nextContents = setMarkdownTaskChecked(
+                    currentContents,
+                    markerOffset,
+                    checked,
+                  );
+                  if (nextContents === currentContents) return;
+                  setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+                  changeFileSaveSession(saveTarget, nextContents);
+                }
+          }
+        />
+      </div>
     </ScrollArea>
   );
 }
@@ -1497,6 +1539,7 @@ export default function FilePreviewPanel({
                 cwd={cwd}
                 relativePath={relativePath}
                 threadRef={threadRef}
+                composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 workspaceMutationId={workspaceMutationId}
                 readOnly={file.data.truncated || isHostFile || !canWriteFiles}

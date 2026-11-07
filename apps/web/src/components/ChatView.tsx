@@ -1812,6 +1812,19 @@ export default function ChatView(props: ChatViewProps) {
   // Provider-native subagents cannot take messages; approvals and questions go to the top-level parent.
   const showProviderSubagentBar = isProviderSubagent;
   const composerMounted = !showProviderSubagentBar;
+  // Fork: a maximized panel keeps the composer under it, unless the user hid it.
+  const [maximizedComposerPreferred, setMaximizedComposerPreferred] = useLocalStorage(
+    "t3code:maximized-panel-composer",
+    true,
+    Schema.Boolean,
+  );
+  // The centred draft hero would land in the middle of the panel, so drafts keep the old layout.
+  const maximizedComposerShown =
+    rightPanelMaximized && maximizedComposerPreferred && composerMounted && !isDraftHeroState;
+  const toggleMaximizedComposer = () => {
+    setMaximizedComposerPreferred((visible) => !visible);
+  };
+  const toggleMaximizedComposerStable = useStableCallback(toggleMaximizedComposer);
   const providerSubagentModels = selectedProviderEntry?.models ?? EMPTY_PROVIDER_MODELS;
   // Providers can report dated model ids or aliases.
   const providerSubagentModelSlug = selectedProviderEntry
@@ -2872,6 +2885,10 @@ export default function ChatView(props: ChatViewProps) {
       ...terminalShortcuts,
       ...rightPanelShortcuts,
       ...threadLifecycleShortcuts,
+      "rightPanel.toggleComposer": ({ event }) => {
+        if (!rightPanelMaximized) return false;
+        if (!event.repeat) toggleMaximizedComposerStable();
+      },
       "thread.copyReference": ({ event }) => {
         if (!event.repeat) copyActiveThreadReference();
       },
@@ -2916,8 +2933,16 @@ export default function ChatView(props: ChatViewProps) {
     return window.desktopBridge?.onMenuAction((action) => {
       if (action === "rightPanel.toggle") toggleRightPanelStable();
       else if (action === "rightPanel.toggleMaximized") toggleRightPanelMaximizedStable();
+      else if (action === "rightPanel.toggleComposer" && rightPanelMaximized)
+        toggleMaximizedComposerStable();
     });
-  }, [embedded, toggleRightPanelStable, toggleRightPanelMaximizedStable]);
+  }, [
+    embedded,
+    rightPanelMaximized,
+    toggleRightPanelStable,
+    toggleRightPanelMaximizedStable,
+    toggleMaximizedComposerStable,
+  ]);
 
   usePasteToFocusComposer(embedded ? null : activeThreadId, composerRef);
   // A delegated task is a remote thread's subagent.
@@ -3463,6 +3488,15 @@ export default function ChatView(props: ChatViewProps) {
       animationsActive={panelAnimationsActive}
       maximized={rightPanelMaximized}
       onToggleMaximized={toggleRightPanelMaximizedStable}
+      {...(composerMounted
+        ? {
+            maximizedComposer: {
+              visible: maximizedComposerPreferred,
+              shortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggleComposer"),
+              onToggle: toggleMaximizedComposerStable,
+            },
+          }
+        : {})}
     >
       {panelToggleControls}
     </WorkspaceTitlebarControls>
@@ -3511,17 +3545,25 @@ export default function ChatView(props: ChatViewProps) {
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
-          rightPanelMaximized ? "w-0 flex-none" : "flex-1",
+          // Fork: the column lies over the maximized panel, hidden but for its composer, so the
+          // timeline keeps its size and scroll position.
+          maximizedComposerShown
+            ? "pointer-events-none invisible absolute inset-0 z-30"
+            : rightPanelMaximized
+              ? "w-0 flex-none"
+              : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
         data-chat-column
-        inert={rightPanelMaximized}
+        inert={rightPanelMaximized && !maximizedComposerShown}
       >
         {embedded ? null : (
           <header
             ref={threadPanelPopoverAnchorRef}
             data-chat-header
             className={cn(
+              // Fork: a hidden header must not keep its window drag region over the panel tabs.
+              maximizedComposerShown && "hidden",
               // Fork: the inset changes at once, like the chat below it; only panels slide.
               "relative bg-background",
               isElectron
@@ -3737,11 +3779,12 @@ export default function ChatView(props: ChatViewProps) {
               }}
               inert={isRevertingCheckpoint}
               data-chat-composer-overlay="true"
-              className={
+              className={cn(
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-center [@media(max-height:34rem)]:items-end"
-                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
-              }
+                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2",
+                maximizedComposerShown && "visible",
+              )}
             >
               <div ref={draftHeroTransitionGroupRef} className="chat-composer-lane w-full">
                 <div
@@ -4203,6 +4246,7 @@ export default function ChatView(props: ChatViewProps) {
           <ChatTerminalDrawers
             activeThreadKey={activeThreadKey}
             activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
+            hidden={maximizedComposerShown}
             composerHeight={composerReservedHeight}
             launchContext={activeTerminalLaunchContext ?? null}
             splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
@@ -4227,6 +4271,7 @@ export default function ChatView(props: ChatViewProps) {
           keybindings={keybindings}
           getShortcutContext={getShortcutContextStable}
           maximized={rightPanelMaximized}
+          contentBottomInset={maximizedComposerShown ? composerReservedHeight : 0}
           layoutControls={
             rightPanelOpen ? (
               <div className="mr-px flex items-center gap-1">

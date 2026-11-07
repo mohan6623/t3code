@@ -1,4 +1,9 @@
-import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
+import {
+  EllipsisVerticalIcon,
+  PanelBottomIcon,
+  PanelRightIcon,
+  SquareMenuIcon,
+} from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactNode } from "react";
@@ -6,6 +11,8 @@ import { memo, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
+import { Button } from "../ui/button";
+import { Menu, MenuCheckboxItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -173,6 +180,46 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
   );
 });
 
+/** Fork: the composer under a maximized panel can be shown or hidden. */
+export interface MaximizedComposerControl {
+  readonly visible: boolean;
+  readonly shortcutLabel: string | null;
+  readonly onToggle: () => void;
+}
+
+/** Fork: the kebab menu beside the maximize toggle while the panel is maximized. */
+function MaximizedPanelMenu({ composer }: { composer: MaximizedComposerControl }) {
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <Button
+                  className="shrink-0 [-webkit-app-region:no-drag]"
+                  aria-label="Panel options"
+                  variant="ghost"
+                  size="icon-sm"
+                />
+              }
+            />
+          }
+        >
+          <EllipsisVerticalIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">Panel options</TooltipPopup>
+      </Tooltip>
+      <MenuPopup align="end" className="min-w-52">
+        <MenuCheckboxItem checked={composer.visible} onCheckedChange={composer.onToggle}>
+          Show composer
+          {composer.shortcutLabel ? <MenuShortcut>{composer.shortcutLabel}</MenuShortcut> : null}
+        </MenuCheckboxItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 /**
  * The thread panel toggle on a header whose right side the inline right panel
  * covers. Fork: when that panel is too narrow for its own buttons, the
@@ -219,6 +266,8 @@ export function WorkspaceTitlebarControls(props: {
   readonly animationsActive: boolean;
   readonly maximized: boolean;
   readonly onToggleMaximized: () => void;
+  /** Fork: offered while the panel is maximized. */
+  readonly maximizedComposer?: MaximizedComposerControl;
   readonly children: ReactNode;
 }) {
   return (
@@ -242,6 +291,9 @@ export function WorkspaceTitlebarControls(props: {
           )}
           inert={!props.rightPanelOpen}
         >
+          {props.maximized && props.maximizedComposer ? (
+            <MaximizedPanelMenu composer={props.maximizedComposer} />
+          ) : null}
           <RightPanelMaximizeControl
             maximized={props.maximized}
             onToggle={props.onToggleMaximized}

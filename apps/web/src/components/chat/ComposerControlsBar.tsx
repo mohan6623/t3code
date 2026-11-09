@@ -15,7 +15,6 @@ import {
   type ModelSelection,
   type ProviderDriverKind,
   type ProviderInstanceId,
-  type ProviderInteractionMode,
   type RuntimeMode,
   type ServerProvider,
 } from "@t3tools/contracts";
@@ -45,12 +44,8 @@ export function ComposerControlsBar(props: {
   reportedModelSelection: ChatComposerProps["reportedModelSelection"];
   promptUltrathink: PromptUltrathink;
   onPromptEdit: (edit: (prompt: string) => string) => void;
-  planModeEnabled: boolean;
-  planModeUiEnabled: boolean;
-  interactionMode: ProviderInteractionMode;
   compatibleRuntimeMode: RuntimeMode;
   compatibleRuntimeModeOptions: ReadonlyArray<RuntimeModeOption>;
-  toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   composerControlsCollapsed: boolean;
   restingHiddenBlockCount: number;
@@ -92,12 +87,8 @@ export function ComposerControlsBar(props: {
     reportedModelSelection,
     promptUltrathink,
     onPromptEdit,
-    planModeEnabled,
-    planModeUiEnabled,
-    interactionMode,
     compatibleRuntimeMode,
     compatibleRuntimeModeOptions,
-    toggleInteractionMode,
     handleRuntimeModeChange,
     composerControlsCollapsed,
     restingHiddenBlockCount,
@@ -137,7 +128,6 @@ export function ComposerControlsBar(props: {
     reportedModelSelection,
     promptUltrathink,
     onPromptEdit,
-    planModeEnabled,
   });
   const providerTraitsPickerInput = {
     provider: selectedProvider,
@@ -150,7 +140,6 @@ export function ComposerControlsBar(props: {
     reportedModelSelection,
     promptUltrathink,
     onPromptEdit,
-    planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
@@ -172,13 +161,10 @@ export function ComposerControlsBar(props: {
       id: "mode",
       content: (
         <ComposerFooterModeControls
-          showInteractionModeToggle={planModeUiEnabled}
-          interactionMode={interactionMode}
           runtimeMode={compatibleRuntimeMode}
           runtimeModeOptions={compatibleRuntimeModeOptions}
           size={composerControlsCollapsed ? "xs" : "sm"}
           hidden={restingHiddenBlockCount > 0}
-          onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
         />
       ),
@@ -297,16 +283,13 @@ export function ComposerControlsBar(props: {
           )}
         >
           <CompactComposerControlsMenu
-            interactionMode={interactionMode}
             runtimeMode={compatibleRuntimeMode}
             runtimeModeOptions={compatibleRuntimeModeOptions}
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
             }
-            onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
           />
         </div>

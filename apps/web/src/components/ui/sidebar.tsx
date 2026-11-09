@@ -28,7 +28,7 @@ import * as Schema from "effect/Schema";
 import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
 
 const SIDEBAR_WIDTH = "16rem";
-const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
+const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing) * 3)";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
 const SIDEBAR_PEEK_OPEN_DELAY_MS = 150;

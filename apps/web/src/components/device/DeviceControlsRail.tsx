@@ -47,6 +47,7 @@ export function DeviceControlsRail(props: {
   onFloat: () => void;
   onClose: () => void;
   onPowerOff: () => void;
+  streamQuality?: ReactNode;
 }) {
   const { view, handle, controls } = props;
   const popupSide = "left";
@@ -204,6 +205,7 @@ export function DeviceControlsRail(props: {
             <Camera />
           </RailButton>
         )}
+        {props.streamQuality}
         <Menu>
           <MenuTrigger
             render={

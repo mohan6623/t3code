@@ -7,6 +7,7 @@ import {
 } from "@t3tools/client-runtime/device/screenshot";
 import { refreshDeviceHubAccess, useDeviceHubAccess } from "~/state/device";
 import { DeviceControlsRail } from "./DeviceControlsRail";
+import { DeviceStreamQualityMenu } from "./DeviceStreamQualityMenu";
 import { DeviceStreamView } from "./DeviceStreamView";
 import { DeviceToolsPanel } from "./DeviceToolsPanel";
 import { useDeviceControls } from "./useDeviceControls";
@@ -107,6 +108,19 @@ export function DeviceWorkspace(props: {
                 onFloat={props.onFloat}
                 onClose={props.onClose}
                 onPowerOff={props.onPowerOff}
+                // Fork: stream quality picker; only serve-emu (Android) accepts encoder settings.
+                streamQuality={
+                  props.device.platform === "android" && access ? (
+                    <DeviceStreamQualityMenu
+                      environmentId={props.environmentId}
+                      hostId={props.device.hostId}
+                      access={access}
+                      deviceId={props.device.id}
+                      streaming={view.streaming}
+                      popupSide="left"
+                    />
+                  ) : null
+                }
               />
             )}
           />

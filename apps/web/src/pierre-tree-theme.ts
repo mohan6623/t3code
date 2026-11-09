@@ -8,6 +8,8 @@ export const PIERRE_TREE_UNSAFE_CSS = `
     --trees-border-color-override: color-mix(in srgb, currentColor 14%, transparent);
     --trees-font-family-override: var(--font-sans);
     --trees-font-size-override: 0.75rem;
+    /* Fork: trees sit inside a padded explorer card, so their own inset is kept small. */
+    --trees-padding-inline-override: 0.375rem;
   }
   [data-truncate-content='visible'] { overflow: hidden; text-overflow: ellipsis; }
   [data-truncate-marker] { display: none; }

@@ -479,7 +479,7 @@ export default function FileBrowserPanel({
   return (
     <div
       ref={panelRef}
-      className="flex min-h-0 flex-1 flex-col bg-background"
+      className="flex min-h-0 flex-1 flex-col"
       data-file-browser-panel={`${environmentId}:${cwd}`}
       // Capture runs before the tree's shadow-internal row handler opens the menu.
       onContextMenuCapture={(event) => {
@@ -490,10 +490,9 @@ export default function FileBrowserPanel({
       onDragEnd={() => dragMention.handleDragEnd((path) => model.getItem(path)?.deselect())}
     >
       <div
-        className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
+        className="flex h-10 min-h-10 shrink-0 items-center gap-1 px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
         data-surface-subheader
       >
-        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -528,6 +527,8 @@ export default function FileBrowserPanel({
             </TooltipPopup>
           </Tooltip>
         ) : null}
+        {/* Fork: refresh sits with the other tree actions on the right. */}
+        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
       </div>
       {error || pathSearch.error ? (
         <button

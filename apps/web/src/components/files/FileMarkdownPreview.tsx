@@ -30,7 +30,8 @@ export function FileMarkdownPreview(props: {
       imageBaseDir={imageBaseDir}
       threadRef={props.threadRef}
       workspaceMutationId={props.workspaceMutationId}
-      className="mx-auto max-w-4xl px-6 py-5"
+      // Fork: tight inset so the text starts near the toolbar instead of floating in padding.
+      className="mx-auto max-w-4xl px-3 pt-2 pb-5"
       onTaskListChange={props.onTaskListChange}
     />
   );

@@ -9,9 +9,17 @@ interface Props extends Pick<
   handlers: ResizableWidthHandlers;
   className?: string;
   label?: string;
+  /** Fork: "grip" shows a short pill on hover instead of a full-height line. */
+  variant?: "line" | "grip";
 }
 
-export function RightPanelResizeHandle({ handlers, className, label, ...separatorProps }: Props) {
+export function RightPanelResizeHandle({
+  handlers,
+  className,
+  label,
+  variant = "line",
+  ...separatorProps
+}: Props) {
   return (
     <div
       role="separator"
@@ -26,7 +34,12 @@ export function RightPanelResizeHandle({ handlers, className, label, ...separato
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-focus-visible:bg-primary/60 group-active:bg-primary/60"
+        className={cn(
+          "pointer-events-none absolute left-1/2 -translate-x-1/2 bg-transparent transition-colors duration-150 group-focus-visible:bg-primary/60 group-active:bg-primary/60",
+          variant === "grip"
+            ? "top-1/2 h-10 w-1 -translate-y-1/2 rounded-full group-hover:bg-muted-foreground/40"
+            : "inset-y-0 w-px group-hover:bg-border",
+        )}
       />
     </div>
   );

@@ -66,9 +66,10 @@ export function FileExplorerPane({
         return observeResize(row, measure);
       }}
       aria-label="File explorer"
+      // Fork: beside content the explorer is an inset card, not a column split by a hairline.
       className={cn(
         "relative flex min-h-0 min-w-0 shrink-0 bg-background",
-        resizable ? "border-l border-border/60" : "flex-1",
+        resizable ? "pr-1.5 pb-1.5 pl-1" : "flex-1",
       )}
       style={
         resizable
@@ -81,6 +82,7 @@ export function FileExplorerPane({
     >
       {resizable ? (
         <RightPanelResizeHandle
+          variant="grip"
           handlers={handlers}
           label={resizeLabel}
           tabIndex={0}
@@ -112,7 +114,13 @@ export function FileExplorerPane({
           }}
         />
       ) : null}
-      {children}
+      {resizable ? (
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-card">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
     </aside>
   );
 }

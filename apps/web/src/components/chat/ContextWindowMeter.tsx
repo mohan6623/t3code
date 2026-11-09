@@ -2,10 +2,8 @@ import { Button } from "../ui/button";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import {
-  formatContextWindowCompactionMessage,
-  formatContextWindowCost,
-} from "./ContextWindowMeter.logic";
+import { formatContextWindowCompactionMessage } from "./compaction.logic";
+import { formatContextWindowCost } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
@@ -169,7 +167,9 @@ export function ContextWindowMeter(props: {
           ) : null}
           {usage.compactsAutomatically && !compactsBeforeWindow ? (
             <div className="mt-1 text-pretty text-secondary-label text-2xs font-medium">
-              {formatContextWindowCompactionMessage(modelDisplayName, usage.autoCompactThreshold)}
+              {modelDisplayName && !usage.autoCompactThreshold
+                ? `Context for ${modelDisplayName} compacts automatically when needed.`
+                : formatContextWindowCompactionMessage(usage.autoCompactThreshold)}
             </div>
           ) : null}
           {onCompact ? (

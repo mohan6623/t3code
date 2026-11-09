@@ -206,19 +206,22 @@ async function install(name, version, entry) {
     return help.status === 0 && /\bemulated\b/.test(text) && !/\bimagefile\b/.test(text) ? ['-camera-' + facing, 'emulated'] : [];
   }) : [];
   const emulatorExtraArgs = [cameraArgs.join(' '), process.env.EXPO_DEVICE_HUB_EMULATOR_EXTRA_ARGS].filter(Boolean).join(' ');
+  // Fork: UDP WebRTC drops late frames on a slow link where the TCP socket queues them; the
+  // socket still serves as the viewer's fallback. A Mac hub also streams iOS, so it keeps defaults.
+  const streamArgs = hubPlatform === 'android' ? ['--transport', 'webrtc', '--video-bitrate', '4000000', '--video-fps', '30'] : [];
   let hub = read(hubFile);
-  if (!hub || hub.owner !== owner || hub.entryPath !== hubEntry || hub.platform !== hubPlatform || hub.emulatorExtraArgs !== emulatorExtraArgs || !await healthy(hub.port, '/readyz')) {
+  if (!hub || hub.owner !== owner || hub.entryPath !== hubEntry || hub.platform !== hubPlatform || hub.emulatorExtraArgs !== emulatorExtraArgs || (hub.streamArgs ?? '') !== streamArgs.join(' ') || !await healthy(hub.port, '/readyz')) {
     stopHub(hub);
     for (let attempt = 0; attempt < 5; attempt++) {
       const hubPort = await port();
       const log = fs.openSync(path.join(state, 'hub.log'), 'a');
-      const child = spawn(process.execPath, [hubEntry, '--port', String(hubPort), '--host', '127.0.0.1', '--hide-sidebar', '--hide-boot-device', ...(hubPlatform ? ['--platform', hubPlatform] : [])], {
+      const child = spawn(process.execPath, [hubEntry, '--port', String(hubPort), '--host', '127.0.0.1', '--hide-sidebar', '--hide-boot-device', ...(hubPlatform ? ['--platform', hubPlatform] : []), ...streamArgs], {
         cwd: state, detached: true, stdio: ['ignore', log, log], env: { ...process.env, EXPO_DEVICE_HUB_EMULATOR_EXTRA_ARGS: emulatorExtraArgs, FORCE_COLOR: '0', NO_COLOR: '1' },
       });
       try { await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); }); }
       finally { fs.closeSync(log); }
       child.unref();
-      hub = { owner, pid: child.pid, port: hubPort, entryPath: hubEntry, platform: hubPlatform, emulatorExtraArgs };
+      hub = { owner, pid: child.pid, port: hubPort, entryPath: hubEntry, platform: hubPlatform, emulatorExtraArgs, streamArgs: streamArgs.join(' ') };
       write(hubFile, hub);
       const deadline = Date.now() + 30000;
       let listening = false;

@@ -140,6 +140,8 @@ const FIRST_FRAME_TIMEOUT_MS = 15_000;
 const WEBRTC_STALL_TIMEOUT_MS = FIRST_FRAME_TIMEOUT_MS;
 const WEBRTC_STALL_CHECK_MS = 5_000;
 const TRANSPORT_PROBE_TIMEOUT_MS = 5_000;
+// Fork: an Android WebRTC feed with no frame by then (no UDP path) falls back to the socket.
+const ANDROID_WEBRTC_FALLBACK_MS = 8_000;
 // Offers carry every candidate: serve-sim does not accept trickled ICE.
 const ICE_GATHERING_TIMEOUT_MS = 2_000;
 // A gathering cut short without a reflexive or relay candidate is retried
@@ -456,6 +458,13 @@ export function createDeviceStreamClient(
   let iceGatheringDeadlineMs = ICE_GATHERING_TIMEOUT_MS;
   let peer: { connection: RTCPeerConnection; sessionId: string; video: HTMLVideoElement } | null =
     null;
+  // Fork: serve-emu serves its socket video beside WebRTC; once WebRTC fails, this client stays on the socket.
+  let androidSocketVideo = false;
+  let webRtcFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearWebRtcFallback = () => {
+    if (webRtcFallbackTimer !== null) clearTimeout(webRtcFallbackTimer);
+    webRtcFallbackTimer = null;
+  };
   const duoControl = createDuoControl({
     send(request) {
       if (
@@ -982,6 +991,7 @@ export function createDeviceStreamClient(
       }
       if (video.videoWidth > 0 && video.videoHeight > 0) {
         paint(video, video.videoWidth, video.videoHeight);
+        clearWebRtcFallback();
         checksWithoutFrame = 0;
         watchdog ??= setInterval(() => {
           if (!isCurrent()) return clearWatchdog();
@@ -1301,16 +1311,37 @@ export function createDeviceStreamClient(
     ws.onerror = () => ws.close();
   };
 
+  // Fork: a WebRTC feed that never showed a frame gives way to serve-emu's socket video.
+  const fallBackToAndroidSocket = () => {
+    clearWebRtcFallback();
+    if (stopped || !useWebCodecs) return;
+    androidSocketVideo = true;
+    videoGeneration++;
+    const pendingRetry = retryTimers.get("video");
+    if (pendingRetry !== undefined) clearTimeout(pendingRetry);
+    retryTimers.delete("video");
+    closePeer();
+    const input = socket;
+    socket = null;
+    input?.close();
+    clearFrameTimer();
+    connecting(resolve(msg("WebRTC did not connect. Switching to the WebSocket stream.")));
+    connectAndroid();
+  };
+
   const startAndroid = async () => {
     const session = generation;
-    const settings = await probeWebRtc();
+    const settings = androidSocketVideo ? null : await probeWebRtc();
     if (stopped || generation !== session) return;
-    if (settings) {
-      if (typeof RTCPeerConnection === "undefined")
-        return fail(resolve(msg("This browser cannot receive the device's WebRTC stream.")));
+    // Fork: without RTCPeerConnection the socket stream still works when WebCodecs does.
+    if (settings && typeof RTCPeerConnection !== "undefined") {
       if (!target.videoOnly) connectAndroid(true);
       void readWebRtc(settings);
+      clearWebRtcFallback();
+      webRtcFallbackTimer = setTimeout(fallBackToAndroidSocket, ANDROID_WEBRTC_FALLBACK_MS);
     } else if (useWebCodecs) connectAndroid();
+    else if (settings)
+      fail(resolve(msg("This browser cannot receive the device's WebRTC stream.")));
     else
       fail(resolve(msg("This browser cannot decode the Android stream (WebCodecs unavailable).")));
   };
@@ -1349,6 +1380,7 @@ export function createDeviceStreamClient(
     panelSinks = null;
     mjpeg = false;
     clearFrameTimer();
+    clearWebRtcFallback();
     if (videoReadTimer !== null) clearTimeout(videoReadTimer);
     videoReadTimer = null;
     releaseImage?.();

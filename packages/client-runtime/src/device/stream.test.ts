@@ -701,4 +701,28 @@ describe("Android WebRTC device streams", () => {
     expect(events.onStatus).not.toHaveBeenCalled();
     client.stop();
   });
+
+  // Fork: SSH Android hubs advertise WebRTC, which needs a UDP path the socket stream does not.
+  it("falls back to the socket video when WebRTC shows no frame, and stays there", async () => {
+    vi.stubGlobal("VideoDecoder", vi.fn());
+    vi.stubGlobal("EncodedVideoChunk", vi.fn());
+    const { client, fetch, peers, sockets } = setup();
+    client.start();
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(sockets.map((socket) => socket.url)).toEqual([
+      "wss://test/api/device-hub/vendor/serve-emu/ws?device=session-1&video=0&hostId=eas",
+    ]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(peers[0]?.close).toHaveBeenCalled();
+    expect(sockets[0]?.close).toHaveBeenCalled();
+    expect(sockets[1]?.url).toContain("frame-meta=1");
+
+    fetch.mockClear();
+    sockets[1]!.onclose?.({ code: 1001, reason: "going away" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sockets[2]?.url).toContain("frame-meta=1");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(peers).toHaveLength(1);
+    client.stop();
+  });
 });

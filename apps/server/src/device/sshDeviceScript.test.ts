@@ -7,6 +7,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
+import { DEVICE_HUB_VERSION } from "./DeviceToolchain.ts";
 import { quoteRemoteArg, remoteDeviceEnvironment, remoteDeviceScript } from "./sshDeviceScript.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -234,6 +235,83 @@ it.effect("keeps a daemon record its missing agent CLI cannot stop", () =>
         expect((await start(exited)).stderr).toContain("Android SDK was not found");
         await expect(NodeFSP.access(daemonFile)).rejects.toThrow();
       } finally {
+        await NodeFSP.rm(home, { recursive: true, force: true });
+      }
+    });
+  }),
+);
+
+// Fork: the Android hub streams over WebRTC, and a hub started without those flags is replaced.
+it.effect("restarts an Android hub started without the WebRTC stream flags", () =>
+  Effect.gen(function* () {
+    const platform = yield* HostProcess.Platform;
+    if (platform === "win32") return;
+    yield* Effect.promise(async () => {
+      const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ssh-hub-"));
+      let hubPid: number | undefined;
+      try {
+        const state = NodePath.join(home, ".t3/device/hosts/owner");
+        const hubFile = NodePath.join(state, "hub.json");
+        const calls = NodePath.join(home, "calls");
+        const install = NodePath.join(
+          home,
+          `.t3/device/tools/expo-device-hub@${DEVICE_HUB_VERSION}`,
+        );
+        const entry = NodePath.join(install, "node_modules/expo-device-hub/dist/server/cli.mjs");
+        await NodeFSP.mkdir(NodePath.dirname(entry), { recursive: true });
+        await NodeFSP.writeFile(NodePath.join(install, ".install-complete"), DEVICE_HUB_VERSION);
+        await NodeFSP.writeFile(
+          entry,
+          `import * as fs from "node:fs";
+import * as http from "node:http";
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(calls)}, args.join(" ") + "\\n");
+http.createServer((_, res) => res.end("ok")).listen(Number(args[args.indexOf("--port") + 1]), "127.0.0.1");`,
+        );
+        await NodeFSP.mkdir(NodePath.join(home, "bin"));
+        await NodeFSP.writeFile(NodePath.join(home, "bin/adb"), "#!/bin/sh\nexit 0\n", {
+          mode: 0o755,
+        });
+        await NodeFSP.mkdir(state, { recursive: true });
+        const exited = NodeChildProcess.spawnSync(process.execPath, ["-e", ""]).pid;
+        const hubPlatform = platform === "darwin" ? undefined : "android";
+        await NodeFSP.writeFile(
+          hubFile,
+          JSON.stringify({
+            owner: "owner",
+            pid: exited,
+            port: 1,
+            entryPath: entry,
+            platform: hubPlatform,
+            emulatorExtraArgs: "",
+          }),
+        );
+        const start = async () => {
+          const result = NodeChildProcess.spawnSync(process.execPath, [], {
+            input: remoteDeviceScript("owner", "start"),
+            env: { HOME: home, PATH: `${NodePath.join(home, "bin")}:/usr/bin:/bin` },
+            encoding: "utf8",
+          });
+          expect(result.stderr).toBe("");
+          return JSON.parse(await NodeFSP.readFile(hubFile, "utf8")) as {
+            pid: number;
+            streamArgs: string;
+          };
+        };
+        const streamArgs =
+          hubPlatform === "android"
+            ? "--transport webrtc --video-bitrate 4000000 --video-fps 30"
+            : "";
+        const first = await start();
+        hubPid = first.pid;
+        expect(first.streamArgs).toBe(streamArgs);
+        const spawned = (await NodeFSP.readFile(calls, "utf8")).trim().split("\n");
+        expect(spawned).toHaveLength(1);
+        expect(spawned[0]!.endsWith(streamArgs)).toBe(true);
+        expect((await start()).pid).toBe(first.pid);
+        expect((await NodeFSP.readFile(calls, "utf8")).trim().split("\n")).toHaveLength(1);
+      } finally {
+        if (hubPid !== undefined) process.kill(hubPid);
         await NodeFSP.rm(home, { recursive: true, force: true });
       }
     });

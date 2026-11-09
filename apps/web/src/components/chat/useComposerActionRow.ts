@@ -32,6 +32,11 @@ const ATTACH_ICON_INSET_PX = 6;
  * makes the two layouts alternate.
  */
 const INLINE_RETURN_MARGIN_PX = 12;
+/**
+ * Fork: a row this wide keeps the actions beside the last line of a long
+ * prompt. The separate action row is a mostly empty extra row of height.
+ */
+const INLINE_ACTIONS_MIN_ROW_WIDTH_PX = 480;
 
 function measureComposerActionRow(
   row: HTMLElement,
@@ -75,6 +80,8 @@ function measureComposerActionRow(
     actionsReserve,
     attachShift,
   });
+
+  if (row.clientWidth >= INLINE_ACTIONS_MIN_ROW_WIDTH_PX) return layout(false);
 
   // A second paragraph is a second line, even when it is still empty.
   if (editor.querySelectorAll("p").length > 1) return layout(true);

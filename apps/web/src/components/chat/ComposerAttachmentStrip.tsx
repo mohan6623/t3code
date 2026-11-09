@@ -41,10 +41,11 @@ import {
   type ExpandedImagePreview,
 } from "./ExpandedImagePreview";
 import { PierreEntryIcon } from "./PierreEntryIcon";
-import {
-  SNAP_SHOT_ATTACHMENT_FRAME_CLASS,
-  SnapShotAttachmentDetails,
-} from "./SnapShotAttachmentDetails";
+import { SnapShotAttachmentDetails } from "./SnapShotAttachmentDetails";
+
+// Fork: smaller than the timeline's SnapShot tiles, so they take less of the composer.
+const COMPOSER_SNAP_SHOT_FRAME_CLASS =
+  "relative h-24 w-40 max-w-full overflow-hidden rounded-lg border border-border/80";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
 
 function ComposerVideoThumbnail({ file }: { file: File }) {
@@ -156,7 +157,7 @@ export function ComposerAttachmentMediaRow({
         "mb-3 flex max-w-full gap-2",
         pendingSnapShotIds.length > 0 ||
           expandedImages.some((image) => image.source?.kind === "snap-shot")
-          ? "snap-x snap-proximity overflow-x-auto overscroll-x-contain pb-1 scrollbar-thumb-foreground/18 scrollbar-track-transparent [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-3 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-foreground/18 [&::-webkit-scrollbar-thumb]:bg-clip-content [&::-webkit-scrollbar-thumb:hover]:bg-foreground/28 [&::-webkit-scrollbar-track]:mx-1 [&::-webkit-scrollbar-track]:bg-transparent"
+          ? "snap-x snap-proximity overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           : "flex-wrap",
       )}
     >
@@ -187,7 +188,7 @@ export function ComposerAttachmentMediaRow({
               className={cn(
                 "group/attachment shrink-0 snap-start bg-background",
                 source?.kind === "snap-shot"
-                  ? SNAP_SHOT_ATTACHMENT_FRAME_CLASS
+                  ? COMPOSER_SNAP_SHOT_FRAME_CLASS
                   : "relative h-16 w-16 overflow-hidden rounded-lg border border-border/80",
                 snapShotAnimationPending && "invisible",
               )}
@@ -318,7 +319,7 @@ export function ComposerAttachmentMediaRow({
                 pendingSnapShotAnimations.find((capture) => capture.id === captureId)?.source
               }
               className={cn(
-                SNAP_SHOT_ATTACHMENT_FRAME_CLASS,
+                COMPOSER_SNAP_SHOT_FRAME_CLASS,
                 "invisible shrink-0 snap-start bg-background",
               )}
             />

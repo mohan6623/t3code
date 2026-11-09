@@ -453,6 +453,8 @@ export interface ChatComposerProps {
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
+  /** Fork: floats over a maximized panel, where the prompt scrolls after five lines. */
+  floating?: boolean;
   getTimelineScrollableNode: () => HTMLElement | null;
   isTimelineAtLogicalEnd: () => boolean;
   timelineOverflows: boolean;
@@ -578,6 +580,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     threadPullRequests,
     restingControlsHost,
     restingControlsHaveLeadingContext,
+    floating = false,
     getTimelineScrollableNode,
     isTimelineAtLogicalEnd,
     timelineOverflows,
@@ -3805,6 +3808,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       // One line fills the 2rem row the actions are centred on.
                       controlsInStrip && "my-0 min-h-8 py-1 leading-6",
                       controlsInStrip && isComposerResting && "max-h-8 overflow-hidden",
+                      floating && !isComposerResting && "max-h-32",
                       // The scrollbar of a long prompt sits at the surface edge.
                       promptUsesActionRow && "-me-2.5 pe-2.5",
                     )}

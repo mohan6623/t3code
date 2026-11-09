@@ -349,6 +349,10 @@ import {
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import {
+  MaximizedComposerBubble,
+  MaximizedComposerMinimizeButton,
+} from "./chat/MaximizedComposerControls";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -1785,7 +1789,7 @@ export default function ChatView(props: ChatViewProps) {
   // Provider-native subagents cannot take messages; approvals and questions go to the top-level parent.
   const showProviderSubagentBar = isProviderSubagent;
   const composerMounted = !showProviderSubagentBar;
-  // Fork: a maximized panel keeps the composer under it, unless the user hid it.
+  // Fork: a maximized panel keeps a floating composer over it, unless the user minimized it.
   const [maximizedComposerPreferred, setMaximizedComposerPreferred] = useLocalStorage(
     "t3code:maximized-panel-composer",
     true,
@@ -1794,10 +1798,18 @@ export default function ChatView(props: ChatViewProps) {
   // The centred draft hero would land in the middle of the panel, so drafts keep the old layout.
   const maximizedComposerShown =
     rightPanelMaximized && maximizedComposerPreferred && composerMounted && !isDraftHeroState;
+  const maximizedComposerMinimized =
+    rightPanelMaximized && !maximizedComposerPreferred && composerMounted && !isDraftHeroState;
   const toggleMaximizedComposer = () => {
-    setMaximizedComposerPreferred((visible) => !visible);
+    const visible = !maximizedComposerPreferred;
+    setMaximizedComposerPreferred(visible);
+    if (visible) window.requestAnimationFrame(() => composerRef.current?.focusAtEnd());
   };
   const toggleMaximizedComposerStable = useStableCallback(toggleMaximizedComposer);
+  const maximizedComposerShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "rightPanel.toggleComposer",
+  );
   const providerSubagentModels = selectedProviderEntry?.models ?? EMPTY_PROVIDER_MODELS;
   // Providers can report dated model ids or aliases.
   const providerSubagentModelSlug = selectedProviderEntry
@@ -1843,7 +1855,7 @@ export default function ChatView(props: ChatViewProps) {
   // controls run out of room, the same way the Git strip does.
   const [attachComposerModelStrip, composerModelStripFoldLevel] = useLabelsOverflow();
   // Sits at the end of whichever strip hosts the model controls.
-  const composerUsageBadge = (
+  const composerUsageStrip = (
     <ComposerUsageStrip
       provider={activeProviderStatus}
       providers={providerStatuses as ServerProvider[]}
@@ -1852,6 +1864,17 @@ export default function ChatView(props: ChatViewProps) {
       promptCacheTtlMs={activeThreadLiveTokenUsage?.promptCacheTtlMs}
       lastRun={activeLatestRun}
     />
+  );
+  const composerUsageBadge = maximizedComposerShown ? (
+    <>
+      {composerUsageStrip}
+      <MaximizedComposerMinimizeButton
+        shortcutLabel={maximizedComposerShortcutLabel}
+        onMinimize={toggleMaximizedComposerStable}
+      />
+    </>
+  ) : (
+    composerUsageStrip
   );
   const terminalShortcutLabelOptions = {
     context: {
@@ -3443,7 +3466,7 @@ export default function ChatView(props: ChatViewProps) {
         ? {
             maximizedComposer: {
               visible: maximizedComposerPreferred,
-              shortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggleComposer"),
+              shortcutLabel: maximizedComposerShortcutLabel,
               onToggle: toggleMaximizedComposerStable,
             },
           }
@@ -3938,6 +3961,7 @@ export default function ChatView(props: ChatViewProps) {
                                   (activeThreadShell ?? activeThread)?.pullRequests
                                 }
                                 restingControlsHost={restingComposerControlsHost}
+                                floating={maximizedComposerShown}
                                 restingControlsHaveLeadingContext={
                                   mountComposerContextStrip &&
                                   (hasGitSurfaces || showComposerEnvironmentIndicator)
@@ -4204,6 +4228,12 @@ export default function ChatView(props: ChatViewProps) {
         )}
       </div>
 
+      {maximizedComposerMinimized ? (
+        <MaximizedComposerBubble
+          shortcutLabel={maximizedComposerShortcutLabel}
+          onRestore={toggleMaximizedComposerStable}
+        />
+      ) : null}
       {rightPanelPresent && activeThreadRef && !embedded ? (
         <ChatRightPanel
           sheet={shouldUsePlanSidebarSheet}
@@ -4216,7 +4246,12 @@ export default function ChatView(props: ChatViewProps) {
           keybindings={keybindings}
           getShortcutContext={getShortcutContextStable}
           maximized={rightPanelMaximized}
-          contentBottomInset={maximizedComposerShown ? composerReservedHeight : 0}
+          // Fork: the composer floats over the page, but a terminal keeps its prompt line clear.
+          contentBottomInset={
+            maximizedComposerShown && renderedRightPanelSurface?.kind === "terminal"
+              ? composerReservedHeight
+              : 0
+          }
           layoutControls={
             rightPanelOpen ? (
               <div className="mr-px flex items-center gap-1">

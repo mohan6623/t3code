@@ -2,6 +2,7 @@ import {
   CheckIcon,
   CopyIcon,
   MoonIcon,
+  MoonStarIcon,
   PaintbrushIcon,
   PenLineIcon,
   PlusIcon,
@@ -43,6 +44,8 @@ import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/to
 import { ThemeImportDialog } from "./ThemeImportDialog";
 import { searchableSetting } from "./settingsSearch";
 import { useThemeEditorStore } from "./themeEditorStore";
+import { setThemeArtworkOptIn, useThemeArtworkOptIns } from "../../themeArtworkOptIn";
+import { useEnvironmentStageLabel } from "../SidebarStageBackdrop";
 import {
   STANDARD_THEME_CARDS,
   getThemeCardDefinition,
@@ -106,6 +109,7 @@ function ThemeLibraryCard({
   onDuplicate,
   onDownload,
   onRemove,
+  artwork,
   variantNavigation,
 }: {
   theme: ThemeCardDefinition;
@@ -117,6 +121,8 @@ function ThemeLibraryCard({
   onDuplicate?: () => void;
   onDownload?: () => void;
   onRemove?: () => void;
+  // Fork: per-theme toggle for the stage artwork on non-built-in themes.
+  artwork?: { enabled: boolean; label: string; onToggle: () => void };
   variantNavigation?: {
     collectionLabel: string;
     options: ReadonlyArray<{
@@ -310,8 +316,31 @@ function ThemeLibraryCard({
                   </button>
                 </div>
               </div>
-              {onEdit || onDuplicate || onDownload || onRemove ? (
+              {onEdit || onDuplicate || onDownload || onRemove || artwork ? (
                 <div className="flex shrink-0 items-center gap-1">
+                  {artwork ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label={`${artwork.label} for ${theme.label}`}
+                            aria-pressed={artwork.enabled}
+                            size="icon-xs"
+                            variant={artwork.enabled ? "secondary" : "ghost"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              artwork.onToggle();
+                            }}
+                          >
+                            <MoonStarIcon />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup>
+                        {artwork.enabled ? `Hide ${artwork.label}` : `Show ${artwork.label}`}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   {onDuplicate ? (
                     <Tooltip>
                       <TooltipTrigger
@@ -424,8 +453,10 @@ function CustomThemeCollectionCard({
   onEdit,
   onDownload,
   onRemove,
+  artworkFor,
 }: {
   themes: ReadonlyArray<ThemeDefinition>;
+  artworkFor: (theme: ThemeDefinition) => { enabled: boolean; label: string; onToggle: () => void };
   activeModesFor: (themeId: string) => ReadonlyArray<ThemeMode>;
   onUse: (theme: ThemeDefinition) => void;
   onUseMode: (theme: ThemeDefinition, mode: ThemeMode) => void;
@@ -461,6 +492,7 @@ function CustomThemeCollectionCard({
   return (
     <ThemeLibraryCard
       activeModes={activeModesFor(theme.id)}
+      artwork={artworkFor(theme)}
       isActive={false}
       onDownload={() => onDownload(theme)}
       onDuplicate={() => onDuplicate(theme)}
@@ -521,6 +553,9 @@ export function ThemeLibrary({
 }) {
   const openThemeEditor = useThemeEditorStore((store) => store.openThemeEditor);
   const environmentThemes = useEnvironmentThemeDefinitions();
+  const artworkOptIns = useThemeArtworkOptIns();
+  const artworkLabel =
+    useEnvironmentStageLabel().trim().toLowerCase() === "dev" ? "Dev artwork" : "Nightly artwork";
   const [themeRemovalTarget, setThemeRemovalTarget] = useState<{
     theme: ThemeDefinition;
     collectionThemes: ReadonlyArray<ThemeDefinition>;
@@ -702,6 +737,15 @@ export function ThemeLibrary({
     </div>
   );
 
+  const artworkFor = (artworkTheme: ThemeDefinition) => {
+    const enabled = artworkOptIns.has(artworkTheme.id);
+    return {
+      enabled,
+      label: artworkLabel,
+      onToggle: () => setThemeArtworkOptIn(artworkTheme.id, !enabled),
+    };
+  };
+
   const customThemeCollections = [
     ...customThemes
       .reduce((groups, customTheme) => {
@@ -769,6 +813,7 @@ export function ThemeLibrary({
           .map((environmentTheme) => (
             <ThemeLibraryCard
               activeModes={pickedModesFor(environmentTheme.id)}
+              artwork={artworkFor(environmentTheme)}
               isActive={false}
               key={environmentTheme.id}
               onDuplicate={() =>
@@ -791,6 +836,7 @@ export function ThemeLibrary({
         {customThemeCollections.map(([collectionId, themes]) => (
           <CustomThemeCollectionCard
             activeModesFor={pickedModesFor}
+            artworkFor={artworkFor}
             key={collectionId}
             onDownload={(customTheme) =>
               downloadThemeFile(`${customTheme.id}.json`, serializeThemeFile(customTheme))

@@ -1055,6 +1055,27 @@ function TerminalSessionViewport({
           return false;
         }
 
+        // Fork: Enter on a selection opens the "add to chat" note card instead of running input.
+        if (
+          event.type === "keydown" &&
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.isComposing &&
+          canAddSelectionToChat()
+        ) {
+          const selectionAction = readSelectionAction();
+          if (selectionAction) {
+            event.preventDefault();
+            event.stopPropagation();
+            clearSelectionAction();
+            requestSelectionNote(selectionAction);
+            return false;
+          }
+        }
+
         const navigationData = terminalNavigationShortcutData(event);
         if (navigationData !== null) {
           event.preventDefault();

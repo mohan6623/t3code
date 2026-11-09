@@ -9,6 +9,7 @@ import { remapFileCommentAnnotations } from "./fileCommentAnnotations";
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
+  knownWorkspaceFileTarget,
   resolveFilePreviewPath,
   shouldShowFileExplorer,
   workspaceAssetResource,
@@ -93,6 +94,30 @@ describe("resolveFilePreviewPath", () => {
         shouldShowFileExplorer({ relativePath, explorerOpen: false, attachmentOpen: false }),
       ).toBe(true);
     }
+  });
+});
+
+describe("knownWorkspaceFileTarget", () => {
+  it("saves through the deepest root that holds the file", () => {
+    expect(
+      knownWorkspaceFileTarget("/repo/.t3/worktrees/a/src/tour.md", [
+        "/repo",
+        "/repo/.t3/worktrees/a/",
+        "/elsewhere",
+      ]),
+    ).toEqual({ cwd: "/repo/.t3/worktrees/a/", relativePath: "src/tour.md" });
+  });
+
+  it("matches Windows roots across separators and drive case", () => {
+    expect(knownWorkspaceFileTarget("d:\\Self\\t3code\\README.md", ["D:/Self/t3code"])).toEqual({
+      cwd: "D:/Self/t3code",
+      relativePath: "README.md",
+    });
+  });
+
+  it("leaves files outside every root, and the filesystem root, read-only", () => {
+    expect(knownWorkspaceFileTarget("/tmp/notes.md", ["/repo", "/"])).toBeNull();
+    expect(knownWorkspaceFileTarget("/repository/a.md", ["/repo"])).toBeNull();
   });
 });
 

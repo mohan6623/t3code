@@ -71,6 +71,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { buildFileReviewComment } from "~/reviewCommentContext";
 import { assetEnvironment } from "~/state/assets";
+import { readProjects, readThreadShells } from "~/state/entities";
 import { usePreviewAvailable } from "~/browser/previewRuntime";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
@@ -116,6 +117,7 @@ import { projectFileCacheKey } from "./fileContentRevision";
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
+  knownWorkspaceFileTarget,
   resolveFilePreviewPath,
   shouldShowFileExplorer,
   workspaceAssetResource,
@@ -657,6 +659,8 @@ interface EditableFileSurfaceProps {
   projectId?: ProjectId | undefined;
   cwd: string;
   relativePath: string;
+  // Fork: comments name this path when the save target is remapped to another project root.
+  commentPath?: string | undefined;
   composerDraftTarget: ScopedThreadRef | DraftId;
   contents: string;
   resolvedTheme: "light" | "dark";
@@ -676,6 +680,7 @@ function EditableFileSurface({
   projectId,
   cwd,
   relativePath,
+  commentPath = relativePath,
   composerDraftTarget,
   contents,
   resolvedTheme,
@@ -737,7 +742,7 @@ function EditableFileSurface({
           composerDraftTarget,
           buildFileReviewComment({
             id: entry.id,
-            filePath: relativePath,
+            filePath: commentPath,
             startLine: entry.startLine,
             endLine: entry.endLine,
             text: entry.text,
@@ -769,7 +774,7 @@ function EditableFileSurface({
         composerDraftTarget,
         buildFileReviewComment({
           id: entry.id,
-          filePath: relativePath,
+          filePath: commentPath,
           startLine: entry.startLine,
           endLine: entry.endLine,
           text,
@@ -933,6 +938,7 @@ function RenderedMarkdownSurface({
   environmentId,
   cwd,
   relativePath,
+  commentPath = relativePath,
   contents,
   threadRef,
   composerDraftTarget,
@@ -957,7 +963,7 @@ function RenderedMarkdownSurface({
     const comment = lines
       ? buildFileReviewComment({
           id: nextFileCommentId(),
-          filePath: relativePath,
+          filePath: commentPath,
           ...lines,
           text: note,
           contents,
@@ -965,7 +971,7 @@ function RenderedMarkdownSurface({
       : {
           ...buildFileReviewComment({
             id: nextFileCommentId(),
-            filePath: relativePath,
+            filePath: commentPath,
             startLine: 1,
             endLine: 1,
             text: note,
@@ -1227,6 +1233,25 @@ export default function FilePreviewPanel({
       : relativePath && attachment === undefined
         ? resolvePathLinkTarget(relativePath, cwd)
         : null;
+  // Fork: a host file inside any project or worktree of this environment stays editable.
+  const hostWriteTarget =
+    isHostFile && attachment === undefined && absolutePath !== null
+      ? knownWorkspaceFileTarget(absolutePath, [
+          ...readProjects().flatMap((project) =>
+            project.environmentId === environmentId ? [project.workspaceRoot] : [],
+          ),
+          ...readThreadShells().flatMap((shell) =>
+            shell.environmentId === environmentId && shell.worktreePath ? [shell.worktreePath] : [],
+          ),
+        ])
+      : null;
+  const fileReadOnly =
+    file.data?.truncated === true || (isHostFile && hostWriteTarget === null) || !canWriteFiles;
+  const saveCwd = hostWriteTarget?.cwd ?? cwd;
+  const savePath = (path: string) => hostWriteTarget?.relativePath ?? path;
+  const reportPending = (_path: string, pending: boolean) => {
+    if (relativePath !== null) onPendingChange(relativePath, pending);
+  };
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
   // Mounting the file read under the workspace mutation id refetches it after each mutation.
   useAtomMount(
@@ -1536,14 +1561,15 @@ export default function FilePreviewPanel({
               <RenderedMarkdownSurface
                 key={relativePath}
                 environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
+                cwd={saveCwd}
+                relativePath={savePath(relativePath)}
+                commentPath={relativePath}
                 threadRef={threadRef}
                 composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 workspaceMutationId={workspaceMutationId}
-                readOnly={file.data.truncated || isHostFile || !canWriteFiles}
-                onPendingChange={onPendingChange}
+                readOnly={fileReadOnly}
+                onPendingChange={reportPending}
               />
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
@@ -1552,7 +1578,7 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile || !canWriteFiles ? (
+            ) : fileReadOnly ? (
               <SourceFilePreview
                 name={relativePath}
                 text={file.data.contents}
@@ -1566,15 +1592,16 @@ export default function FilePreviewPanel({
                   key={`${relativePath}:${resolvedTheme}`}
                   environmentId={environmentId}
                   projectId={projectId}
-                  cwd={cwd}
-                  relativePath={relativePath}
+                  cwd={saveCwd}
+                  relativePath={savePath(relativePath)}
+                  commentPath={relativePath}
                   composerDraftTarget={composerDraftTarget}
                   contents={file.data.contents}
                   resolvedTheme={resolvedTheme}
                   revealRequestId={revealRequestId}
                   wordWrap={wordWrap}
                   onPostRender={onFilePostRender}
-                  onPendingChange={onPendingChange}
+                  onPendingChange={reportPending}
                 />
               </DiffWorkerPoolProvider>
             )

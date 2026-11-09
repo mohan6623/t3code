@@ -53,6 +53,7 @@ import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
 import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
+import { useThemeArtworkOptIns } from "~/themeArtworkOptIn";
 import {
   environmentSession,
   environmentSessionStatesAtom,
@@ -405,13 +406,16 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
     getThemePreviewSidebarArtwork,
     () => null,
   );
+  // Fork: passed in so a changed per-theme artwork opt-in re-renders the result.
+  const artworkOptIns = useThemeArtworkOptIns();
   const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
   const activeThemeDefinition = getThemeDefinition(activeTheme);
   return resolveEnvironmentIdentificationMode({
     mode,
     settingsHydrated,
     paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
-    paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme),
+    paletteThemeAllowsArtwork:
+      previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme, artworkOptIns),
   });
 }
 

@@ -115,10 +115,11 @@ export function AppearanceSettingsPanel() {
       environmentStageLabel,
       settings.environmentIdentificationMode,
     ) !== null;
+  // Fork: the two artwork-off texts point at the per-theme moon button on the theme card.
   const environmentIdentificationDescription = themeHidesEnvironmentArtwork
     ? environmentStageVariant
-      ? "Only built-in themes show artwork, so this theme shows the version pill."
-      : "Only built-in themes show artwork."
+      ? "Only built-in themes show artwork, so this theme shows the version pill. Turn it on with the moon button on the theme's card."
+      : "Only built-in themes show artwork. Turn it on with the moon button on the theme's card."
     : environmentStageVariant
       ? "Choose how Dev and Nightly environments are identified."
       : "Show Dev or Nightly artwork in the sidebar header.";

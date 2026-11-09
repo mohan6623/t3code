@@ -63,3 +63,30 @@ export function workspaceAssetResource(input: {
     path: input.absolutePath,
   };
 }
+
+function comparablePath(path: string): string {
+  const slashed = path.replaceAll("\\", "/").replace(/\/+$/, "");
+  return /^[A-Za-z]:\//.test(slashed) ? slashed.toLowerCase() : slashed;
+}
+
+/**
+ * Fork: a file opened by absolute path saves through the deepest project or worktree root that
+ * holds it, since the server writes only inside known workspaces.
+ */
+export function knownWorkspaceFileTarget(
+  absolutePath: string,
+  roots: ReadonlyArray<string>,
+): { readonly cwd: string; readonly relativePath: string } | null {
+  const target = comparablePath(absolutePath);
+  let best: { readonly cwd: string; readonly relativePath: string } | null = null;
+  for (const root of roots) {
+    const prefix = comparablePath(root);
+    if (prefix === "" || !target.startsWith(`${prefix}/`)) continue;
+    if (best !== null && comparablePath(best.cwd).length >= prefix.length) continue;
+    best = {
+      cwd: root,
+      relativePath: absolutePath.replaceAll("\\", "/").slice(prefix.length + 1),
+    };
+  }
+  return best;
+}

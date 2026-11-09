@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 import "culori/css";
 import { converter, parse } from "culori/fn";
+import { getThemeArtworkOptIns } from "./themeArtworkOptIn";
 import {
   BUILT_IN_THEMES,
   EMBER_THEME,
@@ -1185,11 +1186,16 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
   );
 }
 
-export function themeAllowsSidebarArtwork(theme: ThemePreference): boolean {
+export function themeAllowsSidebarArtwork(
+  theme: ThemePreference,
+  artworkOptIns: ReadonlySet<string> = getThemeArtworkOptIns(),
+): boolean {
   const themeId = themeIdFromPreference(theme);
   return (
     BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId)?.sidebarArtwork ===
-    true
+      true ||
+    // Fork: custom and store themes show the artwork when the user turns it on for that theme.
+    artworkOptIns.has(themeId)
   );
 }
 

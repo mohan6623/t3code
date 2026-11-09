@@ -17,6 +17,7 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import { isEditableTarget } from "../SelectionNote";
 import { Button } from "../ui/button";
 import { BackgroundThreadContext } from "./backgroundThread";
 
@@ -147,6 +148,24 @@ export function AssistantSelectionToolbar({
     actionsRef.current = actions;
     const focusActions = (event: KeyboardEvent) => {
       const toolbar = toolbarRef.current;
+      // Fork: Enter cites the selection straight away and opens its comment box.
+      if (
+        event.key === "Enter" &&
+        toolbar &&
+        !toolbar.disabled &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing &&
+        !event.defaultPrevented &&
+        !isEditableTarget(event.target)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        toolbar.click();
+        return;
+      }
       if (
         event.key !== "Tab" ||
         event.shiftKey ||
@@ -165,7 +184,7 @@ export function AssistantSelectionToolbar({
       event.stopPropagation();
       toolbar.focus({ preventScroll: true });
     };
-    // Tab belongs to the foreground chat; a background timeline only follows its selection.
+    // Tab and Enter belong to the foreground chat; a background timeline only follows its selection.
     if (!backgroundThread) document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
     return () => {

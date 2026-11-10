@@ -256,7 +256,10 @@ export function backgroundWorkNowItem(input: {
         {/* Fork: what each piece of work runs, with live output. */}
         <BackgroundWorkDetails
           environmentId={input.environmentId}
+          threadId={input.threadId}
           items={presentation.items}
+          tasks={input.tasks}
+          turnItems={input.turnItems}
           onOpenThread={onOpenThread}
         />
         <InlineButton disabled={input.stopDisabled} onClick={() => void input.onStop()}>

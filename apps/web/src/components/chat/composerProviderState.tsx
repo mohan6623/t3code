@@ -52,6 +52,7 @@ type TraitsRenderInput = {
   instanceId?: ProviderInstanceId;
   threadRef?: ScopedThreadRef;
   draftId?: DraftId;
+  onDraftModelOptionsChange?: () => void;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
@@ -213,6 +214,7 @@ function renderTraitsControl(
     instanceId,
     threadRef,
     draftId,
+    onDraftModelOptionsChange,
     model,
     models,
     modelOptions,
@@ -253,6 +255,7 @@ function renderTraitsControl(
       models={models}
       {...(threadRef ? { threadRef } : {})}
       {...(draftId ? { draftId } : {})}
+      {...(threadRef && onDraftModelOptionsChange ? { onDraftModelOptionsChange } : {})}
       model={model}
       modelOptions={resolvedModelOptions}
       reportedModelSelection={reportedModelSelection}

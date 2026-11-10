@@ -94,10 +94,13 @@ type TraitsPersistence =
   | {
       threadRef?: ScopedThreadRef;
       draftId?: DraftId;
+      /** Runs after a change is written to the draft. */
+      onDraftModelOptionsChange?: () => void;
       onModelOptionsChange?: never;
     }
   | {
       threadRef?: undefined;
+      onDraftModelOptionsChange?: never;
       onModelOptionsChange: (nextOptions: ProviderOptions | undefined) => void;
     };
 
@@ -338,6 +341,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       model,
       persistSticky: true,
     });
+    persistence.onDraftModelOptionsChange?.();
   };
   const selected = getTraitsSectionVisibility({
     provider,
@@ -542,7 +546,6 @@ export const TraitsPicker = memo(function TraitsPicker({
   }
 
   const { label: triggerLabel } = buildTraitsTriggerDisplay({
-    provider,
     descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,

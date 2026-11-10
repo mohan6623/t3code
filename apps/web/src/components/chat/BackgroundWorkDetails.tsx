@@ -1,4 +1,9 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationV2PendingBackgroundTask,
+  ThreadId,
+} from "@t3tools/contracts";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import type { PendingBackgroundWorkItem } from "@t3tools/client-runtime/state/thread-execution";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import {
@@ -47,6 +52,32 @@ const KIND_NAME: Record<WorkKind, string> = {
   background_task: "Task",
 };
 
+/** Fills a task's command and live output from its turn item when the task itself lacks them. */
+function withTurnItemDetails(
+  item: PendingBackgroundWorkItem,
+  task: OrchestrationV2PendingBackgroundTask | undefined,
+  turnItems: ThreadStructure["turnItems"],
+  threadId: ThreadId,
+): PendingBackgroundWorkItem {
+  if (item.kind === "subagent" || (item.command && item.output)) return item;
+  const turnItem = turnItems.findLast((candidate) =>
+    task?.itemId === undefined
+      ? (candidate.nativeItemRef?.nativeId || candidate.id) === item.taskId
+      : candidate.id === task.itemId,
+  );
+  const commandItem = turnItem?.type === "command_execution" ? turnItem : undefined;
+  const outputItemId = task?.itemId ?? commandItem?.id;
+  return {
+    ...item,
+    command: item.command ?? task?.command ?? commandItem?.input,
+    output:
+      item.output ??
+      (outputItemId !== undefined && turnItem?.status === "running"
+        ? { threadId: task?.sourceThreadId ?? turnItem.threadId ?? threadId, itemId: outputItemId }
+        : undefined),
+  };
+}
+
 /** Whole seconds, ticking; mounted only inside the open popover. */
 function RunningFor(props: { readonly startedAt: number }) {
   const elapsed = Math.floor((useNowSecond() - props.startedAt) / 1_000) * 1_000;
@@ -69,14 +100,25 @@ function RunningDot() {
  */
 export function BackgroundWorkDetails(props: {
   readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
   readonly items: ReadonlyArray<PendingBackgroundWorkItem>;
+  readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+  readonly turnItems: ThreadStructure["turnItems"];
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   // A single task needs no list: show it straight away.
   const onlyItem = props.items.length === 1 ? props.items[0] : undefined;
+  const picked = onlyItem ?? props.items.find((item) => item.taskId === selectedTaskId);
   const selected =
-    onlyItem ?? props.items.find((item) => item.taskId === selectedTaskId) ?? undefined;
+    picked === undefined
+      ? undefined
+      : withTurnItemDetails(
+          picked,
+          props.tasks.find((task) => task.taskId === picked.taskId),
+          props.turnItems,
+          props.threadId,
+        );
 
   return (
     <Popover onOpenChange={(open) => (open ? undefined : setSelectedTaskId(null))}>

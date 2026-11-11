@@ -62,7 +62,7 @@ export function pickWorkspaceBasenameMatch(
 }
 
 // Repository-relative paths can repeat the project's suffix in subfolder projects.
-export function stripRepeatedWorkspacePrefix(relativePath: string, cwd: string): string | null {
+function stripRepeatedWorkspacePrefix(relativePath: string, cwd: string): string | null {
   if (isAbsolutePath(relativePath)) return null;
   const pathSegments = relativePath.split(/[\\/]+/);
   const cwdSegments = cwd.split(/[\\/]+/).filter(Boolean);
@@ -78,36 +78,45 @@ export function stripRepeatedWorkspacePrefix(relativePath: string, cwd: string):
   return null;
 }
 
-// Fork: agents often name a file by a short path from inside a subfolder or nested
-// repo, e.g. `profile/phone.ts` for `frontend/src/lib/profile/phone.ts`. When the
-// literal path is missing, such a path is looked up as a path tail.
-export function needsWorkspaceSuffixLookup(relativePath: string): boolean {
-  const trimmed = relativePath.trim().replaceAll("\\", "/");
-  if (isAbsolutePath(trimmed) || /^(?:~|\.{1,2})\//.test(trimmed)) return false;
-  const segments = trimmed.split("/").filter(Boolean);
-  return segments.length >= 2 && !segments.includes("..") && !segments.includes(".");
+/**
+ * The project search query that may find a chat file link's real file, or null when the link
+ * names its file exactly. Agents often cite paths relative to a package (`cloud/http.ts`).
+ */
+export function workspaceLinkLookupQuery(relativePath: string, cwd: string): string | null {
+  const trimmed = relativePath.trim();
+  if (isAbsolutePath(trimmed) || /^(?:\.{1,2}|~)[\\/]/.test(trimmed) || /[\\/]$/.test(trimmed)) {
+    return null;
+  }
+  if (needsWorkspaceBasenameLookup(trimmed)) return trimmed;
+  return stripRepeatedWorkspacePrefix(trimmed, cwd) ?? trimmed;
 }
 
-// Fork: the file whose path ends with the whole tail, preferring the shallowest one;
-// tails still tied (`frontend/src/x` and `backend/src/x`) open nothing new.
-export function pickWorkspaceSuffixMatch(
-  tail: string,
+/** The one file a chat link names: its basename, its path past a repeated prefix, or its suffix. */
+export function pickWorkspaceLinkMatch(
+  relativePath: string,
   cwd: string,
   entries: ReadonlyArray<WorkspaceEntryCandidate>,
 ): string | null {
+  const trimmed = relativePath.trim();
+  if (needsWorkspaceBasenameLookup(trimmed)) return pickWorkspaceBasenameMatch(trimmed, entries);
+  const stripped = stripRepeatedWorkspacePrefix(trimmed, cwd);
+  const strippedMatch =
+    stripped === null ? null : pickStrippedWorkspaceMatch(stripped, cwd, entries);
+  if (strippedMatch !== null) return strippedMatch;
+  // Fork: suffixes fold case on Windows, and nested worktree copies lose to the shallowest file.
   const caseInsensitive = isWindowsAbsolutePath(cwd);
   const key = (path: string) => {
-    const normalized = `/${path.trim().replaceAll("\\", "/").replace(/^\/+/, "")}`;
+    const normalized = `/${path.replaceAll("\\", "/").replace(/^\/+/, "")}`;
     return caseInsensitive ? normalized.toLowerCase() : normalized;
   };
-  const target = key(tail);
+  const suffix = key(trimmed);
   const matches = entries.filter(
-    (entry) => entry.kind === "file" && key(entry.path).endsWith(target),
+    (entry) => entry.kind === "file" && key(entry.path).endsWith(suffix),
   );
   return shallowestUnique(matches)?.path ?? null;
 }
 
-export function pickStrippedWorkspaceMatch(
+function pickStrippedWorkspaceMatch(
   strippedPath: string,
   cwd: string,
   entries: ReadonlyArray<WorkspaceEntryCandidate>,

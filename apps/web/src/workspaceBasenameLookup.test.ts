@@ -2,9 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   claimWorkspaceBasenameLookup,
-  needsWorkspaceSuffixLookup,
   pickWorkspaceBasenameMatch,
-  pickWorkspaceSuffixMatch,
+  pickWorkspaceLinkMatch,
+  workspaceLinkLookupQuery,
 } from "@t3tools/client-runtime/workspace-basename-lookup";
 
 describe("pickWorkspaceBasenameMatch", () => {
@@ -60,6 +60,41 @@ describe("pickWorkspaceBasenameMatch", () => {
   });
 });
 
+describe("chat file links an agent shortened", () => {
+  const cwd = "/home/user/acme";
+  const entries = [
+    { path: "packages/server/src/cloud/http.ts", kind: "file" as const },
+    { path: "packages/server/src/cloud", kind: "directory" as const },
+    { path: "packages/web/src/api/http.ts", kind: "file" as const },
+    { path: "packages/server/src/index.ts", kind: "file" as const },
+    { path: "packages/web/src/index.ts", kind: "file" as const },
+  ];
+
+  it("searches for package-relative paths and repeated prefixes, not exact ones", () => {
+    expect(workspaceLinkLookupQuery("cloud/http.ts", cwd)).toBe("cloud/http.ts");
+    expect(workspaceLinkLookupQuery("acme/packages/web/src/index.ts", cwd)).toBe(
+      "packages/web/src/index.ts",
+    );
+    expect(workspaceLinkLookupQuery("./cloud/http.ts", cwd)).toBeNull();
+    expect(workspaceLinkLookupQuery("~/acme/src/config.ts", cwd)).toBeNull();
+    expect(workspaceLinkLookupQuery("packages/server/", cwd)).toBeNull();
+  });
+
+  it("opens the one file a package-relative path is the suffix of", () => {
+    expect(pickWorkspaceLinkMatch("cloud/http.ts", cwd, entries)).toBe(
+      "packages/server/src/cloud/http.ts",
+    );
+    expect(pickWorkspaceLinkMatch("acme/packages/web/src/index.ts", cwd, entries)).toBe(
+      "packages/web/src/index.ts",
+    );
+  });
+
+  it("opens nothing when the suffix names several files or splits a segment", () => {
+    expect(pickWorkspaceLinkMatch("src/index.ts", cwd, entries)).toBeNull();
+    expect(pickWorkspaceLinkMatch("ud/http.ts", cwd, entries)).toBeNull();
+  });
+});
+
 describe("claimWorkspaceBasenameLookup", () => {
   it("keeps only the newest claim, whatever order the lookups settle in", () => {
     const first = claimWorkspaceBasenameLookup();
@@ -70,27 +105,13 @@ describe("claimWorkspaceBasenameLookup", () => {
   });
 });
 
-describe("pickWorkspaceSuffixMatch", () => {
+describe("chat file links an agent wrote from a subfolder", () => {
   const cwd = "/workspace/signet-solutions/IndiaShipments";
   const entries = [
     { path: "frontend/src/lib/profile/phone.ts", kind: "file" as const },
     { path: "frontend/src/lib/ui/phone.ts", kind: "file" as const },
     { path: "frontend/src/lib/profile", kind: "directory" as const },
   ];
-
-  it("finds the one file a short path names from inside a subfolder", () => {
-    expect(pickWorkspaceSuffixMatch("profile/phone.ts", cwd, entries)).toBe(
-      "frontend/src/lib/profile/phone.ts",
-    );
-  });
-
-  it("matches whole segments only", () => {
-    expect(pickWorkspaceSuffixMatch("file/phone.ts", cwd, entries)).toBeNull();
-  });
-
-  it("opens nothing new when the tail is ambiguous", () => {
-    expect(pickWorkspaceSuffixMatch("lib/phone.ts", cwd, entries)).toBeNull();
-  });
 
   it("prefers the copy nearest the root over nested worktree copies", () => {
     const tail = "src/components/reports/journeys/dashboard.journey.test.tsx";
@@ -99,9 +120,9 @@ describe("pickWorkspaceSuffixMatch", () => {
       { path: `frontend/${tail}`, kind: "file" as const },
       { path: `frontend/.claude/worktrees/audit-1029-fe/${tail}`, kind: "file" as const },
     ];
-    expect(pickWorkspaceSuffixMatch(tail, cwd, copies)).toBe(`frontend/${tail}`);
+    expect(pickWorkspaceLinkMatch(tail, cwd, copies)).toBe(`frontend/${tail}`);
     expect(
-      pickWorkspaceSuffixMatch("src/app.ts", cwd, [
+      pickWorkspaceLinkMatch("src/app.ts", cwd, [
         { path: "frontend/src/app.ts", kind: "file" },
         { path: "backend/src/app.ts", kind: "file" },
       ]),
@@ -109,21 +130,11 @@ describe("pickWorkspaceSuffixMatch", () => {
   });
 
   it("folds case only on Windows workspaces", () => {
-    expect(pickWorkspaceSuffixMatch("Profile/phone.ts", cwd, entries)).toBeNull();
+    expect(pickWorkspaceLinkMatch("Profile/phone.ts", cwd, entries)).toBeNull();
     expect(
-      pickWorkspaceSuffixMatch("Profile\\phone.ts", "C:\\repo", [
+      pickWorkspaceLinkMatch("Profile\\phone.ts", "C:\\repo", [
         { path: "src\\profile\\phone.ts", kind: "file" },
       ]),
     ).toBe("src\\profile\\phone.ts");
-  });
-});
-
-describe("needsWorkspaceSuffixLookup", () => {
-  it("takes plain multi-segment relative paths only", () => {
-    expect(needsWorkspaceSuffixLookup("profile/phone.ts")).toBe(true);
-    expect(needsWorkspaceSuffixLookup("phone.ts")).toBe(false);
-    expect(needsWorkspaceSuffixLookup("./profile/phone.ts")).toBe(false);
-    expect(needsWorkspaceSuffixLookup("../profile/phone.ts")).toBe(false);
-    expect(needsWorkspaceSuffixLookup("/abs/profile/phone.ts")).toBe(false);
   });
 });

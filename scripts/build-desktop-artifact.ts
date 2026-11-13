@@ -1061,9 +1061,9 @@ export function resolveWindowsServerAsarIgnoreGlobs(arch: typeof BuildArch.Type)
   ];
 }
 
-// Fork: upstream allows 80; the 2026-11-06 nightly grew the x64 payload to 82 files. The guard is
-// against thousands of loose files, so a little headroom keeps nightly merges from blocking releases.
-export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 90;
+// Fork: upstream allows 80; nightlies keep adding files (91 by 2026-11-13). The guard is against
+// thousands of loose files, so headroom keeps nightly merges from blocking releases.
+export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 120;
 export const WINDOWS_SERVER_RESOURCE_SOURCE_DIR = "apps/desktop/prod-resources/windows-server";
 export const WINDOWS_SERVER_EXTRA_RESOURCES = [
   {

@@ -27,7 +27,7 @@ export function RightPanelResizeHandle({
       aria-orientation="vertical"
       {...separatorProps}
       className={cn(
-        "group absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize touch-none select-none any-pointer-coarse:-left-2 any-pointer-coarse:w-4",
+        "group absolute inset-y-0 left-0 z-40 w-1 cursor-col-resize touch-none select-none any-pointer-coarse:-left-2 any-pointer-coarse:w-4",
         className,
       )}
       {...handlers}
@@ -35,7 +35,7 @@ export function RightPanelResizeHandle({
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute left-1/2 -translate-x-1/2 bg-transparent transition-colors duration-150 group-focus-visible:bg-primary/60 group-active:bg-primary/60",
+          "pointer-events-none absolute left-0 -translate-x-1/2 bg-transparent transition-colors duration-150 group-focus-visible:bg-primary/60 group-active:bg-primary/60 any-pointer-coarse:left-2",
           variant === "grip"
             ? "top-1/2 h-10 w-1 -translate-y-1/2 rounded-full group-hover:bg-muted-foreground/40"
             : "inset-y-0 w-px group-hover:bg-border",

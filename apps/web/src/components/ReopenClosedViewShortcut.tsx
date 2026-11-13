@@ -52,6 +52,10 @@ const PREVIEW_FORWARDED_COMMANDS = [
   // Fork: the maximized panel's composer.
   "rightPanel.toggleComposer",
   "preview.focusUrl",
+  "preview.zoomIn",
+  "preview.zoomOut",
+  "preview.resetZoom",
+  "preview.find",
 ] as const;
 
 const isGlobalPullRequests = (ref: ScopedThreadRef) =>

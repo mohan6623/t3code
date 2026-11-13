@@ -17,6 +17,7 @@ describe("mergeProviderInstanceEnvironment", () => {
       const baseEnv = {
         CODEX_HOME: "~/.inherited-codex",
         CLAUDE_CONFIG_DIR: "~/.inherited-claude",
+        GROK_HOME: "~/.inherited-grok",
       };
       const environment = yield* mergeProviderInstanceEnvironment(
         [
@@ -39,6 +40,7 @@ describe("mergeProviderInstanceEnvironment", () => {
       expect(baseEnv).toEqual({
         CODEX_HOME: "~/.inherited-codex",
         CLAUDE_CONFIG_DIR: "~/.inherited-claude",
+        GROK_HOME: "~/.inherited-grok",
       });
     }).pipe(
       Effect.provideService(HostProcess.HomeDirectory, "/home/ada"),

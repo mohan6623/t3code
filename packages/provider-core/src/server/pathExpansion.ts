@@ -10,3 +10,15 @@ export function expandHomePath(value: string, home: string): string {
   }
   return value;
 }
+
+// Fork: PI_CODING_AGENT_DIR also holds a login, so added accounts can set it with `~`.
+const HOME_PATH_VARIABLES = new Set([
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "GROK_HOME",
+  "PI_CODING_AGENT_DIR",
+]);
+
+export function expandHomeVariable(name: string, value: string, home: string): string {
+  return HOME_PATH_VARIABLES.has(name) ? expandHomePath(value, home) : value;
+}

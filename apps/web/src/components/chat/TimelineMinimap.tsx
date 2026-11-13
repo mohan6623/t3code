@@ -1,24 +1,16 @@
 import { resolveTimelineMinimapPreview, type TimelineMinimapItem } from "./timelineMinimapItems";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapIndexFromPointer,
-  resolveTimelineMinimapInteractiveWidth,
   resolveTimelineMinimapNavigationInteractive,
   resolveTimelineMinimapTopPercent,
   TIMELINE_MINIMAP_MIN_ITEMS,
 } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
-
-function timelineMinimapEventTargetsPreview(target: EventTarget): boolean {
-  return target instanceof Element && target.closest("[data-minimap-preview]") !== null;
-}
-
-const TIMELINE_MINIMAP_PREVIEW_CLOSE_DELAY_MS = 100;
-const TIMELINE_MINIMAP_RAIL_ZONE_MIN_WIDTH = 24;
 
 // A release outside the window can skip `mouseup`, so the next button-free
 // `mousemove` also counts.
@@ -57,29 +49,6 @@ export function TimelineMinimap({
   onSelect: (item: TimelineMinimapItem) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelClose = () => {
-    if (closeTimerRef.current !== null) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  };
-  // Close the preview a moment after the pointer leaves the rail and the
-  // preview, so a short trip between the two does not close it.
-  const scheduleClose = () => {
-    if (closeTimerRef.current !== null) return;
-    closeTimerRef.current = setTimeout(() => {
-      closeTimerRef.current = null;
-      setActiveIndex(null);
-    }, TIMELINE_MINIMAP_PREVIEW_CLOSE_DELAY_MS);
-  };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the pending close timer on unmount
-  useEffect(
-    () => () => {
-      if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
-    },
-    [],
-  );
   const wheelTargetRef = (node: HTMLDivElement | null) => {
     if (!node) return;
     node.addEventListener("wheel", onWheel, { passive: false });
@@ -100,14 +69,6 @@ export function TimelineMinimap({
     resolvedActiveIndex === null
       ? 0
       : resolveTimelineMinimapTopPercent(resolvedActiveIndex, items.length);
-  const activeTooltipTranslate =
-    resolvedActiveIndex === null
-      ? "-50%"
-      : resolvedActiveIndex === 0
-        ? "0%"
-        : resolvedActiveIndex === items.length - 1
-          ? "-100%"
-          : "-50%";
   const resolvedCurrentIndex =
     currentIndex !== null && currentIndex >= 0 && currentIndex < items.length ? currentIndex : null;
   const previousItem =
@@ -126,16 +87,8 @@ export function TimelineMinimap({
   };
 
   const updateActiveIndexFromPointer = (event: MouseEvent<HTMLElement>) => {
-    // The open preview widens the hit area, but only the rail itself picks a
-    // turn. Elsewhere in that area the pointer is on its way out, so the
-    // preview stays on its turn and then closes.
-    const railZoneWidth = Math.max(hitStripWidth, TIMELINE_MINIMAP_RAIL_ZONE_MIN_WIDTH);
-    if (event.clientX - event.currentTarget.getBoundingClientRect().left > railZoneWidth) {
-      scheduleClose();
-      return;
-    }
-    cancelClose();
-    setActiveIndex(resolveActiveIndexFromPointer(event));
+    const nextIndex = resolveActiveIndexFromPointer(event);
+    setActiveIndex(nextIndex);
   };
 
   const moveActiveIndex = (delta: number) => {
@@ -181,7 +134,7 @@ export function TimelineMinimap({
           }}
           style={{
             height: resolveTimelineMinimapHeightStyle(items.length),
-            width: resolveTimelineMinimapInteractiveWidth(hitStripWidth, activeItem !== null),
+            width: hitStripWidth,
           }}
         >
           <TimelineMinimapNavigationButton
@@ -194,12 +147,9 @@ export function TimelineMinimap({
           />
           <button
             aria-label={`Jump to message: ${activeItem?.userText ?? "User message"}`}
-            className="absolute inset-y-0 left-0 w-full cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+            className="absolute inset-y-0 left-0 w-full cursor-pointer bg-transparent before:absolute before:inset-x-0 before:-inset-y-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
             onBlur={() => setActiveIndex(null)}
             onClick={(event) => {
-              if (timelineMinimapEventTargetsPreview(event.target)) {
-                return;
-              }
               const nextIndex = resolveActiveIndexFromPointer(event);
               const selectedItem = nextIndex === null ? null : (items[nextIndex] ?? null);
               if (selectedItem) {
@@ -228,17 +178,12 @@ export function TimelineMinimap({
                 }
               }
             }}
-            onMouseLeave={scheduleClose}
+            onMouseLeave={() => setActiveIndex(null)}
             onMouseMove={(event) => {
               if (event.buttons !== 0 && !pressedOnStripRef.current) return;
               updateActiveIndexFromPointer(event);
             }}
-            onMouseDown={(event) => {
-              if (timelineMinimapEventTargetsPreview(event.target)) {
-                return;
-              }
-              event.preventDefault();
-            }}
+            onMouseDown={(event) => event.preventDefault()}
             type="button"
           >
             {items.map((item, index) => {
@@ -278,18 +223,10 @@ export function TimelineMinimap({
               );
             })}
             {activeItem ? (
+              // Display-only: it overlaps the message column, and the strip keeps tracking beneath it.
               <span
-                className="pointer-events-auto absolute left-8 w-80 cursor-text select-text"
-                data-minimap-preview
-                onMouseEnter={cancelClose}
-                onMouseMove={(event) => {
-                  event.stopPropagation();
-                  cancelClose();
-                }}
-                style={{
-                  top: `${activeTopPercent}%`,
-                  transform: `translateY(${activeTooltipTranslate})`,
-                }}
+                className="pointer-events-none absolute left-8 w-80 -translate-y-1/2"
+                style={{ top: `${activeTopPercent}%` }}
               >
                 <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
                   <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
@@ -348,7 +285,7 @@ function TimelineMinimapNavigationButton({
             className={cn(
               "absolute left-1 z-10 inline-flex -translate-x-1/2 opacity-0 transition-opacity duration-150 hover:opacity-100 focus-within:opacity-100",
               interactive ? "pointer-events-auto" : "pointer-events-none",
-              previous ? "bottom-[calc(100%+2px)]" : "top-[calc(100%+2px)]",
+              previous ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]",
             )}
           />
         }

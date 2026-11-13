@@ -1,12 +1,11 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
-import { PanelLeft, PanelLeftClose } from "lucide";
+import { PanelLeftCloseIcon, PanelLeftIcon } from "lucide-react";
 import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Input, type InputProps } from "~/components/ui/input";
-import { MorphIcon } from "~/components/MorphIcon";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import {
   Sheet,
@@ -18,6 +17,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { useClientSettings } from "~/hooks/useSettings";
 import {
   getLocalStorageItem,
   setLocalStorageItem,
@@ -44,7 +44,7 @@ type SidebarContextProps = {
   setOpen: (open: boolean) => void;
   openMobile: boolean;
   mobileSheetMounted: boolean;
-  setMobileSheetElement: (element: HTMLDivElement | null) => void;
+  setMobileSheetMounted: (mounted: boolean) => void;
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
@@ -106,6 +106,12 @@ function useSidebar() {
 function useSidebarVisibility() {
   const { isMobile, open, openMobile } = useSidebar();
   return isMobile ? openMobile : open;
+}
+
+/** Whether the mobile sidebar sheet covers the page; false outside a SidebarProvider. */
+function useMobileSidebarSheetMounted() {
+  const context = React.use(SidebarContext);
+  return context !== null && context.isMobile && context.mobileSheetMounted;
 }
 
 // The `max-md` breakpoint, also read when a shortcut fires.
@@ -208,9 +214,13 @@ function SidebarProvider({
     store.getSnapshot,
   );
   const [mobileSheetMounted, setMobileSheetMounted] = React.useState(false);
-  const setMobileSheetElement = (element: HTMLDivElement | null) => {
-    setMobileSheetMounted(element !== null);
-  };
+  if (openMobile && !mobileSheetMounted) {
+    setMobileSheetMounted(true);
+  }
+  // Widening mid-close unmounts the sheet before its close completes.
+  if (!isMobile && !openMobile && mobileSheetMounted) {
+    setMobileSheetMounted(false);
+  }
 
   // Like Codex and Claude desktop: hovering the trigger or the left window
   // edge shows the collapsed sidebar over the content, without moving it.
@@ -269,7 +279,7 @@ function SidebarProvider({
     open,
     openMobile,
     mobileSheetMounted,
-    setMobileSheetElement,
+    setMobileSheetMounted,
     setOpen,
     setOpenMobile: store.setOpenMobile,
     state,
@@ -349,11 +359,17 @@ function Sidebar({
     state,
     openMobile,
     setOpenMobile,
-    setMobileSheetElement,
+    setMobileSheetMounted,
     peeking,
     schedulePeek,
     holdPeek,
   } = useSidebar();
+  // Not usePanelAnimationSettings: its navigation suppression would snap the sheet shut mid-exit when an item navigates.
+  const panelAnimationDurationMs = useClientSettings(
+    (settings) => settings.panelAnimationDurationMs,
+  );
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const panelAnimationsActive = panelAnimationDurationMs > 0 && !prefersReducedMotion;
   const canPeek = side === "left" && collapsible === "offcanvas" && state === "collapsed";
   const showPeek = canPeek && peeking;
   // A peeking sidebar is on screen and usable, so only an offcanvas sidebar that is out of view goes inert.
@@ -383,9 +399,17 @@ function Sidebar({
   if (isMobile) {
     return (
       <SidebarInstanceContext value={instanceContextValue}>
-        <Sheet onOpenChange={setOpenMobile} open={openMobile}>
+        <Sheet
+          onOpenChange={setOpenMobile}
+          onOpenChangeComplete={(open) => {
+            if (!open) setMobileSheetMounted(false);
+          }}
+          open={openMobile}
+        >
+          {/* Children stay mounted while closed so their window shortcuts, like thread jumps, keep working. */}
           <SheetPopup
-            ref={setMobileSheetElement}
+            keepMounted
+            {...(panelAnimationsActive ? {} : { transitionDurationMs: 0 })}
             className={cn(
               "w-(--sidebar-width) max-w-none bg-sidebar surface-grain p-0 text-sidebar-foreground",
               className,
@@ -528,7 +552,7 @@ function SidebarTrigger({
       variant="ghost"
       {...props}
     >
-      <MorphIcon className="size-4" icon={isOpen ? PanelLeftClose : PanelLeft} />
+      {isOpen ? <PanelLeftCloseIcon className="size-4" /> : <PanelLeftIcon className="size-4" />}
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );
@@ -979,6 +1003,7 @@ export {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useMobileSidebarSheetMounted,
   useSidebar,
   useSidebarVisibility,
 };

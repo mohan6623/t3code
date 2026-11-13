@@ -113,10 +113,12 @@ export const make = Effect.gen(function* () {
     return handle.driver.checkpoints satisfies VcsCheckpointOps;
   });
 
-  const isGitRepository = (cwd: string) =>
-    vcsRegistry
-      .detect({ cwd, requestedKind: "git" })
-      .pipe(Effect.map((repository) => repository !== null));
+  // The registry reads an unreadable repository as none; ask Git again so that fails here.
+  const isGitRepository = Effect.fn("CheckpointStore.isGitRepository")(function* (cwd: string) {
+    if ((yield* vcsRegistry.detect({ cwd, requestedKind: "git" })) !== null) return true;
+    const git = yield* vcsRegistry.get("git");
+    return (yield* git.detectRepository(cwd)) !== null;
+  });
 
   // A plain repository, or a cwd that is no repository and holds none, stays a single target,
   // so its operations behave the way they always have.

@@ -9,9 +9,12 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { joinWorkspaceRepositoryPath } from "@t3tools/shared/path";
 
+import * as ProjectEnrichment from "../project/ProjectEnrichmentService.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
@@ -106,6 +109,8 @@ export const layerObserver = Layer.effect(
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
+    const projects = yield* ProjectService.ProjectService;
+    const enrichment = yield* ProjectEnrichment.ProjectEnrichmentService;
     const pullRequestLookups = yield* FiberMap.make<string>();
     const refreshStatus = Effect.fn("RunFinalizationService.refreshStatus")(function* (input: {
       readonly cwd: string;
@@ -135,10 +140,40 @@ export const layerObserver = Layer.effect(
         FiberMap.run(pullRequestLookups, input.cwd),
       );
     });
+    const identityRefreshes = yield* FiberMap.make<ProjectId>();
+    // A turn can add the first remote (`git remote add`, `gh repo create --push`), which the
+    // enrichment and resolver caches would otherwise keep reporting as missing for a minute.
+    const refreshMissingRepositoryIdentity = Effect.fn(
+      "RunFinalizationService.refreshMissingRepositoryIdentity",
+    )(
+      function* (projectId: ProjectId) {
+        const project = yield* projects.getById(projectId);
+        if (Option.isNone(project)) return;
+        const { workspaceRoot } = project.value;
+        if ((yield* enrichment.readRepositoryIdentity(workspaceRoot)) !== null) return;
+        yield* enrichment.refreshRepositoryIdentity(workspaceRoot);
+      },
+      (effect, projectId) =>
+        effect.pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to refresh repository identity after run completion", {
+              projectId,
+              detail: error.message,
+            }),
+          ),
+        ),
+    );
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
       refresh: Effect.fn("RunFinalizationService.refresh")(
         function* ({ cwd, threadId, runId }) {
+          const thread = yield* projections.getThreadShell(threadId);
+          if (thread) {
+            // Forge discovery probes can take seconds; like the PR lookup, the next turn must not wait.
+            yield* refreshMissingRepositoryIdentity(thread.projectId).pipe(
+              FiberMap.run(identityRefreshes, thread.projectId),
+            );
+          }
           // A multi-repo workspace folder is not a repository; its repositories hold the status.
           // A root repository among them is the thread's own checkout, so it keeps the branch match.
           const repositories = yield* workspaceRepositories.list(cwd);

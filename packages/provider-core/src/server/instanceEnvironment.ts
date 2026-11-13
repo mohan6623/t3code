@@ -2,15 +2,7 @@ import type { ProviderInstanceEnvironment } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 
-import { expandHomePath } from "./pathExpansion.ts";
-
-// Fork: GROK_HOME and PI_CODING_AGENT_DIR also hold a login, so added accounts can set them with `~`.
-const PROVIDER_HOME_VARIABLES = new Set([
-  "CODEX_HOME",
-  "CLAUDE_CONFIG_DIR",
-  "GROK_HOME",
-  "PI_CODING_AGENT_DIR",
-]);
+import { expandHomeVariable } from "./pathExpansion.ts";
 
 export const mergeProviderInstanceEnvironment = Effect.fn(function* (
   environment: ProviderInstanceEnvironment | undefined,
@@ -35,9 +27,7 @@ export const mergeProviderInstanceEnvironment = Effect.fn(function* (
         if (inherited.toUpperCase() === name) delete next[inherited];
       }
     }
-    next[name] = PROVIDER_HOME_VARIABLES.has(name)
-      ? expandHomePath(variable.value, home)
-      : variable.value;
+    next[name] = expandHomeVariable(name, variable.value, home);
   }
   return next;
 });

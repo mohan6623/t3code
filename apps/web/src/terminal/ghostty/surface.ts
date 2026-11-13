@@ -1,3 +1,4 @@
+import { resolveEventKeys } from "@t3tools/shared/keybindingMatching";
 import { isMacPlatform, isWindowsPlatform } from "../../lib/utils";
 import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
 import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../terminal-links";
@@ -313,14 +314,14 @@ export function terminalLinkAtPositionWithRange(
 }
 
 export function isTerminalCopyShortcut(
-  event: Pick<KeyboardEvent, "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   platform = navigator.platform,
 ) {
-  const key = event.key.toLowerCase();
-  if (key === "insert" && !isMacPlatform(platform)) {
+  const keys = resolveEventKeys(event);
+  if (keys.has("insert") && !isMacPlatform(platform)) {
     return event.ctrlKey && !event.shiftKey && !event.metaKey;
   }
-  if (key !== "c") return false;
+  if (!keys.has("c")) return false;
   return isMacPlatform(platform) ? event.metaKey : event.ctrlKey;
 }
 
@@ -355,14 +356,14 @@ export function applyTerminalCopyEvent(
 }
 
 export function isTerminalPasteShortcut(
-  event: Pick<KeyboardEvent, "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   platform = navigator.platform,
 ) {
-  const key = event.key.toLowerCase();
-  if (key === "insert" && !isMacPlatform(platform)) {
+  const keys = resolveEventKeys(event);
+  if (keys.has("insert") && !isMacPlatform(platform)) {
     return event.shiftKey && !event.ctrlKey && !event.metaKey;
   }
-  if (key !== "v") return false;
+  if (!keys.has("v")) return false;
   if (isMacPlatform(platform)) return event.metaKey;
   // Fork: plain Ctrl+V pastes on Windows too, as in Windows Terminal and VS Code.
   return event.ctrlKey && !event.metaKey && (event.shiftKey || isWindowsPlatform(platform));
@@ -1031,6 +1032,7 @@ export class GhosttyTerminalSurface {
     return before ? { start, end } : { start: end, end: start };
   }
 
+  // Fork: where the selection ends on screen, so its note card opens beside it.
   getSelectionEndClientRect(): { readonly right: number; readonly bottom: number } | null {
     const position = this.getSelectionPosition();
     if (!position) return null;
@@ -1121,7 +1123,7 @@ export class GhosttyTerminalSurface {
     const mac = isMacPlatform(navigator.platform);
     const primaryModifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
     const selectAllShortcut =
-      event.key.toLowerCase() === "a" &&
+      resolveEventKeys(event).has("a") &&
       primaryModifier &&
       !event.altKey &&
       (mac ? !event.shiftKey : event.shiftKey);
@@ -1403,7 +1405,9 @@ export class GhosttyTerminalSurface {
     }
     if (event.button === 1 && isMiddleClickPastePlatform()) {
       // Keep pointerdown uncancelled so compatibility mousedown activates the split pane.
-      this.pasteTerminalSelection();
+      if (window.desktopBridge?.getPrimaryPasteEnabled?.() !== false) {
+        this.pasteTerminalSelection();
+      }
       return;
     }
     if (event.button !== 0) return;

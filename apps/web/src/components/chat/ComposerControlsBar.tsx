@@ -35,6 +35,7 @@ import type { useComposerProviderModel } from "./useComposerProviderModel";
 // Keep the fork side here when syncing (see .github/workflows/fork-upstream-sync.yml).
 export function ComposerControlsBar(props: {
   environmentId: EnvironmentId;
+  workspaceCwd: string | null;
   routeKind: ChatComposerProps["routeKind"];
   routeThreadRef: ChatComposerProps["routeThreadRef"];
   draftId: ChatComposerProps["draftId"];
@@ -185,6 +186,7 @@ export function ComposerControlsBar(props: {
   const composerModelPicker = (
     <ComposerModelPicker
       environmentId={environmentId}
+      workspaceCwd={props.workspaceCwd}
       compact={false}
       isComposerOwned
       disabled={providerCatalogPending || isSendBusy}

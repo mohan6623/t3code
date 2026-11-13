@@ -18,6 +18,7 @@ import {
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
+export const PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH = 256;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
 
@@ -262,7 +263,10 @@ export type ProjectSearchEntriesResult = typeof ProjectSearchEntriesResult.Type;
 export const ProjectSearchContentsInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Preserve whitespace because it is significant in content queries.
-  query: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),
+  query: Schema.String.check(
+    Schema.isNonEmpty(),
+    Schema.isMaxLength(PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH),
+  ),
   limit: PositiveInt.check(Schema.isLessThanOrEqualTo(PROJECT_SEARCH_CONTENTS_MAX_LIMIT)),
   caseSensitive: Schema.Boolean,
   wholeWord: Schema.Boolean,
@@ -451,7 +455,7 @@ export class ProjectListEntriesError extends Schema.TaggedError<ProjectListEntri
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Workspace-relative or absolute host path; only workspace-relative paths are writable.
-  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
   // Optional files can be absent without failing the read.
   allowMissing: Schema.optional(Schema.Boolean),
   // Fork: a larger read cap for copying a file to another machine. The server clamps it to
@@ -461,7 +465,7 @@ export const ProjectReadFileInput = Schema.Struct({
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 
 export const ProjectReadFileResult = Schema.Struct({
-  relativePath: TrimmedNonEmptyString,
+  relativePath: Schema.NonEmptyString,
   contents: Schema.String,
   byteLength: NonNegativeInt,
   truncated: Schema.Boolean,
@@ -506,12 +510,12 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
   "ProjectReadFileError",
   {
     cwd: Schema.optional(TrimmedNonEmptyString),
-    relativePath: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(Schema.NonEmptyString),
     failure: Schema.optional(ProjectFileFailure),
-    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedPath: Schema.optional(Schema.NonEmptyString),
     resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
     operation: Schema.optional(ProjectFileOperation),
-    operationPath: Schema.optional(TrimmedNonEmptyString),
+    operationPath: Schema.optional(Schema.NonEmptyString),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },
@@ -529,13 +533,13 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
 
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
 export const ProjectWriteFileResult = Schema.Struct({
-  relativePath: TrimmedNonEmptyString,
+  relativePath: Schema.NonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
 
@@ -571,12 +575,12 @@ export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileEr
   "ProjectWriteFileError",
   {
     cwd: Schema.optional(TrimmedNonEmptyString),
-    relativePath: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(Schema.NonEmptyString),
     failure: Schema.optional(ProjectFileFailure),
-    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedPath: Schema.optional(Schema.NonEmptyString),
     resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
     operation: Schema.optional(ProjectFileOperation),
-    operationPath: Schema.optional(TrimmedNonEmptyString),
+    operationPath: Schema.optional(Schema.NonEmptyString),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },

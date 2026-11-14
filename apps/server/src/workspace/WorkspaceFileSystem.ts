@@ -31,7 +31,7 @@ import { toWslDrivePath } from "./wslDrivePath.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
 /** Fork: the most a caller may ask for with `maxBytes` (copying a file to another machine). */
-const PROJECT_READ_FILE_MAX_BYTES_CEILING = 5 * 1024 * 1024;
+const PROJECT_READ_FILE_MAX_BYTES_CEILING = 100 * 1024 * 1024;
 
 // NTFS reaches .git through trailing dots/spaces, stream suffixes and GIT~1; compare uppercased names.
 const isGitMetadataName = (segment: string) => {

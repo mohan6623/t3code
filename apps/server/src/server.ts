@@ -384,7 +384,11 @@ const layerHttpServer = Layer.unwrap(
         // window is shared across frames — that also makes small frames cheap
         // to compress, so no size threshold is set (ws only honors
         // `threshold` when context takeover is disabled).
-        websocket: { perMessageDeflate: true },
+        websocket: {
+          perMessageDeflate: true,
+          // Fork: above ws's 100 MiB default, so a 100 MB file copied here fits one write.
+          maxPayload: 256 * 1024 * 1024,
+        },
       },
     );
   }),

@@ -28,6 +28,7 @@ import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import { scanFoldedFolders } from "./ignoredFolderScan.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceRepositories from "./WorkspaceRepositories.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
@@ -663,11 +664,11 @@ export const make = Effect.gen(function* () {
     if (!result || result.exitCode !== 0) return { files: [], truncated: false };
     // Filter before the cap so files sorting past it stay reachable by search.
     const query = input.query?.toLowerCase() ?? "";
-    const paths = result.stdout
-      .split("\0")
-      .filter(
-        (entry) => entry.length > 0 && !entry.endsWith("/") && entry.toLowerCase().includes(query),
-      )
+    const entries = result.stdout.split("\0");
+    // Fork: env files inside a folded ignored folder (say `config/local/`) stay pickable.
+    const folded = yield* Effect.promise(() => scanFoldedFolders(normalizedCwd, entries));
+    const paths = [...entries.filter((entry) => !entry.endsWith("/")), ...folded.envFiles]
+      .filter((entry) => entry.length > 0 && entry.toLowerCase().includes(query))
       .toSorted();
     const files = yield* Effect.promise(() =>
       Promise.all(

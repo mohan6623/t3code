@@ -1,7 +1,7 @@
 /**
  * Fork: git repositories nested in a project (child checkouts its root does not track) and how
- * a clone recreates them. Discovery reuses WorkspaceRepositories, minus dot, build and
- * dependency folders and linked worktrees.
+ * a clone recreates them. Discovery is WorkspaceRepositories plus repositories deeper inside
+ * untracked folders, minus dot, build and dependency folders and linked worktrees.
  */
 import {
   type ProjectCloneNestedRepository,
@@ -16,6 +16,7 @@ import * as Path from "effect/Path";
 import type { GitCloneProgressLine } from "./gitCloneProgress.ts";
 import type * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { SKIPPED_FOLDER_NAMES, scanFoldedFolders } from "../workspace/ignoredFolderScan.ts";
 import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 
 export interface NestedRepositoryDescription {
@@ -26,17 +27,6 @@ export interface NestedRepositoryDescription {
   readonly branchPushed: boolean;
   readonly unpushedCommits: number;
 }
-
-// Dependency and build output folders can carry a stray `.git`; they are never project repos.
-const SKIPPED_FOLDER_NAMES = new Set([
-  "node_modules",
-  "bower_components",
-  "vendor",
-  "dist",
-  "build",
-  "out",
-  "target",
-]);
 
 // A linked worktree's `.git` file points into another repository's `.git/worktrees/`.
 const LINKED_WORKTREE_GITDIR = /^gitdir:.*[\\/]worktrees[\\/]/m;
@@ -52,11 +42,8 @@ export const describeNestedRepositories = Effect.fn("NestedRepositories.describe
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
-  const repositories = yield* workspaceRepositories.list(cwd);
   // Only a repository root clones its nested repositories along with itself.
-  if (
-    !repositories.some((repository) => repository.relativePath === ROOT_WORKSPACE_REPOSITORY_PATH)
-  )
+  if (!(yield* fileSystem.exists(path.join(cwd, ".git")).pipe(Effect.orElseSucceed(() => false))))
     return [];
 
   const run = (repositoryPath: string, args: ReadonlyArray<string>) =>
@@ -72,6 +59,28 @@ export const describeNestedRepositories = Effect.fn("NestedRepositories.describe
         Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : null)),
         Effect.orElseSucceed(() => null),
       );
+
+  // Repositories deeper down (say `apps/web`) sit inside folders the root does not track.
+  const untracked = yield* run(cwd, [
+    "-c",
+    "core.fsmonitor=false",
+    "ls-files",
+    "--others",
+    "--directory",
+    "--no-empty-directory",
+    "-z",
+  ]);
+  const deeper = yield* Effect.promise(() => scanFoldedFolders(cwd, untracked?.split("\0") ?? []));
+  const repositories = new Map(
+    (yield* workspaceRepositories.list(cwd)).map((repository) => [
+      repository.relativePath,
+      repository.name,
+    ]),
+  );
+  for (const relativePath of deeper.repositories) {
+    if (!repositories.has(relativePath))
+      repositories.set(relativePath, path.basename(relativePath));
+  }
 
   const describeOne = Effect.fn("NestedRepositories.describeOne")(function* (
     relativePath: string,
@@ -120,13 +129,13 @@ export const describeNestedRepositories = Effect.fn("NestedRepositories.describe
     );
 
   const nested: Array<NestedRepositoryDescription> = [];
-  for (const repository of repositories) {
-    if (repository.relativePath === ROOT_WORKSPACE_REPOSITORY_PATH) continue;
-    const segments = repository.relativePath.split("/");
+  for (const [relativePath, name] of [...repositories].toSorted(([a], [b]) => a.localeCompare(b))) {
+    if (relativePath === ROOT_WORKSPACE_REPOSITORY_PATH) continue;
+    const segments = relativePath.split("/");
     if (segments.some((segment) => segment.startsWith(".") || SKIPPED_FOLDER_NAMES.has(segment)))
       continue;
-    if (yield* isLinkedWorktree(repository.relativePath)) continue;
-    nested.push(yield* describeOne(repository.relativePath, repository.name));
+    if (yield* isLinkedWorktree(relativePath)) continue;
+    nested.push(yield* describeOne(relativePath, name));
   }
   return nested;
 });

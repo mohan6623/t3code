@@ -21,10 +21,10 @@ import { projectEnvironment } from "../state/projects";
 import { sourceControlEnvironment } from "../state/sourceControl";
 
 /**
- * Fork: 5 MB, sent as the read's `maxBytes` (the server's ceiling for it). A larger file,
- * or any file on a server without `maxBytes` (1 MB cap), arrives truncated and is skipped.
+ * Fork: 100 MB, sent as the read's `maxBytes` (the server's ceiling for it). A larger file,
+ * or one past an older server's ceiling (5 MB, or 1 MB without `maxBytes`), is skipped.
  */
-export const COPYABLE_FILE_MAX_BYTES = 5 * 1024 * 1024;
+export const COPYABLE_FILE_MAX_BYTES = 100 * 1024 * 1024;
 
 /** The server lists at most this many ignored files, so one pick never exceeded it. */
 export const COPIED_FILES_MAX_COUNT = 200;

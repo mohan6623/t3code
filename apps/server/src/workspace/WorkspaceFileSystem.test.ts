@@ -320,8 +320,8 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
-    // Fork: copying a file to another machine reads up to 5 MB; other reads keep 1 MB.
-    it.effect("reads past 1 MB only when maxBytes asks, up to 5 MB", () =>
+    // Fork: copying a file to another machine reads up to 100 MB; other reads keep 1 MB.
+    it.effect("reads past 1 MB only when maxBytes asks, up to 100 MB", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
         const cwd = yield* makeTempDir;
@@ -343,10 +343,18 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         expect(copyRead.truncated).toBe(false);
         expect(copyRead.contents.length).toBe(twoMb.length);
 
+        const hugeRead = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: ".env.huge",
+          maxBytes: 100 * 1024 * 1024,
+        });
+        expect(hugeRead.truncated).toBe(false);
+        expect(hugeRead.contents.length).toBe(6 * 1024 * 1024);
+
         const clamped = yield* workspaceFileSystem.readFile({
           cwd,
           relativePath: ".env.huge",
-          maxBytes: 50 * 1024 * 1024,
+          maxBytes: 5 * 1024 * 1024,
         });
         expect(clamped.truncated).toBe(true);
         expect(clamped.contents.length).toBe(5 * 1024 * 1024);

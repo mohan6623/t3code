@@ -146,7 +146,33 @@ it.layer(layerTest, { excludeTestServices: true })("NestedRepositories", (it) =>
 
     it.effect("adds each nested repository's ignored files to the root listing", () =>
       Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
         const { source } = yield* makeSource();
+        // Env files inside wholly ignored folders, and a repository two levels down.
+        yield* fileSystem.writeFileString(
+          path.join(source, ".gitignore"),
+          "frontend/\nbackend/\nnode_modules/\n.env\nconfig/\nservices/\n",
+        );
+        yield* fileSystem.makeDirectory(path.join(source, "config", "local"), { recursive: true });
+        yield* fileSystem.writeFileString(path.join(source, "config", "local", ".env"), "A=1\n");
+        yield* fileSystem.writeFileString(path.join(source, "node_modules", ".env"), "NO=1\n");
+        yield* fileSystem.writeFileString(
+          path.join(source, "frontend", ".gitignore"),
+          ".env\nsecrets/\n",
+        );
+        yield* fileSystem.makeDirectory(path.join(source, "frontend", "secrets"));
+        yield* fileSystem.writeFileString(
+          path.join(source, "frontend", "secrets", ".env.prod"),
+          "B=1\n",
+        );
+        const api = path.join(source, "services", "api");
+        yield* fileSystem.makeDirectory(api, { recursive: true });
+        yield* git(api, ["init", "-b", "main"]);
+        yield* fileSystem.writeFileString(path.join(api, ".gitignore"), ".env\n");
+        yield* commitAll(api, "api");
+        yield* fileSystem.writeFileString(path.join(api, ".env"), "C=1\n");
+
         const entries = yield* WorkspaceEntries.WorkspaceEntries;
         const root = yield* entries.listIgnoredFiles({ cwd: source });
         const listed = yield* NestedRepositories.withNestedRepositoryFiles(source, root, (cwd) =>
@@ -154,15 +180,18 @@ it.layer(layerTest, { excludeTestServices: true })("NestedRepositories", (it) =>
         );
         assert.deepStrictEqual(
           listed.files.map((file) => file.path),
-          [".env"],
+          [".env", "config/local/.env"],
         );
-        const frontend = listed.nestedRepositories?.find(
-          (repository) => repository.relativePath === "frontend",
-        );
+        const filesOf = (relativePath: string) =>
+          listed.nestedRepositories
+            ?.find((repository) => repository.relativePath === relativePath)
+            ?.files.map((file) => file.path);
         assert.deepStrictEqual(
-          frontend?.files.map((file) => file.path),
-          [".env"],
+          listed.nestedRepositories?.map((repository) => repository.relativePath),
+          ["backend", "frontend", "services/api"],
         );
+        assert.deepStrictEqual(filesOf("frontend"), [".env", "secrets/.env.prod"]);
+        assert.deepStrictEqual(filesOf("services/api"), [".env"]);
       }),
     );
   });

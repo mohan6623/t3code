@@ -571,7 +571,7 @@ function IgnoredFileRow({
       />
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.path}</span>
       <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
-        {tooLarge ? "Over 5 MB" : formatBytes(file.byteLength)}
+        {tooLarge ? "Over 100 MB" : formatBytes(file.byteLength)}
       </span>
     </label>
   );

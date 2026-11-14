@@ -15,6 +15,8 @@ export interface CaptureCheckpointInput {
   readonly checkpointRef: CheckpointRef;
   /** Capture only in repositories without the ref, keeping checkpoints already taken. */
   readonly missingOnly?: boolean;
+  /** The checkpoint this one follows, so a turn that switched branches starts where it landed. */
+  readonly previousCheckpointRef?: CheckpointRef;
 }
 
 export interface RestoreCheckpointInput {
@@ -171,6 +173,9 @@ export const make = Effect.gen(function* () {
           cwd: target.cwd,
           checkpointRef: input.checkpointRef,
           ...(target.excludePaths.length > 0 ? { excludePaths: target.excludePaths } : {}),
+          ...(input.previousCheckpointRef === undefined
+            ? {}
+            : { previousCheckpointRef: input.previousCheckpointRef }),
         });
       }),
     );

@@ -16,6 +16,8 @@ export interface VcsCaptureCheckpointInput {
   readonly checkpointRef: CheckpointRef;
   /** Folders of other repositories nested in this one; each is captured on its own. */
   readonly excludePaths?: ReadonlyArray<string>;
+  /** The checkpoint this one follows, so a turn that switched branches starts where it landed. */
+  readonly previousCheckpointRef?: CheckpointRef;
 }
 
 export interface VcsRestoreCheckpointInput {

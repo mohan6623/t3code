@@ -9,6 +9,7 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import {
   isRootWorkspaceRepository,
+  CHECKPOINT_DIFF_TRUNCATED_MARKER,
   type ReviewBranchCommitsResult,
   type ScopedThreadRef,
   type RunId,
@@ -515,7 +516,10 @@ export default function DiffPanel({
       : gitDiff;
   const isSelectedPatchTruncated =
     toolCallPreview?.truncated === true ||
-    (isGitSelection && selectedGitSource?.truncated === true);
+    (isGitSelection && selectedGitSource?.truncated === true) ||
+    (!toolCallSelection &&
+      selectedTurn !== undefined &&
+      selectedPatch?.endsWith(CHECKPOINT_DIFF_TRUNCATED_MARKER) === true);
   const selectedPatchQuery = toolCallSelection
     ? toolCallDetail
     : selectedTurn

@@ -447,7 +447,12 @@ export function BranchToolbarBranchSelector({
     // Fork: a child repository always checks out in its own working tree; git reports a
     // ref that another worktree holds instead of the thread moving there.
     const selectionTarget = isRepositoryScoped
-      ? { checkoutCwd: activeProjectCwd, nextWorktreePath: null, reuseExistingWorktree: false }
+      ? {
+          checkoutCwd: activeProjectCwd,
+          nextWorktreePath: null,
+          reuseExistingWorktree: false,
+          staysInActiveCheckout: true,
+        }
       : resolveBranchSelectionTarget({
           activeProjectCwd,
           activeProjectCheckoutRoot,
@@ -464,7 +469,10 @@ export function BranchToolbarBranchSelector({
     )
       return;
 
-    if (selectionTarget.reuseExistingWorktree) {
+    if (
+      selectionTarget.reuseExistingWorktree &&
+      !(selectionTarget.staysInActiveCheckout && canWriteSourceControl)
+    ) {
       setThreadBranch(refName.name, selectionTarget.nextWorktreePath);
       setIsBranchMenuOpen(false);
       onComposerFocusRequest?.();

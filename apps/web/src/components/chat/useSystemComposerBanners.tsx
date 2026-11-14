@@ -184,8 +184,11 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
       unavailableConnection !== null &&
       (unavailableConnection.phase === "connecting" ||
         unavailableConnection.phase === "reconnecting");
+    const awaitingApproval = unavailableConnection?.awaitingApproval === true;
     const suppressUnavailableBanner =
-      environmentReconnecting && (updateRunning || !reconnectWarningGraceElapsed);
+      environmentReconnecting &&
+      !awaitingApproval &&
+      (updateRunning || !reconnectWarningGraceElapsed);
     const showUnavailableBanner =
       activeEnvironmentUnavailableState !== null &&
       unavailableConnection !== null &&
@@ -197,7 +200,9 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
         group: "environment",
         icon: <WifiOffIcon />,
         // Fork: the last failure sits behind a small info icon beside the title.
-        title: (
+        title: awaitingApproval ? (
+          `${activeEnvironmentUnavailableState.label} is waiting to approve this device`
+        ) : (
           <span className="inline-flex max-w-full items-center gap-1 align-top">
             <span className="truncate">
               {`${activeEnvironmentUnavailableState.label} is ${environmentReconnecting ? "reconnecting" : "offline"}`}
@@ -231,7 +236,9 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
             ) : null}
           </span>
         ),
-        description: activeEnvironment ? (
+        description: awaitingApproval ? (
+          (unavailableConnection.error ?? undefined)
+        ) : activeEnvironment ? (
           <ConnectionDiagnosisHeadline environment={activeEnvironment} />
         ) : undefined,
         // Fork: retry now, also while a reconnect is waiting for its next try.

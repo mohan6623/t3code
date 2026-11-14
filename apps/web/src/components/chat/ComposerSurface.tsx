@@ -1,6 +1,8 @@
+import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import type { ComponentProps } from "react";
 
 import { cn } from "~/lib/utils";
+import { ComposerContextWindowContext } from "./composerContextWindow";
 
 function Shell({
   contextStrip = false,
@@ -40,19 +42,28 @@ const outlineClasses =
 const contextSeamClasses =
   "group-data-with-context/composer-surface:after:[clip-path:polygon(0_0,100%_0,100%_100%,calc(100%-22px)_100%,calc(100%-22px)_calc(100%-2px),22px_calc(100%-2px),22px_100%,0_100%)]";
 
-function Host({ className, ...props }: ComponentProps<"div">) {
+function Host({
+  className,
+  contextWindow = null,
+  ...props
+}: ComponentProps<"div"> & {
+  /** Fork: the composer's context meter reads it; see ComposerContextWindowContext. */
+  contextWindow?: ContextWindowSnapshot | null;
+}) {
   return (
-    <div
-      data-slot="composer-host"
-      className={cn(
-        "relative z-10 w-full rounded-2xl shadow-composer after:z-1 dark:shadow-none",
-        outlineClasses,
-        contextSeamClasses,
-        "group-has-data-[composer-banner-surface=attached]/composer-surface:shadow-none group-has-data-[composer-banner-surface=attached]/composer-surface:after:hidden",
-        className,
-      )}
-      {...props}
-    />
+    <ComposerContextWindowContext value={contextWindow}>
+      <div
+        data-slot="composer-host"
+        className={cn(
+          "relative z-10 w-full rounded-2xl shadow-composer after:z-1 dark:shadow-none",
+          outlineClasses,
+          contextSeamClasses,
+          "group-has-data-[composer-banner-surface=attached]/composer-surface:shadow-none group-has-data-[composer-banner-surface=attached]/composer-surface:after:hidden",
+          className,
+        )}
+        {...props}
+      />
+    </ComposerContextWindowContext>
   );
 }
 

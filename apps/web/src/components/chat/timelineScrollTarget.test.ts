@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  COMPOSER_SCROLL_COLLAPSE_DEAD_ZONE_PX,
   createComposerScrollGestureState,
   recordComposerScrollGestureEvent,
 } from "./composerScrollGesture";
@@ -93,6 +94,7 @@ describe("timeline scroll targets", () => {
         collapseEligible: targetsTimeline(target, timeline, -deltaPx),
         canScrollInGestureDirection: timeline.scrollTop > 0,
         scrollsTowardLogicalEnd: false,
+        distanceFromEndPx: COMPOSER_SCROLL_COLLAPSE_DEAD_ZONE_PX,
       });
 
     expect(record(timeline, 0, 20)).toBe(false);
@@ -100,6 +102,24 @@ describe("timeline scroll targets", () => {
     group.scrollTop = 0;
     expect(record(content, 40, 10)).toBe(false);
     expect(record(content, 60, 14)).toBe(true);
+  });
+
+  it("collapses the composer only once the timeline leaves the area near its end", () => {
+    const state = createComposerScrollGestureState();
+    const record = (now: number, distanceFromEndPx: number) =>
+      recordComposerScrollGestureEvent(state, {
+        now,
+        deltaPx: 30,
+        collapseThresholdPx: 24,
+        collapseEligible: true,
+        canScrollInGestureDirection: true,
+        scrollsTowardLogicalEnd: false,
+        distanceFromEndPx,
+      });
+
+    expect(record(0, 0)).toBe(false);
+    expect(record(20, COMPOSER_SCROLL_COLLAPSE_DEAD_ZONE_PX - 1)).toBe(false);
+    expect(record(40, COMPOSER_SCROLL_COLLAPSE_DEAD_ZONE_PX)).toBe(true);
   });
 });
 

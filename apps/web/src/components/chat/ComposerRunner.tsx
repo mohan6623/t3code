@@ -1,32 +1,25 @@
 import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 
 import { observeResize } from "~/lib/observeResize";
+import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 
 import type { RunnerLayer, RunnerSprite } from "./composerRunnerSprites";
 
-/** Walking speed in CSS px per second, as in Monocode. */
-const RUNNER_SPEED = 160;
+/** One walk step: an eighth of the 520ms frame cycle in index.css, about 15 per second. */
+const RUNNER_STEP_MS = 65;
+/** Sprite pixels moved per walk step. */
+const RUNNER_STEP_PIXELS = 2;
 /** Mascots are drawn about this many CSS px per sprite pixel. */
 const RUNNER_PIXEL = 2;
+/** A resize refits the walk once it has been still this long, so a drag does not jolt it. */
+const RUNNER_REFIT_DELAY_MS = 150;
 /** Gap between the walk and the composer's rounded corners, in CSS px. */
 const RUNNER_INSET = 20;
 
 /**
- * Fork: a pixel mascot that walks the composer's top edge while a turn runs,
- * after Monocode's composer runner. When the turn ends it jumps and drops into
- * the composer, then unmounts.
- *
- * Sharp pixels: one sprite pixel covers a whole number of screen pixels (2 at
- * 100% scale, 3 at 125% and 150%), the walk moves one screen pixel per step,
- * and the walk starts on a screen pixel. Otherwise, at 125% scale a sprite
- * pixel is 2.5 screen pixels and every edge blurs.
- *
- * Cost: Monocode moves its runner from JavaScript on every frame. Here every
- * motion is a CSS transform or opacity animation on its own layer, so the
- * compositor runs it with no JavaScript, layout or paint per frame. JavaScript
- * runs only when the composer changes size or the screen scale changes.
- * Nothing renders while no turn runs, a hidden window pauses CSS animations,
- * and reduced motion hides the runner.
+ * Fork: a pixel mascot walks the composer's top edge while a turn runs, then drops into it.
+ * Sprite pixels and walk steps land on whole screen pixels, or edges blur at 125% scale. Motion is
+ * stepped CSS transforms about 15 times a second, never every frame, and pauses off screen.
  */
 export function ComposerRunner(props: {
   readonly running: boolean;
@@ -40,10 +33,12 @@ export function ComposerRunner(props: {
   const { sprite } = props;
   const { width, height } = sprite;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fits the walk's CSS sizes to the track's DOM box, its resizes and the screen scale
   useLayoutEffect(() => {
     const track = trackRef.current;
     if (!shown || !track) return;
     let scaleQuery: MediaQueryList | null = null;
+    let refitTimer: ReturnType<typeof setTimeout> | null = null;
     const fit = () => {
       const scale = window.devicePixelRatio || 1;
       const cell = Math.max(1, Math.round(RUNNER_PIXEL * scale));
@@ -52,27 +47,39 @@ export function ComposerRunner(props: {
       // Snap the walk's start to a screen pixel.
       const nudgeX = (Math.ceil(box.left * scale) - box.left * scale) / scale;
       const nudgeY = (Math.round(box.bottom * scale) - box.bottom * scale) / scale;
-      const travel = Math.max(0, Math.floor((box.width - nudgeX - size) * scale));
+      const step = cell * RUNNER_STEP_PIXELS;
+      const steps = Math.max(1, Math.floor(((box.width - nudgeX - size) * scale) / step));
       const style = track.style;
       style.setProperty("--runner-size", `${size}px`);
       style.setProperty("--runner-height", `${(height * cell) / scale}px`);
       style.setProperty("--runner-cell", `${cell / scale}px`);
       style.setProperty("--runner-nudge-x", `${nudgeX}px`);
       style.setProperty("--runner-nudge-y", `${nudgeY}px`);
-      style.setProperty("--runner-travel", `${travel / scale}px`);
-      style.setProperty("--runner-steps", String(Math.max(1, travel)));
+      style.setProperty("--runner-travel", `${(steps * step) / scale}px`);
+      style.setProperty("--runner-steps", String(steps));
       style.setProperty("--runner-hop", `${-Math.max(1, Math.round(cell / 2)) / scale}px`);
-      // There and back again at a steady speed, whatever the width.
-      style.setProperty("--runner-lap", `${Math.max(1, (2 * travel) / scale / RUNNER_SPEED)}s`);
+      // There and back again, one step per RUNNER_STEP_MS, whatever the width.
+      style.setProperty("--runner-lap", `${(2 * steps * RUNNER_STEP_MS) / 1000}s`);
       // A new screen scale (another monitor, or zoom) needs a new fit.
       scaleQuery?.removeEventListener("change", fit);
       scaleQuery = window.matchMedia(`(resolution: ${scale}dppx)`);
       scaleQuery.addEventListener("change", fit);
     };
     fit();
-    const stopObserving = observeResize(track, fit);
+    // A new lap length moves the walker, so refit once a resize settles, not on every frame of it.
+    const scheduleRefit = () => {
+      if (refitTimer !== null) clearTimeout(refitTimer);
+      refitTimer = setTimeout(() => {
+        refitTimer = null;
+        fit();
+      }, RUNNER_REFIT_DELAY_MS);
+    };
+    const stopObserving = observeResize(track, scheduleRefit);
+    const stopAnimating = observeVisibleAnimation(track);
     return () => {
       stopObserving();
+      stopAnimating?.();
+      if (refitTimer !== null) clearTimeout(refitTimer);
       scaleQuery?.removeEventListener("change", fit);
     };
   }, [shown, width, height]);

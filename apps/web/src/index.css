@@ -2583,24 +2583,6 @@ code {
   margin: 0;
 }
 
-/* ChatCanvas writes these on the lane elements themselves. Non-inherited, so
-   a change restyles those elements only, not everything inside them. */
-@property --chat-lane-inset-start {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@property --chat-lane-inset-end {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@property --chat-timeline-gutter {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-
 @layer components {
   .chat-composer-lane {
     padding-inline-start: calc(
@@ -2660,6 +2642,7 @@ code {
   will-change: transform;
   animation: t3-runner-walk var(--runner-lap, 8s) infinite;
   animation-timing-function: steps(var(--runner-steps, 400), end);
+  animation-play-state: var(--visible-animation-state, paused);
 }
 .t3-runner-body {
   position: relative;
@@ -2691,6 +2674,13 @@ code {
 }
 .t3-runner-blink-cursor {
   animation: t3-runner-cursor 1.06s steps(1, end) infinite;
+}
+/* Paused while off screen or in a hidden window (observeVisibleAnimation). */
+[data-composer-runner="walking"] .t3-runner-body,
+[data-composer-runner="walking"] .t3-runner-frame,
+[data-composer-runner="walking"] .t3-runner-blink-eyes,
+[data-composer-runner="walking"] .t3-runner-blink-cursor {
+  animation-play-state: var(--visible-animation-state, paused);
 }
 [data-composer-runner="leaving"] .t3-runner-walk,
 [data-composer-runner="leaving"] .t3-runner-frame,

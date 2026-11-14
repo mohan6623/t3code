@@ -1,11 +1,11 @@
 import type { ModelSelection, ProviderInstanceId, RuntimeMode } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { type ComponentProps, memo } from "react";
+import { type ComponentProps, memo, use } from "react";
 
-import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
+import { ComposerContextWindowContext } from "./composerContextWindow";
 import { useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
@@ -96,7 +96,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   children?: React.ReactNode;
   compact: boolean;
   canOperateThread: boolean;
-  activeContextWindow: ContextWindowSnapshot | null;
+  showContextWindow: boolean;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -133,11 +133,13 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
 }) {
+  const contextWindow = use(ComposerContextWindowContext);
+  const activeContextWindow = props.showContextWindow ? contextWindow : null;
   return (
     <>
-      {props.activeContextWindow ? (
+      {activeContextWindow ? (
         <ContextWindowMeter
-          usage={props.activeContextWindow}
+          usage={activeContextWindow}
           modelDisplayName={props.activeThreadModelDisplayName}
           onCompact={props.onCompactContext}
           compactDisabled={props.compactDisabled}

@@ -87,7 +87,7 @@ function RunningFor(props: { readonly startedAt: number }) {
 function RunningDot() {
   return (
     <span aria-hidden className="relative flex size-1.5 shrink-0">
-      <span className="absolute inline-flex size-full animate-ping rounded-full bg-success/60" />
+      <span className="absolute inline-flex size-full motion-safe:animate-status-ping rounded-full bg-success/60" />
       <span className="relative inline-flex size-1.5 rounded-full bg-success" />
     </span>
   );

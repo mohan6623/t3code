@@ -176,9 +176,19 @@ export function useComposerActionRow(
       [row, ...(editor ? [editor] : []), ...(actions ? [actions] : [])],
       measure,
     );
-    const mutationObserver = new MutationObserver(measure);
+    // Measuring reads layout, so typing measures once per frame, after all of the frame's DOM
+    // writes, instead of forcing a layout after each mutation (as useComposerMultilinePrompt).
+    let frame: number | null = null;
+    const mutationObserver = new MutationObserver(() => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        measure();
+      });
+    });
     mutationObserver.observe(row, { childList: true, characterData: true, subtree: true });
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       stopObserving();
       mutationObserver.disconnect();
     };

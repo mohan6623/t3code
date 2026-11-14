@@ -201,7 +201,7 @@ import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.lo
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
 import { useDeviceState } from "~/state/device";
-import { BranchToolbar, type BranchToolbarHandle, useLabelsOverflow } from "./BranchToolbar";
+import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
@@ -322,7 +322,6 @@ import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
-  contextStripFoldAttributes,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
@@ -344,6 +343,7 @@ import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
 import { ComposerSurface } from "./chat/ComposerSurface";
+import { ComposerModelStrip } from "./chat/ComposerModelStrip";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { hasAvailableCompactionProvider } from "./chat/compaction.logic";
 import {
@@ -449,6 +449,38 @@ type ChatViewProps =
 const DismissedFallbackWindowSchema = Schema.NullOr(Schema.String);
 
 const ignoreComposerFocus = () => {};
+
+// Fork: every row reads the rates, so a new Map re-renders every visible row. Token usage
+// updates rebuild the Map on each provider request; keep the old one until a rate changes.
+function useStableOutputRates(
+  next: ReadonlyMap<string, TimelineOutputRate>,
+): ReadonlyMap<string, TimelineOutputRate> {
+  const [stable, setStable] = useState(next);
+  const changed = !sameOutputRates(stable, next);
+  if (changed) setStable(next);
+  return changed ? next : stable;
+}
+
+function sameOutputRates(
+  a: ReadonlyMap<string, TimelineOutputRate>,
+  b: ReadonlyMap<string, TimelineOutputRate>,
+): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const [id, rate] of a) {
+    const other = b.get(id);
+    if (
+      other === undefined ||
+      other.outputTokens !== rate.outputTokens ||
+      other.generationMs !== rate.generationMs ||
+      other.inputTokens !== rate.inputTokens ||
+      other.cachedInputTokens !== rate.cachedInputTokens
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export default function ChatView(props: ChatViewProps) {
   const {
@@ -582,6 +614,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     return rates;
   })();
+  const stableTimelineOutputRates = useStableOutputRates(timelineOutputRates);
   const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
@@ -1921,7 +1954,6 @@ export default function ChatView(props: ChatViewProps) {
   const showComposerModelStrip = mountComposerModelStrip;
   // Fork: the model strip folds its labels (the usage figures) before the model
   // controls run out of room, the same way the Git strip does.
-  const [attachComposerModelStrip, composerModelStripFoldLevel] = useLabelsOverflow();
   // Sits at the end of whichever strip hosts the model controls.
   const composerUsageStrip = (
     <ComposerUsageStrip
@@ -3744,7 +3776,7 @@ export default function ChatView(props: ChatViewProps) {
                   footer={timelineFooter}
                   listRef={legendListRef}
                   runs={serverProjection?.runs ?? []}
-                  outputRates={timelineOutputRates}
+                  outputRates={stableTimelineOutputRates}
                   latestRun={activeActivityRun}
                   announcedRun={announcedRun(activeActivityRun, serverProjection?.runs ?? [])}
                   detailBehindShell={isDetailBehindShell(
@@ -3871,6 +3903,7 @@ export default function ChatView(props: ChatViewProps) {
                         contextStrip={showComposerContextStrip || showComposerModelStrip}
                       >
                         <ComposerSurface.Host
+                          contextWindow={activeContextWindow}
                           inert={queuedRunEdit.isSaving}
                           aria-busy={queuedRunEdit.isSaving}
                         >
@@ -4014,9 +4047,7 @@ export default function ChatView(props: ChatViewProps) {
                                 activeThreadModelSelection={activeThread?.modelSelection}
                                 activeProjectId={activeProject?.id ?? null}
                                 projectName={activeProject?.title}
-                                contextWindowEntries={serverVisibleTurnItems}
-                                contextWindowLiveUsage={activeThreadLiveTokenUsage}
-                                contextWindowProviderThread={activeProviderThread}
+                                hasContextWindow={activeContextWindow !== null}
                                 compactThreadUnavailable={compactThreadUnavailable}
                                 compactDisabled={compactDisabled}
                                 compactDisabledReason={compactDisabledReason}
@@ -4092,26 +4123,12 @@ export default function ChatView(props: ChatViewProps) {
                             className="relative z-0"
                           >
                             {mountComposerModelStrip ? (
-                              <ComposerSurface.ContextStrip
-                                ref={attachComposerModelStrip}
-                                {...contextStripFoldAttributes(composerModelStripFoldLevel)}
-                                data-composer-model-strip="true"
-                                data-composer-model-strip-static="true"
-                                aria-hidden={showComposerModelStrip ? undefined : true}
-                                inert={showComposerModelStrip ? undefined : true}
-                                className={cn(
-                                  "group-data-model-strip-transition/composer-surface:before:backdrop-blur-(--glass-blur) group-data-model-strip-transition/composer-surface:before:bg-(--chat-composer-glass-surface)/(--glass-opacity)",
-                                  !showComposerModelStrip &&
-                                    "pointer-events-none invisible absolute inset-x-0 top-full",
-                                )}
+                              <ComposerModelStrip
+                                shown={showComposerModelStrip}
+                                attachControlsHost={setRestingComposerControlsHost}
                               >
-                                <div
-                                  ref={setRestingComposerControlsHost}
-                                  data-chat-resting-composer-controls-host="true"
-                                  className="min-w-0 flex-1"
-                                />
                                 {composerUsageBadge}
-                              </ComposerSurface.ContextStrip>
+                              </ComposerModelStrip>
                             ) : null}
                             {mountComposerContextStrip && (
                               <div className="pointer-events-auto">

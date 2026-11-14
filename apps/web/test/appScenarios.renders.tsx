@@ -4,7 +4,13 @@
 // atoms the app reads. See renderScenarios.renders.tsx for the counting rules.
 import { createMemoryHistory } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { ThreadId } from "@t3tools/contracts";
+import {
+  NodeId,
+  ProviderThreadId,
+  ProviderTurnId,
+  type OrchestrationV2ProviderTurn,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { AsyncResult } from "effect/reactivity";
@@ -59,11 +65,13 @@ const HISTORY_TURNS = 20;
 const STREAM_DELTAS = 30;
 const TYPED_TEXT = "fix the flaky tests!";
 const TERMINAL_UPDATES = 20;
+const TOKEN_USAGE_UPDATES = 20;
 // The stream scenario leaves a turn on its thread, so it streams into one no other scenario opens.
-const THREADS = ["thread-warm", "thread-a", "thread-b", "thread-live"].map((name) =>
+const THREADS = ["thread-warm", "thread-a", "thread-b", "thread-live", "thread-usage"].map((name) =>
   threadWithHistory(name, HISTORY_TURNS),
 );
-const [WARM, A, B, LIVE] = THREADS.map((thread) => thread.id) as [
+const [WARM, A, B, LIVE, USAGE] = THREADS.map((thread) => thread.id) as [
+  ThreadId,
   ThreadId,
   ThreadId,
   ThreadId,
@@ -251,6 +259,48 @@ it("app-terminal-updates-in-other-thread", async () => {
   expect(counted.components.ChatView).toBeUndefined();
   expect(counted.components.SidebarThreadRow).toBe(TERMINAL_UPDATES);
   await report("app-terminal-updates-in-other-thread", [counted]);
+});
+
+// Fork: providers report token usage once per model request while a turn runs.
+it("app-provider-turn-token-usage", async () => {
+  using _clock = frozenClock();
+  await using _app = (await openThread(USAGE)).screen;
+  const turn = (outputTokens: number): OrchestrationV2ProviderTurn => ({
+    id: ProviderTurnId.make("usage-provider-turn"),
+    providerThreadId: ProviderThreadId.make("usage-provider-thread"),
+    nodeId: NodeId.make("usage-node"),
+    runAttemptId: null,
+    nativeTurnRef: null,
+    ordinal: 1,
+    status: "running",
+    startedAt: null,
+    completedAt: null,
+    tokenUsage: {
+      usedTokens: 1000 + outputTokens,
+      outputTokens,
+      updatedAt: "2026-03-18T09:00:30Z",
+    },
+    turnTokenUsage: {
+      usageScope: "main_agent",
+      usageStatus: "partial",
+      hasSubagents: false,
+      inputTokens: 1000,
+      outputTokens,
+    },
+  });
+  const counted = await measure(async () => {
+    for (let update = 1; update <= TOKEN_USAGE_UPDATES; update++) {
+      await act(() =>
+        emitThreadEvent(USAGE, { type: "provider-turn.updated", payload: turn(update * 10) }),
+      );
+    }
+  });
+  // No reply's output speed changes, so history rows keep their render. The composer renders once,
+  // when the context meter first appears; after that only the meter reads usage.
+  expect(counted.components.ChatComposer).toBe(1);
+  expect(counted.components.UserTimelineRow).toBeUndefined();
+  expect(counted.components.AssistantTimelineRow).toBeUndefined();
+  await report("app-provider-turn-token-usage", [counted], { commits: false });
 });
 
 it("app-type-in-composer", async () => {

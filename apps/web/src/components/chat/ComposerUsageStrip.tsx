@@ -16,7 +16,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -50,7 +50,7 @@ const SUMMARY_STYLE_STORAGE_KEY = "t3code:usage-panel-summary-style";
 /** Re-renders once a minute so reset countdowns stay current without animating. */
 function useMinuteClock(): number {
   const [now, setNow] = useState(() => Date.now());
-  // oxlint-disable-next-line t3code/react-effect-budget -- A timer subscription with cleanup; nothing in render or a handler can drive it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A timer subscription with cleanup; nothing in render or a handler can drive it.
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), MINUTE);
     return () => window.clearInterval(id);
@@ -338,7 +338,8 @@ function OtherAccount(props: {
  * at a glance. Clicking opens a panel with that account in full and every
  * other subscription folded underneath.
  */
-export function ComposerUsageStrip({
+// Fork: ChatView re-renders on every git status update; the strip's props rarely change.
+export const ComposerUsageStrip = memo(function ComposerUsageStrip({
   provider,
   providers,
   environmentId,
@@ -375,7 +376,7 @@ export function ComposerUsageStrip({
   });
   // Instances report limits only once probed; check them all up front so the
   // panel lists every subscription, not just the ones selected this session.
-  // oxlint-disable-next-line t3code/react-effect-budget -- One server fetch per environment when the badge mounts; no handler causes it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- One server fetch per environment when the badge mounts; no handler causes it.
   useEffect(() => {
     void refreshUsageLimits(
       environmentId,
@@ -653,4 +654,4 @@ export function ComposerUsageStrip({
       </PopoverPopup>
     </Popover>
   );
-}
+});

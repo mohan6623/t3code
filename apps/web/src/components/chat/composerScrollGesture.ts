@@ -49,6 +49,12 @@ export function suppressActiveComposerScrollGesture(
   }
 }
 
+/**
+ * Reaching the end expands the composer again, so a collapse this close to the end would bounce
+ * the composer on every small trackpad move there.
+ */
+export const COMPOSER_SCROLL_COLLAPSE_DEAD_ZONE_PX = 96;
+
 export function recordComposerScrollGestureEvent(
   state: ComposerScrollGestureState,
   input: {
@@ -58,6 +64,7 @@ export function recordComposerScrollGestureEvent(
     collapseEligible: boolean;
     canScrollInGestureDirection: boolean;
     scrollsTowardLogicalEnd: boolean;
+    distanceFromEndPx: number;
   },
 ): boolean {
   state.lastEventAt = input.now;
@@ -65,7 +72,8 @@ export function recordComposerScrollGestureEvent(
     state.collapseSuppressed ||
     !input.collapseEligible ||
     !input.canScrollInGestureDirection ||
-    input.scrollsTowardLogicalEnd
+    input.scrollsTowardLogicalEnd ||
+    input.distanceFromEndPx < COMPOSER_SCROLL_COLLAPSE_DEAD_ZONE_PX
   ) {
     state.accumulatedDeltaPx = 0;
     return false;

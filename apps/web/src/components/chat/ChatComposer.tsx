@@ -277,7 +277,6 @@ import {
   resolveComposerDispatchMode,
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
-import { deriveLatestContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
@@ -457,9 +456,8 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
   projectName?: string | undefined;
 
-  contextWindowEntries: Parameters<typeof deriveLatestContextWindowSnapshot>[0];
-  contextWindowLiveUsage: Parameters<typeof deriveLatestContextWindowSnapshot>[1];
-  contextWindowProviderThread: Parameters<typeof deriveLatestContextWindowSnapshot>[2];
+  /** The live snapshot reaches the meter through ComposerContextWindowContext. */
+  hasContextWindow: boolean;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -586,9 +584,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     projectName,
-    contextWindowEntries,
-    contextWindowLiveUsage,
-    contextWindowProviderThread,
+    hasContextWindow,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -637,11 +633,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
-  const activeContextWindow = deriveLatestContextWindowSnapshot(
-    contextWindowEntries,
-    contextWindowLiveUsage,
-    contextWindowProviderThread,
-  );
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   const {
@@ -2555,7 +2546,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // The width the inline actions take beside the prompt until they are
   // measured: pr-28, pr-20, or pr-12.
   const promptActionsWidth =
-    (settings.contextWindowMeterEnabled && activeContextWindow) || reserveContextWindowMeter
+    (settings.contextWindowMeterEnabled && hasContextWindow) || reserveContextWindowMeter
       ? 112
       : showComposerAttachAction
         ? 80
@@ -2670,7 +2661,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
       const scrollNode = getTimelineScrollableNode();
       if (!scrollNode) return;
-      const targetsTimeline = isTimelineScrollTarget(event.target, scrollNode, event.deltaY);
       if (
         !scrollNode.contains(event.target) &&
         !composerScrollGestureRef.current.collapseSuppressed
@@ -2685,11 +2675,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         COMPOSER_SCROLL_GESTURE_RESET_MS,
       );
 
+      // Fork: the checks below read layout, so skip them on the many wheel events that cannot
+      // collapse the composer (already collapsed, resting, or the setting is off).
+      const collapseEligible = composerScrollCollapseEligibleRef.current;
+      const targetsTimeline =
+        collapseEligible && isTimelineScrollTarget(event.target, scrollNode, event.deltaY);
+      const distanceFromEndPx = targetsTimeline
+        ? scrollNode.scrollHeight - scrollNode.clientHeight - scrollNode.scrollTop
+        : 0;
       const canScrollInGestureDirection =
-        targetsTimeline &&
-        (event.deltaY < 0
-          ? scrollNode.scrollTop > 0
-          : scrollNode.scrollTop < scrollNode.scrollHeight - scrollNode.clientHeight);
+        targetsTimeline && (event.deltaY < 0 ? scrollNode.scrollTop > 0 : distanceFromEndPx > 0);
       const deltaPx =
         Math.abs(event.deltaY) *
         (event.deltaMode === WheelEvent.DOM_DELTA_LINE
@@ -2701,9 +2696,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         now: window.performance.now(),
         deltaPx,
         collapseThresholdPx: COMPOSER_SCROLL_COLLAPSE_THRESHOLD_PX,
-        collapseEligible: targetsTimeline && composerScrollCollapseEligibleRef.current,
+        collapseEligible: targetsTimeline,
         canScrollInGestureDirection,
-        scrollsTowardLogicalEnd: event.deltaY > 0 && isTimelineAtLogicalEnd(),
+        scrollsTowardLogicalEnd: targetsTimeline && event.deltaY > 0 && isTimelineAtLogicalEnd(),
+        distanceFromEndPx,
       });
       if (!shouldCollapse) {
         return;
@@ -4167,9 +4163,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     key={`${environmentId}:${activeThreadId ?? "new"}`}
                     compact={restingLayout || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
-                    activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
-                    }
+                    showContextWindow={settings.contextWindowMeterEnabled}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

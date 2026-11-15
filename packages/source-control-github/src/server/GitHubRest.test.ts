@@ -367,6 +367,7 @@ describe("GitHubRest", () => {
     "keeps the existing HTTP client when gh's socket is %s",
     (config) => {
       const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      let configReads = 0;
       const fallback = Layer.succeed(
         HttpClient.HttpClient,
         HttpClient.make((request) => {
@@ -379,27 +380,34 @@ describe("GitHubRest", () => {
       const host = TestSourceControlHost.layer({
         process: {
           run: () =>
-            config === ""
-              ? Effect.succeed(TestSourceControlHost.processOutput("\n"))
-              : Effect.fail(
-                  new VcsProcessTimeoutError({
-                    operation: "GitHubHttpClient.config",
-                    command: "gh",
-                    cwd: "/",
-                    timeoutMs: 10_000,
-                  }),
-                ),
+            Effect.suspend(() => {
+              configReads++;
+              return config === ""
+                ? Effect.succeed(TestSourceControlHost.processOutput("\n"))
+                : Effect.fail(
+                    new VcsProcessTimeoutError({
+                      operation: "GitHubHttpClient.config",
+                      command: "gh",
+                      cwd: "/",
+                      timeoutMs: 10_000,
+                    }),
+                  );
+            }),
         },
       });
       return Effect.gen(function* () {
         const api = yield* HttpClient.HttpClient;
+        // Server startup builds this layer, so gh must wait for the first request.
+        expect(configReads).toBe(0);
         const answer = yield* api.execute(
           HttpClientRequest.get("https://api.github.com/user").pipe(
             HttpClientRequest.bearerToken("first"),
           ),
         );
         expect(yield* answer.json).toEqual({ login: "direct-user" });
-        expect(requests).toHaveLength(1);
+        yield* api.execute(HttpClientRequest.get("https://api.github.com/user"));
+        expect(configReads).toBe(1);
+        expect(requests).toHaveLength(2);
         expect(requests[0]).toMatchObject({
           url: "https://api.github.com/user",
           headers: { authorization: "Bearer first" },

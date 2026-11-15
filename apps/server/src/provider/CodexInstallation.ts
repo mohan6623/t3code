@@ -918,7 +918,9 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
     ),
   );
 
-  yield* Effect.gen(function* () {
+  // Fork: probing a local codex runs it twice (1-3 s on Windows). Do it in the background so
+  // the server starts without waiting; every caller below waits for it instead.
+  const initialized = yield* Effect.gen(function* () {
     // Shared-home installs do not refresh parent mtimes; remove only staging directories far older than the 45-minute download cap.
     let canRemove = false;
     if (yield* fs.exists(managedDirectory)) {
@@ -974,18 +976,30 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
           }) satisfies ProviderInstallState,
       ),
     ),
+    Effect.forkIn(serviceScope),
   );
+  // Each method below already opens its own span.
+  const afterInit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.andThen(Fiber.join(initialized), effect);
 
   return CodexInstallation.of({
     managedDirectory,
-    resolve,
-    acquire,
+    resolve: Effect.fnUntraced(function* () {
+      return yield* afterInit(resolve());
+    }),
+    acquire: Effect.fnUntraced(function* () {
+      return yield* afterInit(acquire());
+    }),
     compatibility,
-    start,
-    cancel,
-    state: SubscriptionRef.get(state),
-    changes: SubscriptionRef.changes(state),
-    checkForUpdate,
-    remove,
+    start: afterInit(start),
+    cancel: Effect.fnUntraced(function* (operationId: string) {
+      return yield* afterInit(cancel(operationId));
+    }),
+    state: afterInit(SubscriptionRef.get(state)),
+    changes: Stream.unwrap(afterInit(Effect.succeed(SubscriptionRef.changes(state)))),
+    checkForUpdate: afterInit(checkForUpdate),
+    remove: Effect.fnUntraced(function* (...args: Parameters<typeof remove>) {
+      return yield* afterInit(remove(...args));
+    }),
   });
 });

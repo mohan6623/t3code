@@ -5,10 +5,8 @@ import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 
 import type { RunnerLayer, RunnerSprite } from "./composerRunnerSprites";
 
-/** One walk step: an eighth of the 520ms frame cycle in index.css, about 15 per second. */
-const RUNNER_STEP_MS = 65;
-/** Sprite pixels moved per walk step. */
-const RUNNER_STEP_PIXELS = 2;
+/** Walking speed in CSS px per second, as in Monocode. */
+const RUNNER_SPEED = 160;
 /** Mascots are drawn about this many CSS px per sprite pixel. */
 const RUNNER_PIXEL = 2;
 /** A resize refits the walk once it has been still this long, so a drag does not jolt it. */
@@ -18,8 +16,8 @@ const RUNNER_INSET = 20;
 
 /**
  * Fork: a pixel mascot walks the composer's top edge while a turn runs, then drops into it.
- * Sprite pixels and walk steps land on whole screen pixels, or edges blur at 125% scale. Motion is
- * stepped CSS transforms about 15 times a second, never every frame, and pauses off screen.
+ * Sprite pixels and walk steps land on whole screen pixels, or edges blur at 125% scale. The walk
+ * moves one screen pixel per step as a compositor-only transform (no paint), and pauses off screen.
  */
 export function ComposerRunner(props: {
   readonly running: boolean;
@@ -47,19 +45,18 @@ export function ComposerRunner(props: {
       // Snap the walk's start to a screen pixel.
       const nudgeX = (Math.ceil(box.left * scale) - box.left * scale) / scale;
       const nudgeY = (Math.round(box.bottom * scale) - box.bottom * scale) / scale;
-      const step = cell * RUNNER_STEP_PIXELS;
-      const steps = Math.max(1, Math.floor(((box.width - nudgeX - size) * scale) / step));
+      const travel = Math.max(0, Math.floor((box.width - nudgeX - size) * scale));
       const style = track.style;
       style.setProperty("--runner-size", `${size}px`);
       style.setProperty("--runner-height", `${(height * cell) / scale}px`);
       style.setProperty("--runner-cell", `${cell / scale}px`);
       style.setProperty("--runner-nudge-x", `${nudgeX}px`);
       style.setProperty("--runner-nudge-y", `${nudgeY}px`);
-      style.setProperty("--runner-travel", `${(steps * step) / scale}px`);
-      style.setProperty("--runner-steps", String(steps));
+      style.setProperty("--runner-travel", `${travel / scale}px`);
+      style.setProperty("--runner-steps", String(Math.max(1, travel)));
       style.setProperty("--runner-hop", `${-Math.max(1, Math.round(cell / 2)) / scale}px`);
-      // There and back again, one step per RUNNER_STEP_MS, whatever the width.
-      style.setProperty("--runner-lap", `${(2 * steps * RUNNER_STEP_MS) / 1000}s`);
+      // There and back again at a steady speed, whatever the width.
+      style.setProperty("--runner-lap", `${Math.max(1, (2 * travel) / scale / RUNNER_SPEED)}s`);
       // A new screen scale (another monitor, or zoom) needs a new fit.
       scaleQuery?.removeEventListener("change", fit);
       scaleQuery = window.matchMedia(`(resolution: ${scale}dppx)`);

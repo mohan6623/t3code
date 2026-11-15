@@ -78,3 +78,35 @@ index 9ebfddc183a9b202d35c990a387c9b628feeb185..c414a49e866ecab1393645101fb67d55
    var _a3, _b, _c;
    const state = ctx.state;
    const { idsInView, positions, props } = state;
+diff --git a/react.js b/react.js
+index 515545471e08426fc90856256db9491db0ca4b92..c64785868ba6edea09f0a89938c4d41ac4af23af 100644
+--- a/react.js
++++ b/react.js
+@@ -7251,7 +7251,10 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+     const setWheelPassive = (passive) => {
+       if (passive === wheelPassive) return;
+       if (wheelPassive !== void 0) target.removeEventListener("wheel", onWheel);
+-      target.addEventListener("wheel", onWheel, { passive });
++      // Fork: always passive. A blocking wheel listener makes every wheel notch wait for the main
++      // thread, so a reversed scroll lands late while an agent streams. onWheel already handles
++      // non-cancelable events: it stops its own animation and lets the browser apply the wheel.
++      target.addEventListener("wheel", onWheel, { passive: true });
+       wheelPassive = passive;
+     };
+     target.addEventListener("wheel", captureWheel, { capture: true, passive: true });
+diff --git a/react.mjs b/react.mjs
+index ce08abe7ee62e8940f9c6ff169829244bd6bb736..b717bd63c190c88140d7ca5c47b6c82af629b659 100644
+--- a/react.mjs
++++ b/react.mjs
+@@ -7230,7 +7230,10 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+     const setWheelPassive = (passive) => {
+       if (passive === wheelPassive) return;
+       if (wheelPassive !== void 0) target.removeEventListener("wheel", onWheel);
+-      target.addEventListener("wheel", onWheel, { passive });
++      // Fork: always passive. A blocking wheel listener makes every wheel notch wait for the main
++      // thread, so a reversed scroll lands late while an agent streams. onWheel already handles
++      // non-cancelable events: it stops its own animation and lets the browser apply the wheel.
++      target.addEventListener("wheel", onWheel, { passive: true });
+       wheelPassive = passive;
+     };
+     target.addEventListener("wheel", captureWheel, { capture: true, passive: true });

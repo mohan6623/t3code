@@ -90,3 +90,11 @@ export function findSelectionSourceLines(
   );
   return { startLine: start + 1, endLine: (end < 0 ? start : end) + 1 };
 }
+
+/** Drafts and the comments still in the prompt; sent or removed ones are not shown or re-added. */
+export function promptFileCommentEntries(
+  entries: ReadonlyArray<FileCommentAnnotationEntry>,
+  promptCommentIds: ReadonlySet<string>,
+): FileCommentAnnotationEntry[] {
+  return entries.filter((entry) => entry.kind === "draft" || promptCommentIds.has(entry.id));
+}

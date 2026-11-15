@@ -16,6 +16,7 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 
 import type { ComposerThreadTarget, DraftId } from "../../composerDraftStore";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
 import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
@@ -54,7 +55,24 @@ import {
 } from "./threadDetailsPanelStyles";
 import { Menu, MenuPopup } from "../ui/menu";
 
-const GitActionsControl = memo(BaseGitActionsControl);
+/**
+ * Fork: binds a repository's path to the panel's open-changes handler with a stable
+ * callback. An inline closure is new on every ChatView render, which re-rendered the
+ * whole source control row on each scroll and stream update.
+ */
+const RepositoryGitActionsControl = memo(function RepositoryGitActionsControl({
+  repositoryPath,
+  onOpenRepositoryChanges,
+  ...props
+}: Omit<ComponentProps<typeof BaseGitActionsControl>, "onOpenChanges"> & {
+  repositoryPath: string | undefined;
+  onOpenRepositoryChanges: ((repositoryPath?: string) => void) | undefined;
+}) {
+  const onOpenChanges = useStableCallback(() => onOpenRepositoryChanges?.(repositoryPath));
+  return (
+    <BaseGitActionsControl {...props} {...(onOpenRepositoryChanges ? { onOpenChanges } : {})} />
+  );
+});
 
 // Fork: repository sections start closed. Each thread keeps the ones you
 // opened, keyed by environment, thread and repository path.
@@ -332,7 +350,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                       />
                     ) : null}
                     {show.git && props.gitCwd ? (
-                      <GitActionsControl
+                      <RepositoryGitActionsControl
                         compact={density !== "full"}
                         showActions={visible.gitActions}
                         showChanges={visible.changes}
@@ -340,12 +358,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         workspaceMutationId={props.workspaceMutationId}
                         activeThreadRef={activeThreadRef}
                         {...(props.draftId ? { draftId: props.draftId } : {})}
-                        {...(props.onOpenChanges
-                          ? {
-                              onOpenChanges: () =>
-                                props.onOpenChanges!(rootRepository?.relativePath),
-                            }
-                          : {})}
+                        repositoryPath={rootRepository?.relativePath}
+                        onOpenRepositoryChanges={props.onOpenChanges}
                       />
                     ) : null}
                   </div>
@@ -382,7 +396,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                               repositoryCwd={repositoryCwd}
                             />
                           ) : null}
-                          <GitActionsControl
+                          <RepositoryGitActionsControl
                             compact={density !== "full"}
                             showActions={visible.gitActions}
                             showChanges={visible.changes}
@@ -390,12 +404,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                             activeThreadRef={activeThreadRef}
                             syncThreadBranch={false}
                             {...(props.draftId ? { draftId: props.draftId } : {})}
-                            {...(props.onOpenChanges
-                              ? {
-                                  onOpenChanges: () =>
-                                    props.onOpenChanges!(repository.relativePath),
-                                }
-                              : {})}
+                            repositoryPath={repository.relativePath}
+                            onOpenRepositoryChanges={props.onOpenChanges}
                           />
                         </div>
                       </ThreadDetailsSection>

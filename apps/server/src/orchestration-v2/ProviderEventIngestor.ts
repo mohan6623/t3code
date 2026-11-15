@@ -4,6 +4,7 @@ import {
   OrchestrationV2DomainEvent,
   OrchestrationV2StoredEvent,
   type OrchestrationV2PlanArtifact,
+  type OrchestrationV2ProviderTurn,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
   isOrchestrationV2WorkActive,
@@ -45,6 +46,7 @@ import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failu
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
 import { boundFileChangeForStorage } from "./WireProjection.ts";
+import { estimateOutputGenerationMs } from "./outputGeneration.ts";
 
 export class ProviderEventNormalizeError extends Schema.TaggedError<ProviderEventNormalizeError>()(
   "ProviderEventNormalizeError",
@@ -309,6 +311,35 @@ export const layer: Layer.Layer<
       };
     };
 
+    /** Fork: output speed for providers that do not time their own responses (Claude does). */
+    const withOutputGenerationMs = Effect.fn("ProviderEventIngestor.withOutputGenerationMs")(
+      function* (threadId: ThreadId, providerTurn: OrchestrationV2ProviderTurn) {
+        if (
+          providerTurn.outputGenerationMs !== undefined ||
+          !((providerTurn.turnTokenUsage?.outputTokens ?? 0) > 0) ||
+          providerTurn.startedAt === null ||
+          providerTurn.status === "pending" ||
+          providerTurn.status === "running"
+        ) {
+          return providerTurn;
+        }
+        const items = yield* projections
+          .getProviderTurnItemTimes(threadId, providerTurn.id)
+          .pipe(Effect.orElseSucceed(() => undefined));
+        if (items === undefined) return providerTurn;
+        const outputGenerationMs = Math.round(
+          estimateOutputGenerationMs({
+            startedAtMs: DateTime.toEpochMillis(providerTurn.startedAt),
+            completedAtMs: DateTime.toEpochMillis(
+              providerTurn.completedAt ?? (yield* DateTime.now),
+            ),
+            items,
+          }),
+        );
+        return outputGenerationMs > 0 ? { ...providerTurn, outputGenerationMs } : providerTurn;
+      },
+    );
+
     const makeDomainEvent =
       /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
       Effect.fnUntraced(function* (
@@ -435,7 +466,7 @@ export const layer: Layer.Layer<
     );
 
     /**
-     * Fork: copies a delegate_task child's live token count to the parent's subagent row.
+     * Fork: copies a subagent thread's live token count to the parent's subagent row.
      * The write takes the parent's lock, which the parent may hold while it waits on this
      * child, so it runs on its own fiber; fibers finish out of order, so each writes the latest.
      */
@@ -491,11 +522,9 @@ export const layer: Layer.Layer<
             const { subagents } = yield* projections.getThreadRecords(parentThreadId, [
               "subagents",
             ]);
+            // Fork: any subagent with a thread of its own, delegated or native.
             const task = subagents
-              .filter(
-                (candidate) =>
-                  candidate.origin === "app_owned" && candidate.childThreadId === childThreadId,
-              )
+              .filter((candidate) => candidate.childThreadId === childThreadId)
               .toSorted(
                 (a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt),
               )[0];
@@ -755,7 +784,10 @@ export const layer: Layer.Layer<
                 yield* makeDomainEvent(input, {
                   type: "provider-turn.updated",
                   ...(input.event.threadId === undefined ? {} : { threadId: input.event.threadId }),
-                  payload: input.event.providerTurn,
+                  payload: yield* withOutputGenerationMs(
+                    input.event.threadId ?? input.threadId,
+                    input.event.providerTurn,
+                  ),
                   nodeId: input.event.providerTurn.nodeId,
                 }),
               ];

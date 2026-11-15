@@ -451,6 +451,92 @@ it.effect("records accepted billed turn usage once without billing the context w
   }).pipe(Effect.provide(layerTest.pipe(Layer.provide(layerAnalytics))));
 });
 
+// Fork: providers that do not time their own responses get an output speed from the turn's items.
+it.effect("times a finished turn's output without the time its tools ran", () =>
+  Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    const at = (ms: number) => DateTime.makeUnsafe(DateTime.toEpochMillis(now) + ms);
+    const eventSink = yield* EventSink.EventSinkV2;
+    const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+    const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
+    const idAllocator = yield* IdAllocator.IdAllocatorV2;
+    const threadEvent = yield* threadCreatedEvent(now);
+    const threadId = threadEvent.threadId;
+    yield* eventSink.write({ events: [threadEvent] });
+    const providerSessionId = yield* idAllocator.allocate.providerSession({
+      providerInstanceId: modelSelection.instanceId,
+      threadId,
+    });
+    const providerThreadId = idAllocator.derive.providerThread({
+      driver: CODEX_DRIVER,
+      nativeThreadId: "speed-thread",
+    });
+    const providerTurnId = idAllocator.derive.providerTurn({
+      driver: CODEX_DRIVER,
+      nativeTurnId: "speed-turn",
+    });
+    const ingest = (event: ProviderEventIngestor.ProviderEventIngestInput["event"]) =>
+      ingestor.ingestNormalized({
+        providerSessionId,
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+        event,
+      });
+    yield* ingest({
+      type: "turn_item.updated",
+      driver: CODEX_DRIVER,
+      turnItem: {
+        id: TurnItemId.make(`${threadId}:speed-command`),
+        threadId,
+        runId: null,
+        nodeId: null,
+        providerThreadId,
+        providerTurnId,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1,
+        status: "completed",
+        title: null,
+        startedAt: at(2_000),
+        completedAt: at(8_000),
+        updatedAt: at(8_000),
+        type: "command_execution",
+        input: "vp test run",
+      },
+    });
+    const providerTurn = {
+      id: providerTurnId,
+      providerThreadId,
+      nodeId: NodeId.make("node:speed-turn"),
+      runAttemptId: null,
+      nativeTurnRef: null,
+      ordinal: 1,
+      status: "completed" as const,
+      startedAt: now,
+      completedAt: at(10_000),
+      turnTokenUsage: {
+        usageStatus: "complete" as const,
+        usageScope: "main_agent" as const,
+        hasSubagents: false,
+        inputTokens: 400,
+        outputTokens: 200,
+      },
+    };
+    yield* ingest({ type: "provider_turn.updated", driver: CODEX_DRIVER, providerTurn });
+    const stored = (yield* projectionStore.getThreadProjection(threadId)).providerTurns;
+    assert.equal(stored.find((turn) => turn.id === providerTurnId)?.outputGenerationMs, 4_000);
+
+    // A provider's own timing wins.
+    yield* ingest({
+      type: "provider_turn.updated",
+      driver: CODEX_DRIVER,
+      providerTurn: { ...providerTurn, outputGenerationMs: 3_000 },
+    });
+    const timed = (yield* projectionStore.getThreadProjection(threadId)).providerTurns;
+    assert.equal(timed.find((turn) => turn.id === providerTurnId)?.outputGenerationMs, 3_000);
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect(
   "reports invalid provider questions as typed errors and still ingests valid questions",
   () =>
@@ -2441,155 +2527,158 @@ layer("ProviderEventIngestorV2", (it) => {
       ),
     ),
   );
-  it.effect("copies a delegated subagent's token count from its thread to the parent", () =>
-    Effect.gen(function* () {
-      const now = yield* DateTime.now;
-      const eventSink = yield* EventSink.EventSinkV2;
-      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const rootEvent = yield* threadCreatedEvent(now);
-      if (rootEvent.type !== "thread.created") {
-        throw new Error("Expected a thread.created fixture event");
-      }
-      // The copy runs on a detached fiber, so the test waits for the sink to commit it.
-      const parentCountWritten = yield* Deferred.make<void>();
-      const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2.pipe(
-        Effect.provide(Layer.fresh(ProviderEventIngestor.layer)),
-        Effect.provideService(
-          EventSink.EventSinkV2,
-          EventSink.EventSinkV2.of({
-            ...eventSink,
-            write: (input) =>
-              eventSink
-                .write(input)
-                .pipe(
-                  Effect.tap(() =>
-                    input.events.some(
-                      (event) =>
-                        event.type === "subagent.updated" &&
-                        event.threadId === rootEvent.threadId &&
-                        event.payload.usage?.totalTokens === 12_345,
-                    )
-                      ? Deferred.succeed(parentCountWritten, undefined)
-                      : Effect.void,
+  // Fork: native subagents with their own thread (Codex, Cursor, OpenCode, ACP) get the count too.
+  it.effect.each(["app_owned", "provider_native"] as const)(
+    "copies a %s subagent's token count from its thread to the parent",
+    (origin) =>
+      Effect.gen(function* () {
+        const now = yield* DateTime.now;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const rootEvent = yield* threadCreatedEvent(now);
+        if (rootEvent.type !== "thread.created") {
+          throw new Error("Expected a thread.created fixture event");
+        }
+        // The copy runs on a detached fiber, so the test waits for the sink to commit it.
+        const parentCountWritten = yield* Deferred.make<void>();
+        const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2.pipe(
+          Effect.provide(Layer.fresh(ProviderEventIngestor.layer)),
+          Effect.provideService(
+            EventSink.EventSinkV2,
+            EventSink.EventSinkV2.of({
+              ...eventSink,
+              write: (input) =>
+                eventSink
+                  .write(input)
+                  .pipe(
+                    Effect.tap(() =>
+                      input.events.some(
+                        (event) =>
+                          event.type === "subagent.updated" &&
+                          event.threadId === rootEvent.threadId &&
+                          event.payload.usage?.totalTokens === 12_345,
+                      )
+                        ? Deferred.succeed(parentCountWritten, undefined)
+                        : Effect.void,
+                    ),
                   ),
-                ),
-          }),
-        ),
-      );
-      const childThreadId = idAllocator.derive.threadFromProviderThread({
-        driver: CODEX_DRIVER,
-        nativeThreadId: "native-delegated-child",
-      });
-      const providerSessionId = yield* idAllocator.allocate.providerSession({
-        providerInstanceId: modelSelection.instanceId,
-        threadId: rootEvent.threadId,
-      });
-      const ingest = (
-        threadId: ThreadId,
-        event: ProviderEventIngestor.ProviderEventIngestInput["event"],
-      ) =>
-        ingestor.ingestNormalized({
-          providerSessionId,
-          providerInstanceId: modelSelection.instanceId,
-          threadId,
-          event,
+            }),
+          ),
+        );
+        const childThreadId = idAllocator.derive.threadFromProviderThread({
+          driver: CODEX_DRIVER,
+          nativeThreadId: `native-${origin}-child`,
         });
-      yield* eventSink.write({ events: [rootEvent] });
-      yield* ingest(rootEvent.threadId, {
-        type: "app_thread.created",
-        driver: CODEX_DRIVER,
-        appThread: {
-          ...rootEvent.payload,
-          id: childThreadId,
-          title: "delegated review",
-          activeProviderThreadId: null,
-          lineage: {
-            parentThreadId: rootEvent.threadId,
-            relationshipToParent: "subagent",
-            rootThreadId: rootEvent.threadId,
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId: rootEvent.threadId,
+        });
+        const ingest = (
+          threadId: ThreadId,
+          event: ProviderEventIngestor.ProviderEventIngestInput["event"],
+        ) =>
+          ingestor.ingestNormalized({
+            providerSessionId,
+            providerInstanceId: modelSelection.instanceId,
+            threadId,
+            event,
+          });
+        yield* eventSink.write({ events: [rootEvent] });
+        yield* ingest(rootEvent.threadId, {
+          type: "app_thread.created",
+          driver: CODEX_DRIVER,
+          appThread: {
+            ...rootEvent.payload,
+            id: childThreadId,
+            title: "delegated review",
+            activeProviderThreadId: null,
+            lineage: {
+              parentThreadId: rootEvent.threadId,
+              relationshipToParent: "subagent",
+              rootThreadId: rootEvent.threadId,
+            },
           },
-        },
-      });
-      const task = {
-        id: NodeId.make("node:delegated-task"),
-        threadId: rootEvent.threadId,
-        runId: null,
-        parentNodeId: NodeId.make("node:root"),
-        origin: "app_owned",
-        createdBy: "agent",
-        driver: CODEX_DRIVER,
-        providerInstanceId: modelSelection.instanceId,
-        providerThreadId: null,
-        childThreadId,
-        nativeTaskRef: null,
-        prompt: "Review the design",
-        title: "delegated review",
-        model: modelSelection.model,
-        status: "running",
-        result: null,
-        startedAt: now,
-        completedAt: null,
-        updatedAt: now,
-      } satisfies OrchestrationV2Subagent;
-      yield* ingest(rootEvent.threadId, {
-        type: "subagent.updated",
-        driver: CODEX_DRIVER,
-        subagent: task,
-      });
-
-      yield* ingest(childThreadId, {
-        type: "provider_thread.updated",
-        driver: CODEX_DRIVER,
-        providerThread: {
-          id: idAllocator.derive.providerThread({
-            driver: CODEX_DRIVER,
-            nativeThreadId: "native-delegated-child",
-          }),
+        });
+        const task = {
+          id: NodeId.make(`node:${origin}-task`),
+          threadId: rootEvent.threadId,
+          runId: null,
+          parentNodeId: NodeId.make("node:root"),
+          origin,
+          createdBy: "agent",
           driver: CODEX_DRIVER,
           providerInstanceId: modelSelection.instanceId,
-          providerSessionId,
-          appThreadId: childThreadId,
-          ownerNodeId: null,
-          nativeThreadRef: {
-            driver: CODEX_DRIVER,
-            nativeId: "native-delegated-child",
-            strength: "strong",
-          },
-          nativeConversationHeadRef: null,
-          status: "idle",
-          firstRunOrdinal: null,
-          lastRunOrdinal: null,
-          handoffIds: [],
-          forkedFrom: null,
-          contextUsage: { usedTokens: 12_345 },
-          createdAt: now,
+          providerThreadId: null,
+          childThreadId,
+          nativeTaskRef: null,
+          prompt: "Review the design",
+          title: "delegated review",
+          model: modelSelection.model,
+          status: "running",
+          result: null,
+          startedAt: now,
+          completedAt: null,
           updatedAt: now,
-        },
-      });
+        } satisfies OrchestrationV2Subagent;
+        yield* ingest(rootEvent.threadId, {
+          type: "subagent.updated",
+          driver: CODEX_DRIVER,
+          subagent: task,
+        });
 
-      const parentTask = projectionStore
-        .getThreadRecords(rootEvent.threadId, ["subagents"])
-        .pipe(Effect.map(({ subagents }) => subagents.find((entry) => entry.id === task.id)));
-      yield* Deferred.await(parentCountWritten);
-      const copied = yield* parentTask;
-      assert.deepEqual(copied?.usage, { totalTokens: 12_345 });
-      assert.equal(copied?.status, "running");
+        yield* ingest(childThreadId, {
+          type: "provider_thread.updated",
+          driver: CODEX_DRIVER,
+          providerThread: {
+            id: idAllocator.derive.providerThread({
+              driver: CODEX_DRIVER,
+              nativeThreadId: `native-${origin}-child`,
+            }),
+            driver: CODEX_DRIVER,
+            providerInstanceId: modelSelection.instanceId,
+            providerSessionId,
+            appThreadId: childThreadId,
+            ownerNodeId: null,
+            nativeThreadRef: {
+              driver: CODEX_DRIVER,
+              nativeId: `native-${origin}-child`,
+              strength: "strong",
+            },
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: null,
+            lastRunOrdinal: null,
+            handoffIds: [],
+            forkedFrom: null,
+            contextUsage: { usedTokens: 12_345 },
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      // A later status update that does not carry the count keeps it.
-      yield* ingest(rootEvent.threadId, {
-        type: "subagent.updated",
-        driver: CODEX_DRIVER,
-        subagent: { ...task, status: "completed", completedAt: now },
-      });
-      const completed = yield* parentTask;
-      assert.equal(completed?.status, "completed");
-      assert.deepEqual(completed?.usage, { totalTokens: 12_345 });
-      const projected = yield* projectionStore.getThreadProjection(rootEvent.threadId);
-      assert.deepEqual(projected.subagents.find((entry) => entry.id === task.id)?.usage, {
-        totalTokens: 12_345,
-      });
-    }),
+        const parentTask = projectionStore
+          .getThreadRecords(rootEvent.threadId, ["subagents"])
+          .pipe(Effect.map(({ subagents }) => subagents.find((entry) => entry.id === task.id)));
+        yield* Deferred.await(parentCountWritten);
+        const copied = yield* parentTask;
+        assert.deepEqual(copied?.usage, { totalTokens: 12_345 });
+        assert.equal(copied?.status, "running");
+
+        // A later status update that does not carry the count keeps it.
+        yield* ingest(rootEvent.threadId, {
+          type: "subagent.updated",
+          driver: CODEX_DRIVER,
+          subagent: { ...task, status: "completed", completedAt: now },
+        });
+        const completed = yield* parentTask;
+        assert.equal(completed?.status, "completed");
+        assert.deepEqual(completed?.usage, { totalTokens: 12_345 });
+        const projected = yield* projectionStore.getThreadProjection(rootEvent.threadId);
+        assert.deepEqual(projected.subagents.find((entry) => entry.id === task.id)?.usage, {
+          totalTokens: 12_345,
+        });
+      }),
   );
 });
 

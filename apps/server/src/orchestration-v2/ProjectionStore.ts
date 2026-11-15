@@ -5,6 +5,7 @@ import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { makeThreadFind } from "./ThreadFind.ts";
+import type { TurnItemTimes } from "./outputGeneration.ts";
 import { unsentManualContinuationSource } from "./manualContinuation.ts";
 import type {
   OrchestrationV2ThreadLinkMetadata,
@@ -688,6 +689,11 @@ export interface ProjectionStoreV2Shape {
     threadId: ThreadId,
     providerTurnId: ProviderTurnId,
   ) => Effect.Effect<ProjectionPendingUserInputs, ProjectionStoreV2Error>;
+  /** Fork: when each item of a provider turn ran, for the turn's output speed. */
+  readonly getProviderTurnItemTimes: (
+    threadId: ThreadId,
+    providerTurnId: ProviderTurnId,
+  ) => Effect.Effect<ReadonlyArray<TurnItemTimes>, ProjectionStoreV2Error>;
   readonly getPlan: (
     threadId: ThreadId,
     planId: PlanId,
@@ -5621,6 +5627,32 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         ? cause
         : new ProjectionStoreReadError({ threadId, cause });
 
+    const getProviderTurnItemTimes: ProjectionStoreV2Shape["getProviderTurnItemTimes"] = (
+      threadId,
+      providerTurnId,
+    ) =>
+      sql<{
+        readonly type: TurnItemTimes["type"];
+        readonly started_at: string | null;
+        readonly completed_at: string | null;
+      }>`
+        SELECT type,
+          json_extract(payload_json, '$.startedAt') AS started_at,
+          json_extract(payload_json, '$.completedAt') AS completed_at
+        FROM orchestration_v2_projection_turn_items
+        -- The plus keeps SQLite on the provider turn index instead of walking the thread.
+        WHERE provider_turn_id = ${providerTurnId} AND +thread_id = ${threadId}
+      `.pipe(
+        Effect.map((rows) =>
+          rows.map((row) => ({
+            type: row.type,
+            startedAtMs: row.started_at === null ? null : Date.parse(row.started_at),
+            completedAtMs: row.completed_at === null ? null : Date.parse(row.completed_at),
+          })),
+        ),
+        Effect.mapError(controlReadError(threadId)),
+      );
+
     const getPendingNativeUserInputs: ProjectionStoreV2Shape["getPendingNativeUserInputs"] = (
       threadId,
       providerTurnId,
@@ -9162,6 +9194,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       canStartQueuedRun: readOnReader(canStartQueuedRun),
       getHeldQueuedRuns: readOnReader(getHeldQueuedRuns),
       getPendingNativeUserInputs: readOnReader(getPendingNativeUserInputs),
+      getProviderTurnItemTimes: readOnReader(getProviderTurnItemTimes),
       hasUnpairedRunInterruptRequest: readOnReader(hasUnpairedRunInterruptRequest),
       isNodeStored: readOnReader(isNodeStored),
       getMessageCount: readOnReader(getMessageCount),

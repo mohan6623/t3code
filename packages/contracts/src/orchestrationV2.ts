@@ -1292,9 +1292,9 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
   tokenUsage: Schema.optional(OrchestrationV2ProviderTurnTokenUsage),
   turnTokenUsage: Schema.optional(TurnTokenUsage),
   /**
-   * Fork: milliseconds the model spent streaming its output in this turn, from
-   * each response's first event to its last. Tool runs and waits are left out,
-   * so `turnTokenUsage.outputTokens` over this is the output speed.
+   * Fork: milliseconds the model spent writing this turn, so `turnTokenUsage.outputTokens`
+   * over this is the output speed. Claude times each response stream; for other providers
+   * the server takes the turn's time less the time its tools and waits ran.
    */
   outputGenerationMs: Schema.optional(NonNegativeInt),
   /** The model the provider reported running this turn's root agent, which can differ from the requested one. */

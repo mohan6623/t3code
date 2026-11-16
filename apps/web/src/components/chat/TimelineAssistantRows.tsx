@@ -37,6 +37,11 @@ import {
   type TimelineRow,
 } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
+import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult, Atom } from "effect/reactivity";
+import { vcsEnvironment } from "../../state/vcs";
+
+const NO_VCS_STATUS = Atom.make(AsyncResult.initial());
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -512,6 +517,15 @@ function AssistantChangedFilesSectionInner({
       : null,
   );
   const onFileContextMenu = useFileContextMenuHandler(ctx.activeThreadEnvironmentId);
+  const repositoryRoot = useAtomValue(
+    ctx.workspaceRoot
+      ? vcsEnvironment.status({
+          environmentId: ctx.activeThreadEnvironmentId,
+          input: { cwd: ctx.workspaceRoot },
+        })
+      : NO_VCS_STATUS,
+    (status) => AsyncResult.getOrElse(status, () => null)?.workingTree.rootPath,
+  );
 
   return (
     <ChangedFilesCard
@@ -531,9 +545,10 @@ function AssistantChangedFilesSectionInner({
             filePath,
             workspaceRoot: ctx.workspaceRoot,
             repositoryRoot:
-              thread?.worktreePath == null
+              repositoryRoot ??
+              (thread?.worktreePath == null
                 ? activeProject?.repositoryIdentity?.rootPath
-                : undefined,
+                : undefined),
           },
           event,
         )

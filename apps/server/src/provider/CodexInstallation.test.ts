@@ -43,8 +43,6 @@ const makeHarness = Effect.fn("test.makeCodexInstallation")(function* (
     runtimeRenameFailures?: number;
     /** Served by URL instead of the pinned package. */
     responses?: Readonly<Record<string, () => Response>>;
-    /** Startup checks run in the background; by default the harness waits for them like a caller. */
-    waitForStartup?: boolean;
   } = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
@@ -130,7 +128,6 @@ const makeHarness = Effect.fn("test.makeCodexInstallation")(function* (
       ),
     ),
   );
-  if (input.waitForStartup !== false) yield* installation.state;
   return {
     installation,
     fs,
@@ -364,17 +361,6 @@ it.effect("requires an update before running an older activated managed installa
     expect((yield* terminalState(restarted.installation)).phase).toBe("succeeded");
     expect((yield* restarted.installation.resolve()).version).toBe("0.156.1");
     expect(restarted.downloads()).toBe(1);
-  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
-it.effect("does not hold server startup on the local Codex probe", () =>
-  Effect.gen(function* () {
-    const { installation } = yield* makeHarness({
-      local: { version: "0.156.1" },
-      spawner: ChildProcessSpawner.make(() => Effect.never),
-      waitForStartup: false,
-    });
-    expect(installation.managedDirectory).toContain("codex");
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 

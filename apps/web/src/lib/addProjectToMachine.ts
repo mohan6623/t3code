@@ -1,3 +1,4 @@
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   executeAtomQuery,
   runAtomCommand,
@@ -12,8 +13,10 @@ import {
   type ProjectId,
   type ScopedProjectRef,
 } from "@t3tools/contracts";
+import { msg } from "gt-react";
 import { create } from "zustand";
 
+import { m } from "../i18n/messages";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
 import { environmentProjectClonesAtom, silenceProjectCloneToasts } from "../state/projectClones";
@@ -56,7 +59,7 @@ export interface AddProjectToMachineInput {
 
 function failureMessage(result: Parameters<typeof squashAtomCommandFailure>[0]): string {
   const error = squashAtomCommandFailure(result);
-  return error instanceof Error ? error.message : "An error occurred.";
+  return thrownErrorMessage(error, m) ?? m(msg("An error occurred."));
 }
 
 /**
@@ -88,6 +91,7 @@ export type ProjectFileCopy =
   | { readonly phase: "copying" }
   | {
       readonly phase: "failed";
+      /** A `msg()`, resolved where it is shown so it follows the UI language. */
       readonly title: string;
       readonly failures: ReadonlyArray<string>;
       /** Fork: only nested repositories had problems; every chosen file landed. */
@@ -133,7 +137,7 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
         { label: "Read file to copy", reportFailure: false, refresh: true },
       );
       if (result._tag === "Failure") return { relativePath, error: failureMessage(result) };
-      if (result.value.truncated) return { relativePath, error: "Too large to copy." };
+      if (result.value.truncated) return { relativePath, error: m(msg("Too large to copy.")) };
       return { relativePath, contents: result.value.contents };
     }),
   );
@@ -239,8 +243,13 @@ export async function addProjectToMachine(input: AddProjectToMachineInput): Prom
             phase: "failed",
             title:
               failed.length === 0
-                ? `Some nested repositories need attention on ${input.target.label}`
-                : `Could not copy ${failed.length} ${failed.length === 1 ? "file" : "files"} to ${input.target.label}`,
+                ? msg("Some nested repositories need attention on {target}", {
+                    target: input.target.label,
+                  })
+                : msg(
+                    "Could not copy {count, plural, one {{count} file} other {{count} files}} to {target}",
+                    { count: failed.length, target: input.target.label },
+                  ),
             failures: [...nestedProblems, ...failed],
             ...(failed.length === 0 ? { warning: true } : {}),
           },

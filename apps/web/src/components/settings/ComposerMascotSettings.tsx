@@ -12,16 +12,19 @@ import {
 } from "../chat/composerRunnerSprites";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
+import { useGT } from "gt-react";
 
 const DEFAULT_CHOICE = "default";
 
-function choiceLabel(driver: string, choice: string): string {
+function choiceLabel(driver: string, choice: string, gt: ReturnType<typeof useGT>): string {
   if (choice === DEFAULT_CHOICE) {
     const own = defaultMascotId(driver);
-    return `${own ? RUNNER_SPRITES.get(own)!.label : "Project's pick"} (default)`;
+    return gt("{mascot} (default)", {
+      mascot: own ? RUNNER_SPRITES.get(own)!.label : gt("Project's pick"),
+    });
   }
-  if (choice === PROJECT_MASCOT_CHOICE) return "Project's pick";
-  if (choice === NO_MASCOT_CHOICE) return "Off";
+  if (choice === PROJECT_MASCOT_CHOICE) return gt("Project's pick");
+  if (choice === NO_MASCOT_CHOICE) return gt("Off", { $context: "no composer mascot" });
   return RUNNER_SPRITES.get(choice)?.label ?? choice;
 }
 
@@ -41,6 +44,7 @@ function setComposerMascot(instanceId: string, choice: string | null) {
 /** The composer mascot of one provider setup, saved on this device. */
 export function ComposerMascotRow(props: { readonly instanceId: string; readonly driver: string }) {
   const { instanceId, driver } = props;
+  const gt = useGT();
   const stored = useClientSettings((settings) => settings.composerMascots[instanceId]);
   const own = defaultMascotId(driver);
   const value =
@@ -57,12 +61,12 @@ export function ComposerMascotRow(props: { readonly instanceId: string; readonly
   ];
   return (
     <SettingsRow
-      title="Composer mascot"
-      description="Walks the composer while this provider works. Saved on this device."
+      title={gt("Composer mascot")}
+      description={gt("Walks the composer while this provider works. Saved on this device.")}
       resetAction={
         value === DEFAULT_CHOICE ? null : (
           <SettingResetButton
-            label="composer mascot"
+            ariaLabel={gt("Reset composer mascot to default")}
             onClick={() => setComposerMascot(instanceId, null)}
           />
         )
@@ -75,16 +79,16 @@ export function ComposerMascotRow(props: { readonly instanceId: string; readonly
             setComposerMascot(instanceId, next === DEFAULT_CHOICE ? null : next);
           }}
         >
-          <SelectTrigger size="sm" className="w-60 min-w-0" aria-label="Composer mascot">
+          <SelectTrigger size="sm" className="w-60 min-w-0" aria-label={gt("Composer mascot")}>
             {choicePreview(driver, value)}
-            <SelectValue>{choiceLabel(driver, value)}</SelectValue>
+            <SelectValue>{choiceLabel(driver, value, gt)}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
             {choices.map((choice) => (
               <SelectItem key={choice} value={choice}>
                 <span className="flex items-center gap-2">
                   {choicePreview(driver, choice)}
-                  {choiceLabel(driver, choice)}
+                  {choiceLabel(driver, choice, gt)}
                 </span>
               </SelectItem>
             ))}

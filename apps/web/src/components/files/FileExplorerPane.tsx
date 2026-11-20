@@ -1,3 +1,4 @@
+import { useGT } from "gt-react";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import { RightPanelResizeHandle } from "~/components/preview/RightPanelResizeHandle";
@@ -21,7 +22,7 @@ export function FileExplorerPane({
   defaultWidth = 256,
   defaultWidthFraction,
   minWidth = MIN_WIDTH,
-  resizeLabel = "Resize file explorer",
+  resizeLabel,
 }: {
   resizable: boolean;
   /** Fork: dragging the handle past the minimum width closes the explorer. */
@@ -33,6 +34,7 @@ export function FileExplorerPane({
   minWidth?: number;
   resizeLabel?: string;
 }) {
+  const gt = useGT();
   const [maxWidth, setMaxWidth] = useState(MAX_WIDTH);
   const [responsiveDefaultWidth, setResponsiveDefaultWidth] = useState(defaultWidth);
   const { width, setWidth, handlers } = useResizableWidth({
@@ -65,7 +67,7 @@ export function FileExplorerPane({
         measure();
         return observeResize(row, measure);
       }}
-      aria-label="File explorer"
+      aria-label={gt("File explorer")}
       // Fork: beside content the explorer is an inset card, not a column split by a hairline.
       className={cn(
         "relative flex min-h-0 min-w-0 shrink-0 bg-background",
@@ -84,7 +86,7 @@ export function FileExplorerPane({
         <RightPanelResizeHandle
           variant="grip"
           handlers={handlers}
-          label={resizeLabel}
+          label={resizeLabel ?? gt("Resize file explorer")}
           tabIndex={0}
           aria-valuenow={width}
           aria-valuemin={minWidth}

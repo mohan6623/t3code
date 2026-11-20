@@ -1,13 +1,23 @@
 import type { ContextMenuItem, ProviderAuthResponse } from "@t3tools/contracts";
+import { T, useGT } from "gt-react";
 import { useEffect, useRef, useState } from "react";
 import { GhosttyTerminalSurface } from "../../terminal/ghostty/surface";
 import { ensureLocalApi } from "../../localApi";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { readTextFromClipboard, writeTextToClipboard } from "../../hooks/useCopyToClipboard";
+import {
+  type ClipboardTarget,
+  readTextFromClipboard,
+  writeTextToClipboard,
+} from "../../hooks/useCopyToClipboard";
 import { terminalThemeFromApp } from "../ThreadTerminalDrawer";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { findTerminalSignInUrl } from "./ProviderAuthenticationSection.logic";
+
+/** Fork: the terminal shows its own error, so both clipboard failures read the same. */
+function clipboardTarget(target: string, message: string): ClipboardTarget {
+  return { target, unavailableMessage: message, failureMessage: message };
+}
 
 type SignInMenuAction = "copy" | "paste" | "select-all" | "copy-link" | "open-link";
 
@@ -20,6 +30,7 @@ export default function ProviderAuthTerminal({
   readonly outputOffset?: number | undefined;
   readonly onResponse: (response: Extract<ProviderAuthResponse, { type: "terminal" }>) => void;
 }) {
+  const gt = useGT();
   const [surface, setSurface] = useState<GhosttyTerminalSurface | null>(null);
   const written = useRef(0);
   const [error, setError] = useState<string | null>(null);
@@ -43,25 +54,29 @@ export default function ProviderAuthTerminal({
     void ensureLocalApi()
       .shell.openExternal(signInUrl)
       .catch(() =>
-        setError("Could not open the sign-in link. Copy it and open it in your browser."),
+        setError(gt("Could not open the sign-in link. Copy it and open it in your browser.")),
       );
   };
   const copyLink = () => {
     if (!signInUrl) return;
-    void writeTextToClipboard(signInUrl, "Provider sign-in link").catch(() =>
-      setError("Could not copy the sign-in link."),
-    );
+    void writeTextToClipboard(
+      signInUrl,
+      clipboardTarget("provider sign-in link", gt("Could not copy the sign-in link.")),
+    ).catch(() => setError(gt("Could not copy the sign-in link.")));
   };
   // Pastes like the keyboard does, so programs that ask for bracketed paste get it.
   const paste = () => {
-    const read = () => readTextFromClipboard("sign-in terminal");
+    const read = () =>
+      readTextFromClipboard(
+        clipboardTarget("sign-in terminal", gt("Could not paste into the terminal.")),
+      );
     const pasted = surface
       ? surface.pasteFromClipboard(read)
       : read().then((data) => {
           if (data) respond({ type: "terminal", data });
         });
     void pasted.catch(() =>
-      setError("Could not read the clipboard. Paste the code into the field below."),
+      setError(gt("Could not read the clipboard. Paste the code into the field below.")),
     );
   };
   const sendCode = async () => {
@@ -79,13 +94,13 @@ export default function ProviderAuthTerminal({
     if (!terminal) return;
     const selection = terminal.getSelection();
     const items: ContextMenuItem<SignInMenuAction>[] = [
-      ...(selection ? [{ id: "copy" as const, label: "Copy" }] : []),
-      { id: "paste", label: "Paste" },
-      { id: "select-all", label: "Select all" },
+      ...(selection ? [{ id: "copy" as const, label: gt("Copy") }] : []),
+      { id: "paste", label: gt("Paste") },
+      { id: "select-all", label: gt("Select all") },
       ...(signInUrl
         ? [
-            { id: "copy-link" as const, label: "Copy link", separatorBefore: true },
-            { id: "open-link" as const, label: "Open link" },
+            { id: "copy-link" as const, label: gt("Copy link"), separatorBefore: true },
+            { id: "open-link" as const, label: gt("Open link") },
           ]
         : []),
     ];
@@ -93,15 +108,16 @@ export default function ProviderAuthTerminal({
     try {
       clicked = await ensureLocalApi().contextMenu.show(items, position);
     } catch {
-      setError("Could not open the terminal menu.");
+      setError(gt("Could not open the terminal menu."));
       return;
     }
     switch (clicked) {
       case "copy":
         terminal.clearSelection();
-        void writeTextToClipboard(selection, "sign-in terminal selection").catch(() =>
-          setError("Could not copy the selection."),
-        );
+        void writeTextToClipboard(
+          selection,
+          clipboardTarget("sign-in terminal selection", gt("Could not copy the selection.")),
+        ).catch(() => setError(gt("Could not copy the selection.")));
         return;
       case "paste":
         paste();
@@ -140,7 +156,7 @@ export default function ProviderAuthTerminal({
         if (/^https?:\/\//i.test(url))
           void ensureLocalApi()
             .shell.openExternal(url)
-            .catch(() => setError("Could not open the provider link."));
+            .catch(() => setError(gt("Could not open the provider link.")));
       },
     })
       .then((terminal) => {
@@ -152,7 +168,7 @@ export default function ProviderAuthTerminal({
         written.current = 0;
         setSurface(terminal);
       })
-      .catch(() => setError("Could not load the sign-in terminal. Cancel and retry sign-in."));
+      .catch(() => setError(gt("Could not load the sign-in terminal. Cancel and retry sign-in.")));
     return () => {
       disposed = true;
       created?.dispose();
@@ -163,32 +179,32 @@ export default function ProviderAuthTerminal({
     <>
       <div
         ref={mountSurface}
-        aria-label="Provider sign-in terminal"
+        aria-label={gt("Provider sign-in terminal")}
         className="relative h-64 overflow-hidden rounded-md border border-border"
       />
       {/* Fork: buttons for when the terminal's own link, copy, and paste do not work. */}
       <div className="flex flex-wrap items-center gap-1.5 pt-2">
         <Button size="sm" variant="outline" disabled={!signInUrl} onClick={openLink}>
-          Open link
+          <T>Open link</T>
         </Button>
         <Button size="sm" variant="outline" disabled={!signInUrl} onClick={copyLink}>
-          Copy link
+          <T>Copy link</T>
         </Button>
         <Button size="sm" variant="outline" onClick={paste}>
-          Paste
+          <T>Paste</T>
         </Button>
       </div>
       <form
         className="flex items-center gap-1.5 pt-2"
         onSubmit={(event) => {
           event.preventDefault();
-          void sendCode().catch(() => setError("Could not send the code to the terminal."));
+          void sendCode().catch(() => setError(gt("Could not send the code to the terminal.")));
         }}
       >
         <Input
           size="sm"
-          aria-label="Sign-in code"
-          placeholder="Paste the code here"
+          aria-label={gt("Sign-in code")}
+          placeholder={gt("Paste the code here")}
           autoComplete="off"
           spellCheck={false}
           maxLength={4_096}
@@ -196,7 +212,7 @@ export default function ProviderAuthTerminal({
           onChange={(event) => setCode(event.target.value)}
         />
         <Button type="submit" size="sm" variant="outline" disabled={!code.trim()}>
-          Send
+          <T context="send the sign-in code">Send</T>
         </Button>
       </form>
       {error ? (

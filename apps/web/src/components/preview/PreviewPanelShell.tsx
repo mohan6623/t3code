@@ -1,3 +1,4 @@
+import { useGT } from "gt-react";
 import {
   type CSSProperties,
   type FocusEvent,
@@ -70,11 +71,12 @@ function returnFocus(host: HTMLElement, origin: HTMLElement | null, toggleSelect
 function PreviewPanelShellFrame(
   props: PreviewPanelShellProps & { inlineSize: PreviewPanelInlineSize },
 ) {
+  const gt = useGT();
   const left = props.side === "left";
   // Fork: the files dock is its own F6 stop, between the threads sidebar and the conversation.
   const panelArea = left
-    ? workspaceAreaProps("files-dock", 0.5, props.workspaceLabel ?? "Files")
-    : workspaceAreaProps("panel", 4, props.workspaceLabel ?? "Workspace panel");
+    ? workspaceAreaProps("files-dock", 0.5, props.workspaceLabel ?? gt("Files"))
+    : workspaceAreaProps("panel", 4, props.workspaceLabel ?? gt("Workspace panel"));
   const isInline = props.mode === "inline";
   const collapsible = isInline && props.open !== undefined;
   const open = props.open ?? true;

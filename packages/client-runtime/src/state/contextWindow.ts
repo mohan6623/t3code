@@ -104,6 +104,50 @@ export function latestProviderTurnTokenUsage(
   );
 }
 
+type CompactionItem = Extract<ThreadStructureTurnItem, { readonly type: "compaction" }>;
+
+// A retired provider thread's items say nothing about the active conversation.
+function isRetiredProviderThreadItem(
+  item: CompactionItem,
+  providerThread: Pick<OrchestrationV2ProviderThread, "id"> | null | undefined,
+): boolean {
+  return (
+    providerThread != null &&
+    item.providerThreadId != null &&
+    item.providerThreadId !== providerThread.id
+  );
+}
+
+function compactionSnapshot(
+  item: CompactionItem,
+  maxTokens: number | null,
+  updatedAt: string,
+): ContextWindowSnapshot | null {
+  const usedTokens = asFiniteNumber(item.afterTokenCount);
+  if (usedTokens === null || usedTokens < 0) return null;
+  return {
+    usedTokens,
+    totalProcessedTokens: asFiniteNumber(item.beforeTokenCount),
+    maxTokens,
+    ...contextLimit(usedTokens, maxTokens, null),
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+    reasoningOutputTokens: null,
+    lastUsedTokens: null,
+    lastInputTokens: null,
+    lastCachedInputTokens: null,
+    lastOutputTokens: null,
+    lastReasoningOutputTokens: null,
+    toolUses: null,
+    durationMs: null,
+    compactsAutomatically: true,
+    autoCompactThreshold: null,
+    cost: null,
+    updatedAt,
+  };
+}
+
 export function deriveLatestContextWindowSnapshot(
   entries: ReadonlyArray<{
     readonly item: ThreadStructureTurnItem;
@@ -111,6 +155,30 @@ export function deriveLatestContextWindowSnapshot(
   liveUsage?: OrchestrationV2ProviderTurnTokenUsage | null,
   providerThread?: Pick<OrchestrationV2ProviderThread, "id" | "contextUsage" | "updatedAt"> | null,
 ): ContextWindowSnapshot | null {
+  const latestCompletedCompaction = entries.findLast(
+    (entry): entry is { readonly item: CompactionItem } =>
+      entry.item.type === "compaction" &&
+      entry.item.status === "completed" &&
+      !isRetiredProviderThreadItem(entry.item, providerThread),
+  )?.item;
+  const usageUpdatedAt =
+    liveUsage?.updatedAt ??
+    (providerThread?.contextUsage != null ? DateTime.formatIso(providerThread.updatedAt) : null);
+  if (latestCompletedCompaction !== undefined) {
+    const compactedAt = DateTime.formatIso(
+      latestCompletedCompaction.completedAt ?? latestCompletedCompaction.updatedAt,
+    );
+    // Usage reported before the compaction describes the context it just discarded; usage at
+    // the same instant is the provider's own post-compaction report.
+    if (usageUpdatedAt === null || Date.parse(compactedAt) > Date.parse(usageUpdatedAt)) {
+      return compactionSnapshot(
+        latestCompletedCompaction,
+        liveUsage?.maxTokens ?? asFiniteNumber(providerThread?.contextUsage?.maxTokens),
+        compactedAt,
+      );
+    }
+  }
+
   if (liveUsage != null) {
     const usedTokens = Math.max(0, liveUsage.usedTokens);
     const maxTokens = liveUsage.maxTokens ?? null;
@@ -168,45 +236,16 @@ export function deriveLatestContextWindowSnapshot(
     };
   }
   for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (!entry || entry.item.type !== "compaction") {
+    const item = entries[index]?.item;
+    if (item?.type !== "compaction" || isRetiredProviderThreadItem(item, providerThread)) {
       continue;
     }
-    const payload = entry.item;
-    // A retired provider thread's compaction says nothing about the active conversation.
-    if (
-      providerThread != null &&
-      payload.providerThreadId != null &&
-      payload.providerThreadId !== providerThread.id
-    ) {
-      continue;
-    }
-    const usedTokens = asFiniteNumber(payload.afterTokenCount);
-    if (usedTokens === null || usedTokens < 0) {
-      continue;
-    }
-
-    return {
-      usedTokens,
-      totalProcessedTokens: asFiniteNumber(payload.beforeTokenCount),
-      maxTokens: null,
-      ...contextLimit(usedTokens, null, null),
-      inputTokens: null,
-      cachedInputTokens: null,
-      outputTokens: null,
-      reasoningOutputTokens: null,
-      lastUsedTokens: null,
-      lastInputTokens: null,
-      lastCachedInputTokens: null,
-      lastOutputTokens: null,
-      lastReasoningOutputTokens: null,
-      toolUses: null,
-      durationMs: null,
-      compactsAutomatically: true,
-      autoCompactThreshold: null,
-      cost: null,
-      updatedAt: DateTime.formatIso(payload.startedAt ?? payload.updatedAt),
-    };
+    const snapshot = compactionSnapshot(
+      item,
+      null,
+      DateTime.formatIso(item.startedAt ?? item.updatedAt),
+    );
+    if (snapshot !== null) return snapshot;
   }
 
   return null;

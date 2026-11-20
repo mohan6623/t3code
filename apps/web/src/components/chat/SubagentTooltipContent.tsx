@@ -18,6 +18,7 @@ import { formatLimitShare } from "@t3tools/shared/usageCost";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
 import { shortenClaudeModelName } from "./providerIconUtils";
+import { useGT, useMessages } from "gt-react";
 import type { ReactNode } from "react";
 import {
   BotIcon,
@@ -67,6 +68,8 @@ export function SubagentTooltipContent(props: {
     | null
     | undefined;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const childSelection =
     props.modelSelection ??
     (props.origin === "app_owned" ? props.childThread?.modelSelection : undefined);
@@ -74,8 +77,12 @@ export function SubagentTooltipContent(props: {
     modelLabel: reportedModelLabel,
     modelSlug,
     workspace: metadata,
-  } = resolveSubagentMetadata({ ...props, modelSelection: childSelection });
+  } = resolveSubagentMetadata({ ...props, modelSelection: childSelection }, messages);
   const modelLabel = shortenClaudeModelName(reportedModelLabel);
+  const hasProjectRow =
+    props.parentThread !== undefined &&
+    props.childProject !== undefined &&
+    props.childProject.id !== props.parentThread.projectId;
   const preview = subagentDetailPreview(props);
   const providerModel = props.provider?.models.find((candidate) => candidate.slug === modelSlug);
   const childModel = props.provider
@@ -102,10 +109,13 @@ export function SubagentTooltipContent(props: {
             descriptor.type === "boolean" &&
             typeof saved?.value === "boolean"
           ) {
-            return getTraitsSpeedDisplay({
-              ...descriptor,
-              currentValue: saved.value,
-            });
+            return getTraitsSpeedDisplay(
+              {
+                ...descriptor,
+                currentValue: saved.value,
+              },
+              messages,
+            );
           }
           if (
             descriptor.id === "serviceTier" &&
@@ -113,10 +123,13 @@ export function SubagentTooltipContent(props: {
             typeof saved?.value === "string" &&
             descriptor.options.some((option) => option.id === saved.value)
           ) {
-            return getTraitsSpeedDisplay({
-              ...descriptor,
-              currentValue: saved.value,
-            });
+            return getTraitsSpeedDisplay(
+              {
+                ...descriptor,
+                currentValue: saved.value,
+              },
+              messages,
+            );
           }
           return null;
         })
@@ -148,7 +161,7 @@ export function SubagentTooltipContent(props: {
             showBadge={showInstanceBadge && entry?.accentColor !== undefined}
             badgeContent="none"
             badgeClassName="h-2 min-w-2 px-0"
-            iconClassName="size-3 shrink-0 grayscale opacity-60"
+            iconClassName="size-3 shrink-0 opacity-60"
           />
         ) : (
           <BotIcon className="size-3 shrink-0" />
@@ -182,13 +195,33 @@ export function SubagentTooltipContent(props: {
           )}
         >
           <StatusIcon aria-hidden className="size-3 shrink-0" />
-          {props.status.replaceAll("_", " ")}
+          {props.status === "idle"
+            ? gt("idle", { $context: "subagent status" })
+            : props.status === "pending"
+              ? gt("pending", { $context: "subagent status" })
+              : props.status === "running"
+                ? gt("running", { $context: "subagent status" })
+                : props.status === "waiting"
+                  ? gt("waiting", { $context: "subagent status" })
+                  : props.status === "completed"
+                    ? gt("completed", { $context: "subagent status" })
+                    : props.status === "failed"
+                      ? gt("failed", { $context: "subagent status" })
+                      : props.status === "cancelled"
+                        ? gt("cancelled", { $context: "subagent status" })
+                        : props.status === "interrupted"
+                          ? gt("interrupted", { $context: "subagent status" })
+                          : (props.status as string).replaceAll("_", " ")}
         </span>
         <span className="inline-flex min-w-0 items-center gap-2 tabular-nums">
           {props.usage ? (
             <span className="text-muted-foreground">
-              {formatTokens(props.usage.totalTokens)} tokens
-              {props.usage.toolUses ? ` · ${props.usage.toolUses} tools` : ""}
+              {props.usage.toolUses
+                ? gt("{tokens} tokens · {tools} tools", {
+                    tokens: formatTokens(props.usage.totalTokens),
+                    tools: props.usage.toolUses,
+                  })
+                : gt("{tokens} tokens", { tokens: formatTokens(props.usage.totalTokens) })}
             </span>
           ) : null}
           {props.elapsed}
@@ -202,7 +235,7 @@ export function SubagentTooltipContent(props: {
             : "";
         const figures =
           share.windows.length === 0
-            ? "learning this account's limits"
+            ? gt("learning this account's limits")
             : share.windows
                 .map((window) => `${window.label} ${formatLimitShare(window.percent)}`)
                 .join(" · ");
@@ -210,7 +243,7 @@ export function SubagentTooltipContent(props: {
           // Estimated from tokens: providers report limits only for the whole account.
           <div key={share.providerInstanceId} className="flex min-w-0 items-center gap-2">
             <GaugeIcon aria-hidden className="size-3 shrink-0" />
-            <span className="sr-only">Limit used, estimated</span>
+            <span className="sr-only">{gt("Limit used, estimated")}</span>
             <span className="min-w-0 truncate tabular-nums">
               {account}
               {figures}
@@ -218,8 +251,9 @@ export function SubagentTooltipContent(props: {
           </div>
         );
       })}
-      {metadata.map(({ label, value }) => {
-        const Icon = label === "Branch" ? GitBranchIcon : FolderIcon;
+      {metadata.map(({ label, value }, index) => {
+        const Icon =
+          props.childThread?.branch && !(hasProjectRow && index === 0) ? GitBranchIcon : FolderIcon;
         return (
           <div key={label} className="flex min-w-0 items-center gap-2">
             <Icon aria-hidden className="size-3 shrink-0" />

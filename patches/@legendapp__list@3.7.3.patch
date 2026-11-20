@@ -1,0 +1,32 @@
+diff --git a/react.js b/react.js
+index 24cc6054d3fa59742c7f50457a18adf451128bbb..69352f0c6b0fe52df3432d83af66aad1794bf085 100644
+--- a/react.js
++++ b/react.js
+@@ -7444,7 +7444,10 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+     const setWheelPassive = (passive) => {
+       if (passive === wheelPassive) return;
+       if (wheelPassive !== void 0) target.removeEventListener("wheel", onWheel);
+-      target.addEventListener("wheel", onWheel, { passive });
++      // Fork: always passive. A blocking wheel listener makes every wheel notch wait for the main
++      // thread, so a reversed scroll lands late while an agent streams. onWheel already handles
++      // non-cancelable events: it stops its own animation and lets the browser apply the wheel.
++      target.addEventListener("wheel", onWheel, { passive: true });
+       wheelPassive = passive;
+     };
+     target.addEventListener("wheel", captureWheel, { capture: true, passive: true });
+diff --git a/react.mjs b/react.mjs
+index 2cf1995d97cd101244b08b2b055265add859e064..dcfd1ce44f2dbf99452deae5e32e2e50be3f1793 100644
+--- a/react.mjs
++++ b/react.mjs
+@@ -7423,7 +7423,10 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+     const setWheelPassive = (passive) => {
+       if (passive === wheelPassive) return;
+       if (wheelPassive !== void 0) target.removeEventListener("wheel", onWheel);
+-      target.addEventListener("wheel", onWheel, { passive });
++      // Fork: always passive. A blocking wheel listener makes every wheel notch wait for the main
++      // thread, so a reversed scroll lands late while an agent streams. onWheel already handles
++      // non-cancelable events: it stops its own animation and lets the browser apply the wheel.
++      target.addEventListener("wheel", onWheel, { passive: true });
+       wheelPassive = passive;
+     };
+     target.addEventListener("wheel", captureWheel, { capture: true, passive: true });

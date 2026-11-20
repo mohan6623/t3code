@@ -1,5 +1,7 @@
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
-import { formatDuration } from "@t3tools/shared/usageLimits";
+import { formatDuration } from "@t3tools/shared/usageLimitsCopy";
+import { msg } from "gt-react";
+import { m } from "~/i18n/messages";
 import * as Schema from "effect/Schema";
 import type { ReactNode } from "react";
 
@@ -32,21 +34,21 @@ export const USAGE_SUMMARY_STYLES: ReadonlyArray<{
   readonly id: UsageSummaryStyle;
   readonly label: string;
 }> = [
-  { id: "bars", label: "Bars" },
-  { id: "blocks", label: "Blocks" },
-  { id: "table", label: "Table" },
-  { id: "dots", label: "Dots" },
-  { id: "wave", label: "Wave" },
-  { id: "tug", label: "Tug" },
-  { id: "subdial", label: "Dial" },
-  { id: "horizon", label: "Horizon" },
-  { id: "fader", label: "Fader" },
-  { id: "chevrons", label: "Chevrons" },
-  { id: "pie", label: "Pie" },
-  { id: "signal", label: "Signal" },
-  { id: "hexagons", label: "Hexagons" },
-  { id: "sparks", label: "Sparks" },
-  { id: "pennants", label: "Pennants" },
+  { id: "bars", label: msg("Bars", { $context: "usage card style" }) },
+  { id: "blocks", label: msg("Blocks", { $context: "usage card style" }) },
+  { id: "table", label: msg("Table", { $context: "usage card style" }) },
+  { id: "dots", label: msg("Dots", { $context: "usage card style" }) },
+  { id: "wave", label: msg("Wave", { $context: "usage card style" }) },
+  { id: "tug", label: msg("Tug", { $context: "usage card style" }) },
+  { id: "subdial", label: msg("Dial", { $context: "usage card style" }) },
+  { id: "horizon", label: msg("Horizon", { $context: "usage card style" }) },
+  { id: "fader", label: msg("Fader", { $context: "usage card style" }) },
+  { id: "chevrons", label: msg("Chevrons", { $context: "usage card style" }) },
+  { id: "pie", label: msg("Pie", { $context: "usage card style" }) },
+  { id: "signal", label: msg("Signal", { $context: "usage card style" }) },
+  { id: "hexagons", label: msg("Hexagons", { $context: "usage card style" }) },
+  { id: "sparks", label: msg("Sparks", { $context: "usage card style" }) },
+  { id: "pennants", label: msg("Pennants", { $context: "usage card style" }) },
 ];
 
 export function clampPercent(value: number): number {
@@ -56,7 +58,7 @@ export function clampPercent(value: number): number {
 export function resetsIn(window: ServerProviderUsageWindow, now: number): string | null {
   if (window.resetsAt === undefined) return null;
   const at = Date.parse(window.resetsAt);
-  return Number.isFinite(at) && at > now ? formatDuration(at - now) : null;
+  return Number.isFinite(at) && at > now ? formatDuration(at - now, m) : null;
 }
 
 export function Bar({

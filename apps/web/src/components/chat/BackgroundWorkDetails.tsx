@@ -14,6 +14,7 @@ import {
   RadarIcon,
   SquareTerminalIcon,
 } from "lucide-react";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { useState } from "react";
 
 import { useNowSecond } from "~/hooks/useNowSecond";
@@ -39,17 +40,17 @@ const KIND_ICON: Record<WorkKind, typeof BotIcon> = {
 
 /** List order and group names, as in Claude Code's background tasks dialog. */
 const GROUPS: ReadonlyArray<{ readonly kind: WorkKind; readonly title: string }> = [
-  { kind: "command", title: "Shells" },
-  { kind: "monitor", title: "Monitors" },
-  { kind: "subagent", title: "Agents" },
-  { kind: "background_task", title: "Other" },
+  { kind: "command", title: msg("Shells", { $context: "background shell commands" }) },
+  { kind: "monitor", title: msg("Monitors", { $context: "background watcher tasks" }) },
+  { kind: "subagent", title: msg("Agents", { $context: "background subagents" }) },
+  { kind: "background_task", title: msg("Other", { $context: "other background tasks" }) },
 ];
 
 const KIND_NAME: Record<WorkKind, string> = {
-  command: "Shell",
-  monitor: "Monitor",
-  subagent: "Agent",
-  background_task: "Task",
+  command: msg("Shell", { $context: "kind of background work" }),
+  monitor: msg("Monitor", { $context: "kind of background work" }),
+  subagent: msg("Agent", { $context: "kind of background work" }),
+  background_task: msg("Task", { $context: "kind of background work" }),
 };
 
 /** Fills a task's command and live output from its turn item when the task itself lacks them. */
@@ -106,6 +107,7 @@ export function BackgroundWorkDetails(props: {
   readonly turnItems: ThreadStructure["turnItems"];
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
+  const gt = useGT();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   // A single task needs no list: show it straight away.
   const onlyItem = props.items.length === 1 ? props.items[0] : undefined;
@@ -123,12 +125,12 @@ export function BackgroundWorkDetails(props: {
   return (
     <Popover onOpenChange={(open) => (open ? undefined : setSelectedTaskId(null))}>
       <PopoverTrigger
-        render={<Button size="icon-xs" variant="ghost" aria-label="Show what is running" />}
+        render={<Button size="icon-xs" variant="ghost" aria-label={gt("Show what is running")} />}
       >
         <EyeIcon />
       </PopoverTrigger>
       <PopoverPopup
-        aria-label="Background tasks"
+        aria-label={gt("Background tasks")}
         side="top"
         align="end"
         className="w-[min(36rem,calc(100vw-2rem))]"
@@ -153,9 +155,13 @@ function BackgroundWorkList(props: {
   readonly items: ReadonlyArray<PendingBackgroundWorkItem>;
   readonly onSelect: (taskId: string) => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   return (
     <div className="text-xs">
-      <div className="mb-2 font-medium">Background tasks · {props.items.length} running</div>
+      <div className="mb-2 font-medium">
+        {gt("Background tasks · {count} running", { count: props.items.length })}
+      </div>
       <div className="max-h-[60vh] space-y-2.5 overflow-y-auto">
         {GROUPS.map((group) => {
           const items = props.items.filter((item) => item.kind === group.kind);
@@ -164,7 +170,7 @@ function BackgroundWorkList(props: {
           return (
             <section key={group.kind}>
               <div className="mb-1 px-2 text-muted-foreground">
-                {group.title} ({items.length})
+                {gt("{group} ({count})", { group: m(group.title), count: items.length })}
               </div>
               <ul>
                 {items.map((item) => (
@@ -213,6 +219,8 @@ function BackgroundWorkItemDetails(props: {
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const { item } = props;
+  const gt = useGT();
+  const m = useMessages();
   const streamsOutput = useCommandOutputStreaming(props.environmentId);
   const Icon = KIND_ICON[item.kind];
   const childThreadId = item.childThreadId;
@@ -220,7 +228,8 @@ function BackgroundWorkItemDetails(props: {
   const parent =
     item.parentTaskId === undefined
       ? undefined
-      : (props.items.find((other) => other.taskId === item.parentTaskId)?.label ?? "A subagent");
+      : (props.items.find((other) => other.taskId === item.parentTaskId)?.label ??
+        gt("A subagent"));
   return (
     <div className="min-w-0 space-y-2.5 text-xs">
       <div className="flex min-w-0 items-center gap-1.5 font-medium">
@@ -228,7 +237,7 @@ function BackgroundWorkItemDetails(props: {
           <Button
             size="icon-xs"
             variant="ghost"
-            aria-label="Back to background tasks"
+            aria-label={gt("Back to background tasks")}
             className="-ms-1"
             onClick={props.onBack}
           >
@@ -240,35 +249,53 @@ function BackgroundWorkItemDetails(props: {
         <span className="truncate">{item.label}</span>
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-        <dt className="text-muted-foreground">Type</dt>
-        <dd>{KIND_NAME[item.kind]}</dd>
-        <dt className="text-muted-foreground">Status</dt>
+        <dt className="text-muted-foreground">
+          <T context="kind of background work">Type</T>
+        </dt>
+        <dd>{m(KIND_NAME[item.kind])}</dd>
+        <dt className="text-muted-foreground">
+          <T>Status</T>
+        </dt>
         <dd className="flex items-center gap-1.5">
           <RunningDot />
-          Running
+          <T context="status of background work">Running</T>
           {item.startedAt === undefined ? null : (
             <span className="text-muted-foreground tabular-nums">
-              for <RunningFor startedAt={item.startedAt} /> · since{" "}
-              {formatDayAwareTimestamp(new Date(item.startedAt).toISOString(), timestampFormat)}
+              <T>
+                for{" "}
+                <Var>
+                  <RunningFor startedAt={item.startedAt} />
+                </Var>{" "}
+                · since{" "}
+                <Var>
+                  {formatDayAwareTimestamp(new Date(item.startedAt).toISOString(), timestampFormat)}
+                </Var>
+              </T>
             </span>
           )}
         </dd>
         {item.kind === "subagent" ? null : (
           <>
-            <dt className="text-muted-foreground">Agent</dt>
-            <dd>{item.awaited ? "Waits for it to finish" : "Carries on without it"}</dd>
+            <dt className="text-muted-foreground">
+              <T context="the agent that started background work">Agent</T>
+            </dt>
+            <dd>{item.awaited ? gt("Waits for it to finish") : gt("Carries on without it")}</dd>
           </>
         )}
         {parent === undefined ? null : (
           <>
-            <dt className="text-muted-foreground">Started by</dt>
+            <dt className="text-muted-foreground">
+              <T>Started by</T>
+            </dt>
             <dd className="min-w-0 truncate">{parent}</dd>
           </>
         )}
       </dl>
       {item.command ? (
         <div className="space-y-1">
-          <div className="text-muted-foreground">Command</div>
+          <div className="text-muted-foreground">
+            <T context="a background shell command">Command</T>
+          </div>
           <div className={cn(MONO, "rounded-md bg-muted/40 px-2 py-1.5")}>
             <ShellCommandBlock command={item.command} />
           </div>
@@ -276,7 +303,9 @@ function BackgroundWorkItemDetails(props: {
       ) : null}
       {item.output && streamsOutput ? (
         <div className="space-y-1">
-          <div className="text-muted-foreground">Output</div>
+          <div className="text-muted-foreground">
+            <T context="a command's output">Output</T>
+          </div>
           <div className={cn(MONO, "rounded-md bg-muted/20 px-2 py-1.5")}>
             <CommandOutputPanel
               environmentId={props.environmentId}
@@ -288,11 +317,13 @@ function BackgroundWorkItemDetails(props: {
       ) : null}
       {childThreadId !== undefined ? (
         <Button size="xs" variant="outline" onClick={() => props.onOpenThread(childThreadId)}>
-          Open subagent
+          <T>Open subagent</T>
         </Button>
       ) : null}
       {childThreadId === undefined && !item.command && !item.output ? (
-        <div className="text-muted-foreground">No details for this one.</div>
+        <div className="text-muted-foreground">
+          <T>No details for this one.</T>
+        </div>
       ) : null}
     </div>
   );

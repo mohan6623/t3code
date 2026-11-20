@@ -7,15 +7,6 @@ import {
 
 export const WORKSPACE_BASENAME_LOOKUP_LIMIT = 25;
 
-// All callers open one panel; the newest click must win across callers.
-let latestLookupSequence = 0;
-
-export function claimWorkspaceBasenameLookup(): () => boolean {
-  latestLookupSequence += 1;
-  const claimed = latestLookupSequence;
-  return () => claimed === latestLookupSequence;
-}
-
 export interface WorkspaceEntryCandidate {
   readonly path: string;
   readonly kind: "file" | "directory";
@@ -32,11 +23,17 @@ function segmentCount(path: string): number {
 
 // Fork: nested checkouts (e.g. `frontend/.claude/worktrees/<name>/`) repeat a repo's files
 // deeper down, so among same-named matches the one closest to the workspace root wins.
-function shallowestUnique<T extends WorkspaceEntryCandidate>(matches: ReadonlyArray<T>): T | null {
+function shallowest<T extends WorkspaceEntryCandidate>(
+  matches: ReadonlyArray<T>,
+): ReadonlyArray<T> {
   const depths = matches.map((entry) => segmentCount(entry.path));
   const minDepth = Math.min(...depths);
-  const shallowest = matches.filter((_, index) => depths[index] === minDepth);
-  return shallowest.length === 1 ? (shallowest[0] ?? null) : null;
+  return matches.filter((_, index) => depths[index] === minDepth);
+}
+
+function shallowestUnique<T extends WorkspaceEntryCandidate>(matches: ReadonlyArray<T>): T | null {
+  const candidates = shallowest(matches);
+  return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }
 
 export function needsWorkspaceBasenameLookup(relativePath: string): boolean {
@@ -104,21 +101,30 @@ export function pickWorkspaceLinkMatch(
 ): string | null {
   const trimmed = relativePath.trim();
   if (needsWorkspaceBasenameLookup(trimmed)) return pickWorkspaceBasenameMatch(trimmed, entries);
-  const stripped = stripRepeatedWorkspacePrefix(trimmed, cwd);
+  const matches = workspaceQualifiedPathMatches(trimmed, cwd, entries);
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function workspaceQualifiedPathMatches(
+  relativePath: string,
+  cwd: string,
+  entries: ReadonlyArray<WorkspaceEntryCandidate>,
+): ReadonlyArray<string> {
+  const stripped = stripRepeatedWorkspacePrefix(relativePath, cwd);
   const strippedMatch =
     stripped === null ? null : pickStrippedWorkspaceMatch(stripped, cwd, entries);
-  if (strippedMatch !== null) return strippedMatch;
+  if (strippedMatch !== null) return [strippedMatch];
   // Fork: suffixes fold case on Windows, and nested worktree copies lose to the shallowest file.
   const caseInsensitive = isWindowsAbsolutePath(cwd);
   const key = (path: string) => {
     const normalized = `/${path.replaceAll("\\", "/").replace(/^\/+/, "")}`;
     return caseInsensitive ? normalized.toLowerCase() : normalized;
   };
-  const suffix = key(trimmed);
+  const suffix = key(relativePath);
   const matches = entries.filter(
     (entry) => entry.kind === "file" && key(entry.path).endsWith(suffix),
   );
-  return shallowestUnique(matches)?.path ?? null;
+  return shallowest(matches).map((entry) => entry.path);
 }
 
 function pickStrippedWorkspaceMatch(
@@ -137,7 +143,8 @@ function pickStrippedWorkspaceMatch(
 
 /**
  * The absolute path of the one file a chat link names across other project roots, or null when
- * no root or more than one has it. Agents cite paths relative to whichever repo they worked in.
+ * no root has it or roots name different files. Agents cite paths relative to their repo.
+ * Nested project roots list the same file more than once, which still names one file.
  */
 export function pickProjectLinkMatch(
   relativePath: string,
@@ -146,11 +153,39 @@ export function pickProjectLinkMatch(
     readonly entries: ReadonlyArray<WorkspaceEntryCandidate>;
   }>,
 ): string | null {
-  const matches = searches.flatMap(({ root, entries }) => {
-    const match = pickWorkspaceLinkMatch(relativePath, root, entries);
-    return match === null ? [] : [resolveWorkspaceFilePath(match, root)];
-  });
-  return matches.length === 1 ? (matches[0] ?? null) : null;
+  const target = relativePath.trim();
+  const isBasename = needsWorkspaceBasenameLookup(target);
+  const matches = new Map<string, string>();
+  let rootHits = 0;
+  const addMatch = (path: string) => {
+    // Windows paths that differ only by case stay distinct: a directory can be case-sensitive.
+    const key = isWindowsAbsolutePath(path) ? path.replaceAll("/", "\\") : path;
+    if (!matches.has(key)) matches.set(key, path);
+  };
+  for (const { root, entries } of searches) {
+    if (isBasename) {
+      const match = pickWorkspaceBasenameMatch(target, entries);
+      if (match === null) continue;
+      rootHits += 1;
+      addMatch(resolveWorkspaceFilePath(match, root));
+    } else {
+      for (const match of workspaceQualifiedPathMatches(target, root, entries)) {
+        addMatch(resolveWorkspaceFilePath(match, root));
+      }
+    }
+  }
+  if (isBasename && rootHits > 1) {
+    // A root's pick, or a root left ambiguous by case, can hide another file elsewhere.
+    const folded = target.toLowerCase();
+    for (const { root, entries } of searches) {
+      for (const entry of entries) {
+        if (entry.kind === "file" && basenameOfPath(entry.path).toLowerCase() === folded) {
+          addMatch(resolveWorkspaceFilePath(entry.path, root));
+        }
+      }
+    }
+  }
+  return matches.size === 1 ? ([...matches.values()][0] ?? null) : null;
 }
 
 const AGENT_DIRECTORY_SEARCH_LIMIT = 4;
@@ -168,8 +203,9 @@ export async function findAgentDirectoryMatch(
   }>,
 ): Promise<string | null> {
   for (const directory of directories.slice(0, AGENT_DIRECTORY_SEARCH_LIMIT)) {
-    const match = pickProjectLinkMatch(relativePath, [await searchRoot(directory)]);
-    if (match !== null) return match;
+    const { root, entries } = await searchRoot(directory);
+    const match = pickWorkspaceLinkMatch(relativePath, root, entries);
+    if (match !== null) return resolveWorkspaceFilePath(match, root);
   }
   return null;
 }

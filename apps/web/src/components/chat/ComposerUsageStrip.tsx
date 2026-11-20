@@ -5,7 +5,10 @@ import type {
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
-import { formatDuration, limitsNotice, remainingPercent } from "@t3tools/shared/usageLimits";
+import { remainingPercent } from "@t3tools/shared/usageLimits";
+import { formatDuration, limitsNotice } from "@t3tools/shared/usageLimitsCopy";
+import { T, useGT } from "gt-react";
+import { m } from "~/i18n/messages";
 import { useNavigate } from "@tanstack/react-router";
 import {
   CheckIcon,
@@ -60,7 +63,7 @@ function useMinuteClock(): number {
 
 function usableLimits(provider: ServerProvider): ServerProviderUsageLimits | null {
   const limits = provider.usageLimits;
-  return limits && limitsNotice(limits) === null ? limits : null;
+  return limits && limitsNotice(limits, m) === null ? limits : null;
 }
 
 /**
@@ -137,19 +140,20 @@ function WindowRow({
   color: string;
   now: number;
 }) {
+  const gt = useGT();
   const reset = resetsIn(window, now);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className="truncate font-medium text-foreground">{window.label}</span>
         <span className="shrink-0 font-medium text-foreground tabular-nums">
-          {clampPercent(window.usedPercent)}% used
+          {gt("{percent}% used", { percent: clampPercent(window.usedPercent) })}
         </span>
       </div>
       <Bar percent={window.usedPercent} color={color} className="h-1.5" />
       <div className="flex items-baseline justify-between gap-2 text-2xs text-muted-foreground tabular-nums">
-        <span>{remainingPercent(window)}% left</span>
-        {reset ? <span>Resets in {reset}</span> : null}
+        <span>{gt("{percent}% left", { percent: remainingPercent(window) })}</span>
+        {reset ? <span>{gt("Resets in {duration}", { duration: reset })}</span> : null}
       </div>
     </div>
   );
@@ -178,7 +182,9 @@ function BankedResets({
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center gap-2 text-start text-xs"
       >
-        <span className="font-medium text-foreground">Banked resets</span>
+        <span className="font-medium text-foreground">
+          <T>Banked resets</T>
+        </span>
         <span className="rounded-full bg-muted px-1.5 text-muted-foreground tabular-nums">
           {credits.availableCount}
         </span>
@@ -240,7 +246,7 @@ function AccountCard({
             <span className="truncate font-medium text-foreground">{providerName(provider)}</span>
             {inUse ? (
               <span className="shrink-0 rounded-full bg-muted px-1.5 text-2xs text-muted-foreground">
-                In use
+                <T context="account the thread uses">In use</T>
               </span>
             ) : null}
           </span>
@@ -281,10 +287,11 @@ function AccountCard({
 
 /** Fork: an account that shows no usage: why, and the way back for a signed-out one. */
 function ProblemCard({ provider, inUse }: { provider: ServerProvider; inUse: boolean }) {
+  const gt = useGT();
   const navigate = useNavigate();
   const problem = accountProblem(provider);
   const detail =
-    provider.message ?? (provider.usageLimits ? limitsNotice(provider.usageLimits) : null);
+    provider.message ?? (provider.usageLimits ? limitsNotice(provider.usageLimits, m) : null);
   return (
     <div
       className={cn("rounded-lg border bg-muted/30 p-2.5 text-xs", inUse && "border-foreground/15")}
@@ -294,7 +301,7 @@ function ProblemCard({ provider, inUse }: { provider: ServerProvider; inUse: boo
         <span className="truncate font-medium text-foreground">{providerName(provider)}</span>
         {inUse ? (
           <span className="shrink-0 rounded-full bg-muted px-1.5 text-2xs text-muted-foreground">
-            In use
+            <T context="account the thread uses">In use</T>
           </span>
         ) : null}
         <span
@@ -304,7 +311,7 @@ function ProblemCard({ provider, inUse }: { provider: ServerProvider; inUse: boo
           )}
         >
           {problem ? <TriangleAlertIcon aria-hidden className="size-3" /> : null}
-          {problem ?? "No limits"}
+          {problem ?? gt("No limits")}
         </span>
       </div>
       {detail ? <p className="mt-1.5 text-2xs text-muted-foreground">{detail}</p> : null}
@@ -314,7 +321,7 @@ function ProblemCard({ provider, inUse }: { provider: ServerProvider; inUse: boo
           onClick={() => void navigate({ to: "/settings/providers" })}
           className="mt-1.5 text-2xs font-medium text-foreground underline-offset-2 hover:underline"
         >
-          Sign in again
+          <T>Sign in again</T>
         </button>
       ) : null}
     </div>
@@ -369,6 +376,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
     "bars",
     UsageSummaryStyle,
   );
+  const gt = useGT();
   // The panel shows the accounts, or the picker for how folded cards look.
   const [pickingStyle, setPickingStyle] = useState(false);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -404,7 +412,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
       return `${clampPercent(window.usedPercent)}%${reset ? ` ${reset}` : ""}`;
     })
     .join(" · ");
-  const checkedAgo = formatDuration(now - Date.parse(limits?.checkedAt ?? provider.checkedAt));
+  const checkedAgo = formatDuration(now - Date.parse(limits?.checkedAt ?? provider.checkedAt), m);
 
   const refresh = () => {
     if (refreshing) return;
@@ -431,7 +439,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
         render={
           <button
             type="button"
-            aria-label={`${providerName(provider)} usage limits`}
+            aria-label={gt("{provider} usage limits", { provider: providerName(provider) })}
             className={cn(
               "flex min-w-0 shrink items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground/80 tabular-nums hover:bg-muted/50 hover:text-foreground",
               splitRows ? "min-h-6" : "py-0.5",
@@ -459,7 +467,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
             )}
           >
             {problem ? <TriangleAlertIcon aria-hidden className="size-3" /> : null}
-            {problem ?? "No limits"}
+            {problem ?? gt("No limits")}
           </span>
         ) : splitRows && BADGE_STYLES.has(summaryStyle) ? (
           <UsageSummary
@@ -534,7 +542,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
             {pickingStyle ? (
               <button
                 type="button"
-                aria-label="Back to usage limits"
+                aria-label={gt("Back to usage limits")}
                 onClick={() => setPickingStyle(false)}
                 className="-ms-1 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
@@ -542,16 +550,16 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
               </button>
             ) : null}
             <span className="flex-1 text-sm font-semibold text-foreground">
-              {pickingStyle ? "Card style" : "Usage limits"}
+              {pickingStyle ? gt("Card style") : gt("Usage limits")}
             </span>
             {pickingStyle ? null : (
               <>
                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {checkedAgo} ago
+                  {gt("{duration} ago", { duration: checkedAgo })}
                 </span>
                 <button
                   type="button"
-                  aria-label="Choose how folded cards look"
+                  aria-label={gt("Choose how folded cards look")}
                   onClick={() => setPickingStyle(true)}
                   className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
@@ -559,7 +567,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
                 </button>
                 <button
                   type="button"
-                  aria-label="Refresh usage limits"
+                  aria-label={gt("Refresh usage limits")}
                   disabled={refreshing}
                   onClick={refresh}
                   className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
@@ -571,7 +579,11 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
           </div>
           {pickingStyle ? (
             // Each choice previews this account's own limits, as a folded card would show them.
-            <div role="radiogroup" aria-label="Folded card style" className="flex flex-col gap-1.5">
+            <div
+              role="radiogroup"
+              aria-label={gt("Folded card style")}
+              className="flex flex-col gap-1.5"
+            >
               {USAGE_SUMMARY_STYLES.map((option) => {
                 const selected = option.id === summaryStyle;
                 return (
@@ -594,7 +606,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
                         selected ? "text-foreground" : "invisible",
                       )}
                     />
-                    <span className="flex-1 font-medium text-foreground">{option.label}</span>
+                    <span className="flex-1 font-medium text-foreground">{m(option.label)}</span>
                     <UsageSummary
                       style={option.id}
                       windows={rows}
@@ -625,7 +637,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
               {others.length > 0 ? (
                 <>
                   <span className="px-0.5 pt-1 text-xs font-medium text-muted-foreground">
-                    Other subscriptions
+                    <T>Other subscriptions</T>
                   </span>
                   {others.map((other) => {
                     const otherLimits = usableLimits(other);
@@ -645,7 +657,7 @@ export const ComposerUsageStrip = memo(function ComposerUsageStrip({
                 </>
               ) : null}
               <label className="flex cursor-pointer items-center justify-between gap-2 px-0.5 pt-1 text-xs text-muted-foreground">
-                Show each limit on its own row
+                <T>Show each limit on its own row</T>
                 <Switch size="sm" checked={splitRows} onCheckedChange={setSplitRows} />
               </label>
             </>

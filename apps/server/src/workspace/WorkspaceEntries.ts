@@ -1,7 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
 
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -218,6 +220,18 @@ export const make = Effect.gen(function* () {
     return yield* workspacePaths.normalizeWorkspaceRoot(cwd);
   });
 
+  // Refreshing goes through `get`, which restarts the map's idle timer, so idleness is measured
+  // from the last search, not the last refresh.
+  const lastSearchedAt = new Map<string, number>();
+  const indexIdleMillis = Duration.toMillis(WorkspaceSearchIndex.WORKSPACE_INDEX_IDLE_TTL);
+  const markSearched = (indexKey: string, now: number) => {
+    // A record older than the timeout counts the same as none, so it can go.
+    for (const [key, searchedAt] of lastSearchedAt) {
+      if (now - searchedAt >= indexIdleMillis) lastSearchedAt.delete(key);
+    }
+    lastSearchedAt.set(indexKey, now);
+  };
+
   const refresh: WorkspaceEntries["Service"]["refresh"] = Effect.fn("WorkspaceEntries.refresh")(
     function* (cwd) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
@@ -226,6 +240,12 @@ export const make = Effect.gen(function* () {
       for (const variant of WorkspaceSearchIndex.WORKSPACE_SEARCH_INDEX_VARIANTS) {
         const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, variant);
         if (!(yield* RcMap.has(workspaceSearchIndexes.rcMap, indexKey))) {
+          continue;
+        }
+        const searchedAt = lastSearchedAt.get(indexKey) ?? 0;
+        if ((yield* Clock.currentTimeMillis) - searchedAt >= indexIdleMillis) {
+          lastSearchedAt.delete(indexKey);
+          yield* workspaceSearchIndexes.invalidate(indexKey);
           continue;
         }
         const recoverRefreshFailure = Effect.fn("WorkspaceEntries.recoverRefreshFailure")(
@@ -312,6 +332,8 @@ export const make = Effect.gen(function* () {
         trimLeadingPattern: /^[@./]+/,
       });
       const searchIn = Effect.fn("WorkspaceEntries.searchIn")(function* (root: string) {
+        const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(root, "paths");
+        markSearched(indexKey, yield* Clock.currentTimeMillis);
         return yield* Effect.gen(function* () {
           const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
           return yield* searchIndex.search(
@@ -320,11 +342,7 @@ export const make = Effect.gen(function* () {
             input.kind,
             input.imageOnly,
           );
-        }).pipe(
-          Effect.provide(
-            workspaceSearchIndexes.get(WorkspaceSearchIndex.workspaceSearchIndexKey(root, "paths")),
-          ),
-        );
+        }).pipe(Effect.provide(workspaceSearchIndexes.get(indexKey)));
       });
       const own = yield* searchIn(normalizedCwd);
       // Fork: a folder can hold child repositories that its own .gitignore hides (a wrapper
@@ -435,16 +453,12 @@ export const make = Effect.gen(function* () {
     "WorkspaceEntries.searchContents",
   )(function* (input) {
     const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "content");
+    markSearched(indexKey, yield* Clock.currentTimeMillis);
     return yield* Effect.gen(function* () {
       const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
       return yield* searchIndex.searchContents(input);
-    }).pipe(
-      Effect.provide(
-        workspaceSearchIndexes.get(
-          WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "content"),
-        ),
-      ),
-    );
+    }).pipe(Effect.provide(workspaceSearchIndexes.get(indexKey)));
   });
 
   const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(
@@ -619,16 +633,12 @@ export const make = Effect.gen(function* () {
           truncated: false,
         };
       }
+      const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths");
+      markSearched(indexKey, yield* Clock.currentTimeMillis);
       return yield* Effect.gen(function* () {
         const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
         return yield* searchIndex.list();
-      }).pipe(
-        Effect.provide(
-          workspaceSearchIndexes.get(
-            WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths"),
-          ),
-        ),
-      );
+      }).pipe(Effect.provide(workspaceSearchIndexes.get(indexKey)));
     },
   );
 

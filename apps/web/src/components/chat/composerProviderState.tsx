@@ -18,7 +18,7 @@ import {
 import type { ReactNode } from "react";
 
 import type { DraftId } from "../../composerDraftStore";
-import { getProviderModelCapabilities } from "../../providerModels";
+import { getProviderModelCapabilities, keepsUnavailableModelOptions } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
 import {
   getReasoningTraitStep,
@@ -94,7 +94,7 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
     promptInjectionState = "none",
     includePlanAgent,
   } = input;
-  if (provider === "opencode" || provider === "cursor") {
+  if (keepsUnavailableModelOptions(provider, model)) {
     const normalizedModel = normalizeModelSlug(model, provider);
     const modelIsInCatalog = models.some((candidate) => candidate.slug === normalizedModel);
     if (!modelIsInCatalog) {

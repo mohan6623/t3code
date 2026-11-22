@@ -489,6 +489,7 @@ function sameOutputRates(
     if (
       other === undefined ||
       other.outputTokens !== rate.outputTokens ||
+      other.estimated !== rate.estimated ||
       other.generationMs !== rate.generationMs ||
       other.inputTokens !== rate.inputTokens ||
       other.cachedInputTokens !== rate.cachedInputTokens
@@ -623,12 +624,14 @@ export default function ChatView(props: ChatViewProps) {
   const timelineOutputRates = (() => {
     const rates = new Map<string, TimelineOutputRate>();
     for (const turn of serverProjection?.providerTurns ?? []) {
-      const outputTokens = turn.turnTokenUsage?.outputTokens;
+      const reportedOutputTokens = turn.turnTokenUsage?.outputTokens;
+      const outputTokens = reportedOutputTokens ?? turn.estimatedOutputTokens;
       const generationMs = turn.outputGenerationMs;
       // Under a second of writing gives a noisy number, so leave it out.
       if (outputTokens === undefined || generationMs === undefined || generationMs < 1000) continue;
       rates.set(turn.id, {
         outputTokens,
+        estimated: reportedOutputTokens === undefined,
         generationMs,
         inputTokens: turn.turnTokenUsage?.inputTokens,
         cachedInputTokens: turn.turnTokenUsage?.cachedInputTokens,

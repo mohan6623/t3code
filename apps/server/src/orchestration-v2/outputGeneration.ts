@@ -1,7 +1,8 @@
 /**
  * Fork: output speed for providers that do not time their own responses (only Claude does).
  * A turn's model time is its wall time minus the time tools and waits ran, except where the
- * model was writing text or reasoning at the same moment.
+ * model was writing text or reasoning at the same moment. For providers that report no token
+ * counts (Kiro, Pi), the output tokens are estimated from what the model wrote.
  */
 import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
 
@@ -9,6 +10,31 @@ export interface TurnItemTimes {
   readonly type: OrchestrationV2TurnItem["type"];
   readonly startedAtMs: number | null;
   readonly completedAtMs: number | null;
+  /** Characters the model wrote into this item: text, reasoning, added diff lines, tool input. */
+  readonly writtenChars: number;
+}
+
+export function writtenChars(
+  type: OrchestrationV2TurnItem["type"],
+  written: string | null,
+): number {
+  if (written === null) return 0;
+  if (type !== "file_change") return written.length;
+  let chars = 0;
+  for (const line of written.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) chars += line.length;
+  }
+  return chars;
+}
+
+/**
+ * Against turns with real counts (Claude, Codex, Cursor), output tokens run about half the
+ * characters written: hidden reasoning and tool-call framing count too. p10-p90 is 0.3-0.67.
+ */
+export function estimateOutputTokens(items: ReadonlyArray<TurnItemTimes>): number {
+  let chars = 0;
+  for (const item of items) chars += item.writtenChars;
+  return Math.round(chars / 2);
 }
 
 const WRITING: ReadonlySet<OrchestrationV2TurnItem["type"]> = new Set([

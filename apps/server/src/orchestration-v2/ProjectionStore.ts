@@ -5,7 +5,7 @@ import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { makeThreadFind } from "./ThreadFind.ts";
-import type { TurnItemTimes } from "./outputGeneration.ts";
+import { type TurnItemTimes, writtenChars } from "./outputGeneration.ts";
 import { unsentManualContinuationSource } from "@t3tools/shared/orchestrationV2ManualContinuation";
 import type {
   OrchestrationV2ThreadLinkMetadata,
@@ -987,6 +987,9 @@ function upsertProviderTurn(
     ...((next.outputGenerationMs ?? current?.outputGenerationMs) === undefined
       ? {}
       : { outputGenerationMs: next.outputGenerationMs ?? current?.outputGenerationMs }),
+    ...((next.estimatedOutputTokens ?? current?.estimatedOutputTokens) === undefined
+      ? {}
+      : { estimatedOutputTokens: next.estimatedOutputTokens ?? current?.estimatedOutputTokens }),
   });
 }
 
@@ -6055,10 +6058,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         readonly type: TurnItemTimes["type"];
         readonly started_at: string | null;
         readonly completed_at: string | null;
+        readonly written: string | null;
       }>`
         SELECT type,
           json_extract(payload_json, '$.startedAt') AS started_at,
-          json_extract(payload_json, '$.completedAt') AS completed_at
+          json_extract(payload_json, '$.completedAt') AS completed_at,
+          CASE
+            WHEN type IN ('assistant_message', 'reasoning') THEN json_extract(payload_json, '$.text')
+            WHEN type = 'file_change' THEN json_extract(payload_json, '$.diffStr')
+            WHEN type IN ('command_execution', 'dynamic_tool') THEN json_extract(payload_json, '$.input')
+          END AS written
         FROM orchestration_v2_projection_turn_items
         -- The plus keeps SQLite on the provider turn index instead of walking the thread.
         WHERE provider_turn_id = ${providerTurnId} AND +thread_id = ${threadId}
@@ -6068,6 +6077,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             type: row.type,
             startedAtMs: row.started_at === null ? null : Date.parse(row.started_at),
             completedAtMs: row.completed_at === null ? null : Date.parse(row.completed_at),
+            writtenChars: writtenChars(row.type, row.written === null ? null : String(row.written)),
           })),
         ),
         Effect.mapError(controlReadError(threadId)),

@@ -1392,6 +1392,11 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
    * the server takes the turn's time less the time its tools and waits ran.
    */
   outputGenerationMs: Schema.optional(NonNegativeInt),
+  /**
+   * Fork: output tokens estimated from what the model wrote, for providers that report no
+   * `turnTokenUsage.outputTokens`. The speed shown from it is marked approximate.
+   */
+  estimatedOutputTokens: Schema.optional(NonNegativeInt),
   /** The model the provider reported running this turn's root agent, which can differ from the requested one. */
   model: Schema.optional(TrimmedNonEmptyString),
 });

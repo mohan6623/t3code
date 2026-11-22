@@ -535,6 +535,61 @@ it.effect("times a finished turn's output without the time its tools ran", () =>
     });
     const timed = (yield* projectionStore.getThreadProjection(threadId)).providerTurns;
     assert.equal(timed.find((turn) => turn.id === providerTurnId)?.outputGenerationMs, 3_000);
+
+    // A provider with no token counts (Kiro) gets its output estimated from what the model wrote.
+    const uncountedTurnId = idAllocator.derive.providerTurn({
+      driver: CODEX_DRIVER,
+      nativeTurnId: "speed-turn-uncounted",
+    });
+    yield* ingest({
+      type: "turn_item.updated",
+      driver: CODEX_DRIVER,
+      turnItem: {
+        id: TurnItemId.make(`${threadId}:speed-reply`),
+        threadId,
+        runId: null,
+        nodeId: null,
+        providerThreadId,
+        providerTurnId: uncountedTurnId,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 2,
+        status: "completed",
+        title: null,
+        startedAt: at(11_000),
+        completedAt: at(15_000),
+        updatedAt: at(15_000),
+        type: "assistant_message",
+        messageId: MessageId.make(`${threadId}:speed-reply`),
+        streaming: false,
+        text: "x".repeat(400),
+      },
+    });
+    yield* ingest({
+      type: "provider_turn.updated",
+      driver: CODEX_DRIVER,
+      providerTurn: {
+        ...providerTurn,
+        id: uncountedTurnId,
+        ordinal: 2,
+        startedAt: at(10_000),
+        completedAt: at(15_000),
+        turnTokenUsage: {
+          usageStatus: "unavailable",
+          usageScope: "main_agent",
+          hasSubagents: false,
+        },
+      },
+    });
+    const uncounted = (yield* projectionStore.getThreadProjection(threadId)).providerTurns.find(
+      (turn) => turn.id === uncountedTurnId,
+    );
+    assert.equal(uncounted?.estimatedOutputTokens, 200);
+    assert.equal(uncounted?.outputGenerationMs, 5_000);
+    assert.equal(
+      timed.find((turn) => turn.id === providerTurnId)?.estimatedOutputTokens,
+      undefined,
+    );
   }).pipe(Effect.provide(layerTest)),
 );
 

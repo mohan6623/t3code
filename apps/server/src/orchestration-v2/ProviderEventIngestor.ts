@@ -47,7 +47,7 @@ import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failu
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
 import { boundFileChangeForStorage } from "./WireProjection.ts";
-import { estimateOutputGenerationMs } from "./outputGeneration.ts";
+import { estimateOutputGenerationMs, estimateOutputTokens } from "./outputGeneration.ts";
 
 export class ProviderEventNormalizeError extends Schema.TaggedError<ProviderEventNormalizeError>()(
   "ProviderEventNormalizeError",
@@ -317,7 +317,6 @@ export const layer: Layer.Layer<
       function* (threadId: ThreadId, providerTurn: OrchestrationV2ProviderTurn) {
         if (
           providerTurn.outputGenerationMs !== undefined ||
-          !((providerTurn.turnTokenUsage?.outputTokens ?? 0) > 0) ||
           providerTurn.startedAt === null ||
           providerTurn.status === "pending" ||
           providerTurn.status === "running"
@@ -328,6 +327,9 @@ export const layer: Layer.Layer<
           .getProviderTurnItemTimes(threadId, providerTurn.id)
           .pipe(Effect.orElseSucceed(() => undefined));
         if (items === undefined) return providerTurn;
+        const reported = (providerTurn.turnTokenUsage?.outputTokens ?? 0) > 0;
+        const estimatedOutputTokens = reported ? 0 : estimateOutputTokens(items);
+        if (!reported && estimatedOutputTokens === 0) return providerTurn;
         const outputGenerationMs = Math.round(
           estimateOutputGenerationMs({
             startedAtMs: DateTime.toEpochMillis(providerTurn.startedAt),
@@ -337,7 +339,10 @@ export const layer: Layer.Layer<
             items,
           }),
         );
-        return outputGenerationMs > 0 ? { ...providerTurn, outputGenerationMs } : providerTurn;
+        if (outputGenerationMs <= 0) return providerTurn;
+        return reported
+          ? { ...providerTurn, outputGenerationMs }
+          : { ...providerTurn, outputGenerationMs, estimatedOutputTokens };
       },
     );
 

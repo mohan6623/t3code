@@ -1,12 +1,17 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { estimateOutputGenerationMs, type TurnItemTimes } from "./outputGeneration.ts";
+import {
+  estimateOutputGenerationMs,
+  estimateOutputTokens,
+  type TurnItemTimes,
+  writtenChars,
+} from "./outputGeneration.ts";
 
 const item = (
   type: TurnItemTimes["type"],
   startedAtMs: number | null,
   completedAtMs: number | null,
-): TurnItemTimes => ({ type, startedAtMs, completedAtMs });
+): TurnItemTimes => ({ type, startedAtMs, completedAtMs, writtenChars: 0 });
 
 describe("estimateOutputGenerationMs", () => {
   it.each([
@@ -37,5 +42,17 @@ describe("estimateOutputGenerationMs", () => {
     },
   ])("$name", ({ items, ms }) => {
     expect(estimateOutputGenerationMs({ startedAtMs: 0, completedAtMs: 10_000, items })).toBe(ms);
+  });
+});
+
+describe("estimateOutputTokens", () => {
+  it("counts what the model wrote, with only the added lines of a diff", () => {
+    const diff = ["--- a/x.ts", "+++ b/x.ts", "@@ -1 +1 @@", "-old line", "+new line", " context"];
+    const items = [
+      { ...item("file_change", 0, 1), writtenChars: writtenChars("file_change", diff.join("\n")) },
+      { ...item("assistant_message", 1, 2), writtenChars: writtenChars("assistant_message", "hi") },
+      { ...item("command_execution", 2, 3), writtenChars: writtenChars("command_execution", null) },
+    ];
+    expect(estimateOutputTokens(items)).toBe(6);
   });
 });

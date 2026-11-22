@@ -35,6 +35,8 @@ import { type HandoffTimelineRun } from "./V2LifecycleRow";
 /** Fork: a turn's output tokens and the time the model spent writing them. */
 export interface TimelineOutputRate {
   readonly outputTokens: number;
+  /** The provider reported no token counts, so `outputTokens` comes from the text written. */
+  readonly estimated: boolean;
   readonly generationMs: number;
   /** All input tokens, cached ones included. */
   readonly inputTokens?: number | undefined;

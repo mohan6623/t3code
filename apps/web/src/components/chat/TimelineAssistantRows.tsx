@@ -314,7 +314,9 @@ function AssistantOutputRate({ rate }: { rate: TimelineOutputRate }) {
     inputTokens === undefined
       ? null
       : gt("{count} input", { count: formatTokenCount(Math.max(0, inputTokens - cached)) }),
-    gt("{count} output", { count: formatTokenCount(rate.outputTokens) }),
+    rate.estimated
+      ? gt("About {count} output", { count: formatTokenCount(rate.outputTokens) })
+      : gt("{count} output", { count: formatTokenCount(rate.outputTokens) }),
     cachedInputTokens === undefined
       ? null
       : gt("{count} cached", { count: formatTokenCount(cached) }),
@@ -322,12 +324,17 @@ function AssistantOutputRate({ rate }: { rate: TimelineOutputRate }) {
   return (
     <Tooltip>
       <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-        {gt("{rate} tok/s", {
-          rate: perSecond >= 100 ? Math.round(perSecond) : perSecond.toFixed(1),
-        })}
+        {rate.estimated
+          ? gt("~{rate} tok/s", { rate: Math.round(perSecond) })
+          : gt("{rate} tok/s", {
+              rate: perSecond >= 100 ? Math.round(perSecond) : perSecond.toFixed(1),
+            })}
       </TooltipTrigger>
       <TooltipPopup>
         <div className="tabular-nums">
+          {rate.estimated ? (
+            <div>{gt("Estimated: this provider does not report token counts")}</div>
+          ) : null}
           {hitRate === null ? null : (
             <div>{gt("Cache hit {percent}%", { percent: Math.round(hitRate * 100) })}</div>
           )}

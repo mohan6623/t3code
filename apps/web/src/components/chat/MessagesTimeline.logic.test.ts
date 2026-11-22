@@ -1147,6 +1147,72 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
   });
 
+  it("keeps the answer before a Stop hook visible when the hook's reply ran no tools", () => {
+    const message = (id: string, role: "user" | "assistant", at: string, runId: string | null) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: at,
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        runId: runId as never,
+        createdAt: at,
+        updatedAt: at,
+        streaming: false,
+      },
+    });
+    const work = (id: string, at: string, tone: "tool" | "thinking" | "info", hook = false) => ({
+      id: `${id}-entry`,
+      kind: "work" as const,
+      createdAt: at,
+      entry: {
+        id,
+        createdAt: at,
+        runId: "turn-1" as never,
+        label: id,
+        tone,
+        ...(hook
+          ? {
+              itemType: "system_notice" as const,
+              structuredPayload: {
+                type: "system_notice",
+                source: "stop_hook",
+                message: "Save a learning.",
+              } as never,
+            }
+          : {}),
+      },
+    });
+    const rowIds = (timelineEntries: ReadonlyArray<TimelineEntry>) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+      }).map((row) => row.id);
+    const before = [
+      message("user", "user", "2026-01-01T00:00:00Z", null),
+      work("command", "2026-01-01T00:00:02Z", "tool"),
+      message("answer", "assistant", "2026-01-01T00:00:10Z", "turn-1"),
+      work("hook", "2026-01-01T00:00:11Z", "info", true),
+      work("thinking", "2026-01-01T00:00:12Z", "thinking"),
+    ];
+
+    expect(
+      rowIds([...before, message("reply", "assistant", "2026-01-01T00:00:13Z", "turn-1")]),
+    ).toEqual(["user-entry", "turn-fold:turn-1", "answer-entry", "hook-entry", "reply-entry"]);
+    // A hook that sent the agent back to work ends with a new answer. Notices never fold.
+    expect(
+      rowIds([
+        ...before,
+        work("rerun", "2026-01-01T00:00:13Z", "tool"),
+        message("reply", "assistant", "2026-01-01T00:00:20Z", "turn-1"),
+      ]),
+    ).toEqual(["user-entry", "turn-fold:turn-1", "hook-entry", "reply-entry"]);
+  });
+
   it("folds the first assistant message and settled work before the terminal response", () => {
     const timelineEntries = [
       {

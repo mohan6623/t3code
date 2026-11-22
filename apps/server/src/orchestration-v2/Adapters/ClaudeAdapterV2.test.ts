@@ -2063,24 +2063,21 @@ describe("ClaudeAdapterV2 resumeThread", () => {
         });
         assert.equal(saved.nativeThreadRef?.nativeId, "native-thread-saved");
 
-        const missing = yield* runtime.resumeThread({
-          providerThread: {
-            ...providerThread,
-            nativeThreadRef: {
-              driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
-              nativeId: "native-thread-missing",
-              strength: "strong",
-            },
+        // A transcript lost with the machine fails too, so the thread continues with its history.
+        const missingThread = {
+          ...providerThread,
+          nativeThreadRef: {
+            driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+            nativeId: "native-thread-missing",
+            strength: "strong" as const,
           },
-        });
-        assert.equal(missing.nativeThreadRef?.nativeId, "native-thread-missing");
+        };
+        const missing = yield* Effect.flip(runtime.resumeThread({ providerThread: missingThread }));
+        assert.equal(missing._tag, "ProviderAdapterResumeThreadError");
 
         // An imported session's history lives only in its transcript.
         const missingImport = yield* Effect.flip(
-          runtime.resumeThread({
-            providerThread: { ...missing, id: providerThread.id },
-            importedNativeSession: true,
-          }),
+          runtime.resumeThread({ providerThread: missingThread, importedNativeSession: true }),
         );
         assert.equal(missingImport._tag, "ProviderAdapterResumeThreadError");
       }),
@@ -4058,6 +4055,30 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+  // A restarted adapter resumes only sessions whose transcript Claude saved.
+  const makeResumingWakeHarnessWithOptions = (
+    options?: Parameters<typeof makeWakeHarnessWithOptions>[0],
+  ) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const configDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-claude-v2-saved-",
+      });
+      const projectDir = path.join(configDir, "projects", "-workspace");
+      yield* fileSystem.makeDirectory(projectDir, { recursive: true });
+      for (const sessionId of [WAKE_NATIVE_SESSION, "forked-native-session"]) {
+        yield* fileSystem.writeFileString(
+          path.join(projectDir, `${sessionId}.jsonl`),
+          `{"type":"user","message":{"role":"user","content":"hello"},"sessionId":"${sessionId}"}\n`,
+        );
+      }
+      return yield* makeWakeHarnessWithOptions({
+        ...options,
+        environment: { ...options?.environment, CLAUDE_CONFIG_DIR: configDir },
+      });
+    });
+  const makeResumingWakeHarness = makeResumingWakeHarnessWithOptions();
 
   describe("ClaudeAdapterV2 session title sync", () => {
     type TitleSyncHarness = Effect.Success<ReturnType<typeof makeWakeHarnessWithOptions>>;
@@ -4271,7 +4292,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       "preserves the last-applied title across provider-session recreation so a native /rename survives",
       () =>
         Effect.gen(function* () {
-          const harness = yield* makeWakeHarnessWithOptions({ freshQueueOnReopen: true });
+          const harness = yield* makeResumingWakeHarnessWithOptions({ freshQueueOnReopen: true });
           yield* startTurn(harness, "First title", 1);
           assert.deepEqual(harness.renameCalls, []);
           yield* finishTurn(harness, 1);
@@ -4652,7 +4673,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.equal(usage?.pagesUsed, undelivered ? 0 : 60);
         if (undelivered) assert.equal(usage?.bytesUsed, 0);
         else assert.isAbove(usage?.bytesUsed ?? 0, 25 * 1024 * 1024);
-        const next = outcome === "resume-pending" ? yield* makeWakeHarness : harness;
+        const next = outcome === "resume-pending" ? yield* makeResumingWakeHarness : harness;
         const providerThread =
           outcome === "resume-pending"
             ? yield* next.runtime.resumeThread({ providerThread: persisted })
@@ -4873,7 +4894,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               }),
             )
           : persisted;
-        const resumed = yield* makeWakeHarness;
+        const resumed = yield* makeResumingWakeHarness;
         const providerThread = yield* resumed.runtime.resumeThread({ providerThread: inherited });
         yield* fileSystem.writeFileString(
           path.join(resumed.attachmentsDir, attachmentRelativePath(document)!),
@@ -25266,6 +25287,61 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         const terminal = yield* Queue.take(harness.terminalReceipts);
         assert.equal(terminal.status, "completed");
         assert.equal(goalStatuses(harness.events).at(-1)?.status, "active");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("marks a blocking Stop hook outside a goal with a stop hook notice", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("stop-hook-attempt"),
+            text: "Write the report.",
+            attachments: [],
+          }),
+        );
+        for (const frame of [
+          makeAssistantTextFrame({ uuid: "stop-hook-answer", text: "The full report." }),
+          claudeSdkFrame({
+            type: "user",
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "Stop hook feedback:\n[trail] Save a learning." }],
+            },
+            parent_tool_use_id: null,
+            isSynthetic: true,
+            uuid: "stop-hook-feedback",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+          makeAssistantTextFrame({ uuid: "stop-hook-reply", text: "Nothing to save." }),
+          makeResultFrame({ uuid: "stop-hook-result", result: "Nothing to save." }),
+        ]) {
+          yield* Queue.offer(harness.sdkMessages, frame);
+        }
+        yield* Queue.take(harness.terminalReceipts);
+        const notices = harness.events.flatMap((event) =>
+          event.type === "turn_item.updated" && event.turnItem.type === "system_notice"
+            ? [event.turnItem]
+            : [],
+        );
+        assert.deepEqual(
+          notices.map((item) => [item.source, item.message]),
+          [["stop_hook", "[trail] Save a learning."]],
+        );
+        assert.deepEqual(goalStatuses(harness.events), []);
       }).pipe(
         Effect.scoped,
         Effect.provide(

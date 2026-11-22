@@ -455,7 +455,10 @@ function projectedWorkEntry(
     case "system_notice":
       return {
         ...common,
-        label: item.message,
+        label:
+          item.source === "stop_hook"
+            ? resolve(msg("Stop hook: {message}", { message: item.message }))
+            : item.message,
         ...(item.level === "info" ? {} : { sourceActivityKind: "runtime.warning" }),
       };
     case "error": {

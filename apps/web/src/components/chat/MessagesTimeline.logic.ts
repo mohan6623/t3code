@@ -744,11 +744,28 @@ export function resolveAssistantMessageCopyState({
   };
 }
 
+function workEntryIsStopHookNotice(entry: WorkLogEntry): boolean {
+  const item = entry.structuredPayload;
+  return item?.type === "system_notice" && item.source === "stop_hook";
+}
+
 function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<TimelineEntry>) {
   const lastAssistantMessageIdByResponseKey = new Map<string, string>();
+  // Fork: a Stop hook's reply that ran no tools must not fold away the answer before the hook.
+  const answerBeforeStopHookByResponseKey = new Map<string, string>();
   let nullTurnResponseIndex = 0;
 
   for (const timelineEntry of timelineEntries) {
+    if (timelineEntry.kind === "work" && timelineEntry.entry.runId) {
+      const responseKey = `turn:${timelineEntry.entry.runId}`;
+      const answer = lastAssistantMessageIdByResponseKey.get(responseKey);
+      if (workEntryIsStopHookNotice(timelineEntry.entry) && answer !== undefined) {
+        answerBeforeStopHookByResponseKey.set(responseKey, answer);
+      } else if (timelineEntry.entry.tone === "tool") {
+        answerBeforeStopHookByResponseKey.delete(responseKey);
+      }
+      continue;
+    }
     if (timelineEntry.kind !== "message") {
       continue;
     }
@@ -767,7 +784,11 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
     lastAssistantMessageIdByResponseKey.set(responseKey, message.id);
   }
 
-  return new Set(lastAssistantMessageIdByResponseKey.values());
+  return new Set(
+    [...lastAssistantMessageIdByResponseKey].map(
+      ([responseKey, id]) => answerBeforeStopHookByResponseKey.get(responseKey) ?? id,
+    ),
+  );
 }
 
 interface TurnFold {

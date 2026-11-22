@@ -29,6 +29,7 @@ import {
   threadFeedCompactionLabels,
   createThreadFeedCache,
   deriveThreadFeedPresentation,
+  feedAnswersBeforeStopHook,
   messageFoldRunId,
   type ThreadFeedCache,
   type ThreadFeedEntry,
@@ -1006,6 +1007,36 @@ describe("buildThreadFeed", () => {
     expect(
       messageFoldRunId(buildThreadFeed([projected(userMessage(), 0)]), "message-user", []),
     ).toBe(null);
+  });
+
+  it("keeps the answer before a Stop hook visible when the hook's reply ran no tools", () => {
+    const answer = {
+      ...assistantMessage("2026-06-20T00:00:02.500Z"),
+      id: TurnItemId.make("item-answer"),
+      messageId: MessageId.make("message-answer"),
+      text: "The full report.",
+    };
+    const hook = {
+      ...base("item-hook", "2026-06-20T00:00:02.700Z", 3),
+      type: "system_notice" as const,
+      source: "stop_hook" as const,
+      message: "Save a learning.",
+    };
+    const feed = buildThreadFeed([
+      projected(userMessage(), 0),
+      projected(command(), 1),
+      projected(answer, 2),
+      projected(hook, 3),
+      projected(assistantMessage(), 4),
+    ]);
+    expect(feedAnswersBeforeStopHook(feed)).toEqual(new Map([[runId, "message-answer"]]));
+    expect(deriveThreadFeedPresentation(feed, null, new Set()).map((entry) => entry.id)).toEqual([
+      "message-user",
+      "run-fold:run-1",
+      "message-answer",
+      expect.anything(),
+      "message-assistant",
+    ]);
   });
 
   it("folds progress messages while keeping the final assistant answer visible", () => {

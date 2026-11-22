@@ -646,7 +646,11 @@ function itemSummary(
   resolve: MessageResolver,
 ): string {
   if (item.type === "notification") return item.summary;
-  if (item.type === "system_notice") return item.message;
+  if (item.type === "system_notice") {
+    return item.source === "stop_hook"
+      ? resolve(msg("Stop hook: {message}", { message: item.message }))
+      : item.message;
+  }
   if (item.type === "compaction") return contextCompactionLabel(item, resolve);
   const title =
     (item.type === "dynamic_tool"
@@ -1203,6 +1207,34 @@ function finalAnswerIds(feed: ReadonlyArray<ThreadFeedEntry>): ReadonlySet<Messa
   return ids;
 }
 
+// Fork: the answer before a Stop hook stays the run's answer when the hook's reply ran no tools.
+export function feedAnswersBeforeStopHook(
+  feed: ReadonlyArray<ThreadFeedEntry>,
+): ReadonlyMap<RunId, MessageId> {
+  const lastAnswerByRun = new Map<RunId, MessageId>();
+  const answers = new Map<RunId, MessageId>();
+  for (const entry of feed) {
+    if (entry.type === "message") {
+      if (entry.message.role === "assistant" && entry.message.runId) {
+        lastAnswerByRun.set(entry.message.runId, entry.message.id);
+      }
+      continue;
+    }
+    if (entry.type !== "activity-group") continue;
+    for (const activity of entry.activities) {
+      const item = activity.projectedItem.item;
+      if (item.runId === null) continue;
+      const answer = lastAnswerByRun.get(item.runId);
+      if (item.type === "system_notice" && item.source === "stop_hook" && answer !== undefined) {
+        answers.set(item.runId, answer);
+      } else if (activity.toolLike) {
+        answers.delete(item.runId);
+      }
+    }
+  }
+  return answers;
+}
+
 function deriveThreadFeedRunFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestRun: ThreadFeedLatestRun | null,
@@ -1211,7 +1243,10 @@ function deriveThreadFeedRunFolds(
   resolve: MessageResolver,
 ): ReadonlyMap<string, ThreadFeedRunFold> {
   const terminalAssistantMessageIdByRun = new Map<RunId, string>();
-  const retainedAnswerIds = finalAnswerIds(feed);
+  const retainedAnswerIds = new Set([
+    ...finalAnswerIds(feed),
+    ...feedAnswersBeforeStopHook(feed).values(),
+  ]);
   const interruptedRunIds = new Set<RunId>();
   const failedRunIds = new Set(feedFailedRunIds);
   const promptIndexByRunId = new Map<RunId, number>();

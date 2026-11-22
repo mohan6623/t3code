@@ -2037,6 +2037,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
     message: Schema.String,
     level: Schema.optional(OrchestrationV2SystemNoticeLevel),
     mcpSignIn: Schema.optional(OrchestrationV2McpSignIn),
+    /** Fork: a Stop hook blocked the end of the turn and the agent was asked to continue. */
+    source: Schema.optionalKey(Schema.Literal("stop_hook")),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2927,6 +2929,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     message: Schema.String,
     level: Schema.optional(OrchestrationV2SystemNoticeLevel),
     mcpSignIn: Schema.optional(OrchestrationV2McpSignIn),
+    /** Fork: a Stop hook blocked the end of the turn and the agent was asked to continue. */
+    source: Schema.optionalKey(Schema.Literal("stop_hook")),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,

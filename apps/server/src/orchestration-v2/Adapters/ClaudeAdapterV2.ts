@@ -2736,6 +2736,33 @@ function nextClaudeGoal(
   };
 }
 
+// Fork: a blocking Stop hook makes Claude reply again in the same turn. The notice marks that
+// boundary so clients keep the reply before it in view; /goal checks have their own goal row.
+const CLAUDE_STOP_HOOK_PREFIX = "Stop hook feedback:\n";
+
+function claudeStopHookFeedback(
+  message: SDKMessage,
+  goal: OrchestrationV2ProviderGoal | null,
+): { readonly uuid: string | undefined; readonly text: string } | null {
+  if (
+    message.type !== "user" ||
+    message.parent_tool_use_id !== null ||
+    message.isSynthetic !== true
+  ) {
+    return null;
+  }
+  const content = message.message.content;
+  const text =
+    typeof content === "string"
+      ? content
+      : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+  if (!text.startsWith(CLAUDE_STOP_HOOK_PREFIX)) return null;
+  if (goal !== null && text.startsWith(`${CLAUDE_STOP_HOOK_PREFIX}[${goal.objective}]: `)) {
+    return null;
+  }
+  return { uuid: message.uuid, text: text.slice(CLAUDE_STOP_HOOK_PREFIX.length).trim() };
+}
+
 /** The CLI confirms a goal change as a synthetic reply; the goal row shows that change instead. */
 function isClaudeGoalAcknowledgement(message: SDKMessage): boolean {
   if (
@@ -11182,7 +11209,45 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             yield* liveQuery.query.close.pipe(Effect.ignore);
             return;
           }
+          const stopHookFeedback = claudeStopHookFeedback(
+            message,
+            goalsByNativeThread.get(liveQuery.nativeThreadId) ?? null,
+          );
           yield* trackClaudeGoal({ nativeThreadId: liveQuery.nativeThreadId, context, message });
+          if (stopHookFeedback !== null) {
+            const nativeItemId = `stop-hook:${stopHookFeedback.uuid ?? `${context.providerTurnId}:${stopHookFeedback.text}`}`;
+            const now = yield* DateTime.now;
+            yield* emitProviderEvent({
+              type: "turn_item.updated",
+              driver: CLAUDE_PROVIDER,
+              turnItem: {
+                id: idAllocator.derive.turnItemFromProviderItem({
+                  driver: CLAUDE_PROVIDER,
+                  nativeItemId,
+                }),
+                threadId: context.input.threadId,
+                runId: context.input.runId,
+                nodeId: context.input.rootNodeId,
+                providerThreadId: context.input.providerThread.id,
+                providerTurnId: context.providerTurnId,
+                nativeItemRef: {
+                  driver: CLAUDE_PROVIDER,
+                  nativeId: nativeItemId,
+                  strength: "strong",
+                },
+                parentItemId: null,
+                ordinal: yield* resolveItemOrdinal(context, nativeItemId),
+                type: "system_notice",
+                source: "stop_hook",
+                status: "completed",
+                title: "Stop hook",
+                message: stopHookFeedback.text,
+                startedAt: now,
+                completedAt: now,
+                updatedAt: now,
+              },
+            });
+          }
 
           if (message.type === "stream_event" && !message.parent_tool_use_id) {
             const event = message.event;
@@ -14522,6 +14587,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : path.join(yield* HostProcess.HomeDirectory, ".claude"),
             "projects",
           );
+          // Fork: a config dir with no projects folder (a rebuilt machine) has no transcript at all.
+          if (!(yield* fileSystem.exists(projectsDir))) return "missing" as const;
           // Any message in any transcript copy means Claude may still resume it.
           let found = false;
           let unreadable = false;
@@ -14551,7 +14618,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }
             found = true;
           }
-          return found && !unreadable ? ("empty" as const) : ("missing" as const);
+          if (unreadable) return "unknown" as const;
+          return found ? ("empty" as const) : ("missing" as const);
         });
 
         const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
@@ -14673,12 +14741,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 }
                 // An unreadable transcript leaves the resume to the CLI.
                 const transcript = yield* claudeTranscriptState(nativeThreadId).pipe(
-                  Effect.orElseSucceed(() => "missing" as const),
+                  Effect.orElseSucceed(() => "unknown" as const),
                 );
-                // Opening a missing imported session would start an empty one under its id.
+                // Fork: a lost transcript also fails, so T3 continues the same thread in a fresh
+                // session with its history instead of the CLI's "No conversation found".
+                // Opening an imported session without its transcript would start an empty one.
                 if (
                   transcript === "empty" ||
-                  (transcript === "missing" && threadInput.importedNativeSession === true)
+                  transcript === "missing" ||
+                  (transcript === "unknown" && threadInput.importedNativeSession === true)
                 ) {
                   return yield* new ProviderAdapter.ProviderAdapterProtocolError({
                     driver: CLAUDE_PROVIDER,

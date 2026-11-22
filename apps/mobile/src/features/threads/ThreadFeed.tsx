@@ -237,6 +237,7 @@ import {
   createThreadFeedCache,
   threadFeedCompactionLabels,
   failedFeedRunIds,
+  feedAnswersBeforeStopHook,
   deriveThreadFeedPresentation,
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
@@ -3999,6 +4000,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       if (entry.type === "message" && entry.message.role === "assistant" && entry.message.runId) {
         terminalIdsByTurn.set(entry.message.runId, entry.message.id);
       }
+    }
+    for (const [runId, answerId] of feedAnswersBeforeStopHook(props.feed)) {
+      terminalIdsByTurn.set(runId, answerId);
     }
     return new Set(terminalIdsByTurn.values());
   })();

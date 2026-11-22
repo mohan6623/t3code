@@ -5458,5 +5458,8 @@
   "ad208e3e32c85029": "Ocultar todas",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Chamadas de ferramentas no chat",
-  "8d545d54c0a9e950": "Oculta os comandos, edições e pesquisas que os agentes executam. \"Ocultar bem-sucedidas\" mantém as falhas. Zen mostra só as respostas finais. Aprovações, perguntas e erros sempre aparecem."
+  "8d545d54c0a9e950": "Oculta os comandos, edições e pesquisas que os agentes executam. \"Ocultar bem-sucedidas\" mantém as falhas. Zen mostra só as respostas finais. Aprovações, perguntas e erros sempre aparecem.",
+  "d2efc59dda1bb760": "{count, plural, one {Verificou os recursos da máquina {count} vez} other {Verificou os recursos da máquina {count} vezes}}",
+  "edd5625b5c697510": "{count, plural, one {Tentou verificar os recursos da máquina {count} vez} other {Tentou verificar os recursos da máquina {count} vezes}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {Verificando os recursos da máquina} completed {Verificou os recursos da máquina} failed {Falha ao verificar os recursos da máquina} declined {Recusou verificar os recursos da máquina} stopped {Parou de verificar os recursos da máquina} other {Verificando os recursos da máquina}}"
 }

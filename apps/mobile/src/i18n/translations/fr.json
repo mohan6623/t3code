@@ -5458,5 +5458,8 @@
   "ad208e3e32c85029": "Tout masquer",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Appels d’outils dans la discussion",
-  "8d545d54c0a9e950": "Masque les commandes, modifications et recherches lancées par les agents. Masquer les réussis garde les échecs. Zen n’affiche que les réponses finales. Les approbations, questions et erreurs s’affichent toujours."
+  "8d545d54c0a9e950": "Masque les commandes, modifications et recherches lancées par les agents. Masquer les réussis garde les échecs. Zen n’affiche que les réponses finales. Les approbations, questions et erreurs s’affichent toujours.",
+  "d2efc59dda1bb760": "{count, plural, one {Ressources de la machine vérifiées {count} fois} other {Ressources de la machine vérifiées {count} fois}}",
+  "edd5625b5c697510": "{count, plural, one {Tentative de vérifier les ressources de la machine {count} fois} other {Tentatives de vérifier les ressources de la machine {count} fois}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {Vérification des ressources de la machine} completed {Ressources de la machine vérifiées} failed {Échec de la vérification des ressources de la machine} declined {Vérification des ressources de la machine refusée} stopped {Vérification des ressources de la machine arrêtée} other {Vérification des ressources de la machine}}"
 }

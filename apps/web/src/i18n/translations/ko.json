@@ -12448,5 +12448,8 @@
   "885b8d342459728e": "그래프",
   "fe4a98a767f41280": "일치하는 컴퓨터가 없습니다.",
   "821ce4b4909a9de4": "각 컴퓨터가 최근 24시간을 기록합니다. T3를 실행 중인 컴퓨터만 표시됩니다.",
-  "f98325c9b6a734b4": "{count, plural, one {리소스: 확인이 필요한 컴퓨터 {count}대} other {리소스: 확인이 필요한 컴퓨터 {count}대}}"
+  "f98325c9b6a734b4": "{count, plural, one {리소스: 확인이 필요한 컴퓨터 {count}대} other {리소스: 확인이 필요한 컴퓨터 {count}대}}",
+  "d2efc59dda1bb760": "{count, plural, one {컴퓨터 리소스를 {count}번 확인함} other {컴퓨터 리소스를 {count}번 확인함}}",
+  "edd5625b5c697510": "{count, plural, one {컴퓨터 리소스 확인을 {count}번 시도함} other {컴퓨터 리소스 확인을 {count}번 시도함}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {컴퓨터 리소스 확인 중} completed {컴퓨터 리소스 확인함} failed {컴퓨터 리소스를 확인하지 못함} declined {컴퓨터 리소스 확인을 거부함} stopped {컴퓨터 리소스 확인을 중지함} other {컴퓨터 리소스 확인 중}}"
 }

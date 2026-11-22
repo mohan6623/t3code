@@ -721,6 +721,15 @@ const T3_TOOL_SENTENCES: ReadonlyMap<string, T3ToolSentence> = new Map<string, T
       ),
     },
   ],
+  // Fork: machine CPU, memory and disk for agents.
+  [
+    "Check\nChecking\nChecked\nmachine resources",
+    {
+      detail: msg(
+        "{status, select, inProgress {Checking machine resources} completed {Checked machine resources} failed {Failed to check machine resources} declined {Declined to check machine resources} stopped {Stopped checking machine resources} other {Checking machine resources}}",
+      ),
+    },
+  ],
   [
     "List\nListing\nListed\nlinked environments",
     {

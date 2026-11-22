@@ -5464,5 +5464,8 @@
   "ad208e3e32c85029": "Dölj alla",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Verktygsanrop i chatten",
-  "8d545d54c0a9e950": "Dölj kommandon, redigeringar och sökningar som agenter kör. Dölj lyckade behåller misslyckanden. Zen visar bara slutliga svar. Godkännanden, frågor och fel visas alltid."
+  "8d545d54c0a9e950": "Dölj kommandon, redigeringar och sökningar som agenter kör. Dölj lyckade behåller misslyckanden. Zen visar bara slutliga svar. Godkännanden, frågor och fel visas alltid.",
+  "d2efc59dda1bb760": "{count, plural, one {Kontrollerade datorns resurser {count} gång} other {Kontrollerade datorns resurser {count} gånger}}",
+  "edd5625b5c697510": "{count, plural, one {Försökte kontrollera datorns resurser {count} gång} other {Försökte kontrollera datorns resurser {count} gånger}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {Kontrollerar datorns resurser} completed {Kontrollerade datorns resurser} failed {Kunde inte kontrollera datorns resurser} declined {Avböjde att kontrollera datorns resurser} stopped {Slutade kontrollera datorns resurser} other {Kontrollerar datorns resurser}}"
 }

@@ -5466,5 +5466,8 @@
   "ad208e3e32c85029": "Hide all",
   "3328503592789bed": "Zen",
   "856812e7e1fc445e": "Tool calls in chat",
-  "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show."
+  "8d545d54c0a9e950": "Hide the commands, edits, and searches agents run. Hide successful keeps failures. Zen shows only final answers. Approvals, questions, and errors always show.",
+  "d2efc59dda1bb760": "{count, plural, one {Checked machine resources {count} time} other {Checked machine resources {count} times}}",
+  "edd5625b5c697510": "{count, plural, one {Tried to check machine resources {count} time} other {Tried to check machine resources {count} times}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {Checking machine resources} completed {Checked machine resources} failed {Failed to check machine resources} declined {Declined to check machine resources} stopped {Stopped checking machine resources} other {Checking machine resources}}"
 }

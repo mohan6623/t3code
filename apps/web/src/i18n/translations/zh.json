@@ -12530,5 +12530,8 @@
   "885b8d342459728e": "图表",
   "fe4a98a767f41280": "没有匹配的机器。",
   "821ce4b4909a9de4": "每台机器记录自己最近 24 小时的数据。仅列出运行 T3 的机器。",
-  "f98325c9b6a734b4": "{count, plural, one {资源：{count} 台机器需要关注} other {资源：{count} 台机器需要关注}}"
+  "f98325c9b6a734b4": "{count, plural, one {资源：{count} 台机器需要关注} other {资源：{count} 台机器需要关注}}",
+  "d2efc59dda1bb760": "{count, plural, one {已检查机器资源 {count} 次} other {已检查机器资源 {count} 次}}",
+  "edd5625b5c697510": "{count, plural, one {尝试检查机器资源 {count} 次} other {尝试检查机器资源 {count} 次}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {正在检查机器资源} completed {已检查机器资源} failed {无法检查机器资源} declined {已拒绝检查机器资源} stopped {已停止检查机器资源} other {正在检查机器资源}}"
 }

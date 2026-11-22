@@ -16,6 +16,8 @@ import * as Stream from "effect/Stream";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as HostResourceHistory from "../../../resourceTelemetry/HostResourceHistory.ts";
+import * as HostResources from "../../../resourceTelemetry/HostResources.ts";
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -94,4 +96,77 @@ it.effect("refuses a preferences update when the caller's turn ends while it wai
       ),
     );
   }),
+);
+
+it.effect(
+  "reports a machine's load now and its busiest minutes, with disk unknown on old readings",
+  () =>
+    Effect.gen(function* () {
+      const GiB = 1024 ** 3;
+      const windows: Array<number> = [];
+      const layerDependencies = Layer.mergeAll(
+        ThreadCommandExecutor.layer,
+        Layer.succeed(McpInvocationContext.McpInvocationContext, {
+          environmentId,
+          requestNamespace: "provider:resources",
+          thread: undefined,
+          client: undefined,
+          capabilities: new Set(["orchestration" as const]),
+          issuedAt: 0,
+        }),
+        Layer.mock(ThreadManagement.ThreadManagementService)({}),
+        Layer.mock(Environment.ServerEnvironment)({
+          getDescriptor: Effect.succeed({
+            environmentId,
+            label: "ibox-1",
+            platform: { os: "linux", arch: "x64" },
+            serverVersion: "0.0.0",
+            capabilities: { repositoryIdentity: false },
+          }),
+        }),
+        Layer.mock(Settings.ServerSettingsService)({}),
+        Layer.mock(HostResources.HostResources)({
+          read: Effect.succeed({
+            sampledAt: 0,
+            cpuUtilization: 0.123,
+            cpuCount: 8,
+            availableMemoryBytes: 4 * GiB,
+            totalMemoryBytes: 16 * GiB,
+          }),
+        }),
+        Layer.mock(HostResourceHistory.HostResourceHistory)({
+          read: ({ windowMs }) => {
+            windows.push(windowMs);
+            return Effect.succeed({
+              windowMs,
+              points: [{ endsAt: 0, cpu: 0.955, memory: 0.5, disk: null }],
+            });
+          },
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const toolkit = yield* EnvironmentToolkit;
+        const result = yield* toolkit
+          .handle("t3_environment_resources", {})
+          .pipe(Stream.unwrap, Stream.runCollect);
+        expect(result.at(-1)?.result).toEqual({
+          label: "ibox-1",
+          cpuCount: 8,
+          memoryTotalGb: 16,
+          memoryFreeGb: 4,
+          diskTotalGb: null,
+          diskFreeGb: null,
+          now: { cpuPercent: 12, memoryPercent: 75, diskPercent: null },
+          busiestLast30Minutes: { cpuPercent: 96, memoryPercent: 50, diskPercent: null },
+          busiestLast24Hours: { cpuPercent: 96, memoryPercent: 50, diskPercent: null },
+        });
+        expect(windows).toEqual([30 * 60_000, 24 * 60 * 60_000]);
+      }).pipe(
+        Effect.provide(
+          McpToolAccess.HandlersLayer.layer(EnvironmentHandlers.layer).pipe(
+            Layer.provideMerge(layerDependencies),
+          ),
+        ),
+      );
+    }),
 );

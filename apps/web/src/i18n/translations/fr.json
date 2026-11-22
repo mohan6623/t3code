@@ -12504,5 +12504,8 @@
   "885b8d342459728e": "Graphiques",
   "fe4a98a767f41280": "Aucune machine ne correspond.",
   "821ce4b4909a9de4": "Chaque machine enregistre ses 24 dernières heures. Seules les machines qui exécutent T3 sont listées.",
-  "f98325c9b6a734b4": "{count, plural, one {Ressources : {count} machine demande attention} other {Ressources : {count} machines demandent attention}}"
+  "f98325c9b6a734b4": "{count, plural, one {Ressources : {count} machine demande attention} other {Ressources : {count} machines demandent attention}}",
+  "d2efc59dda1bb760": "{count, plural, one {Ressources de la machine vérifiées {count} fois} other {Ressources de la machine vérifiées {count} fois}}",
+  "edd5625b5c697510": "{count, plural, one {Tentative de vérifier les ressources de la machine {count} fois} other {Tentatives de vérifier les ressources de la machine {count} fois}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {Vérification des ressources de la machine} completed {Ressources de la machine vérifiées} failed {Échec de la vérification des ressources de la machine} declined {Vérification des ressources de la machine refusée} stopped {Vérification des ressources de la machine arrêtée} other {Vérification des ressources de la machine}}"
 }

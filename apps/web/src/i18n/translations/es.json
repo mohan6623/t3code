@@ -12499,5 +12499,8 @@
   "885b8d342459728e": "Gráficos",
   "fe4a98a767f41280": "Ninguna máquina coincide.",
   "821ce4b4909a9de4": "Cada máquina registra sus últimas 24 horas. Solo se muestran las máquinas con T3.",
-  "f98325c9b6a734b4": "{count, plural, one {Recursos: {count} máquina necesita atención} other {Recursos: {count} máquinas necesitan atención}}"
+  "f98325c9b6a734b4": "{count, plural, one {Recursos: {count} máquina necesita atención} other {Recursos: {count} máquinas necesitan atención}}",
+  "d2efc59dda1bb760": "{count, plural, one {Revisó los recursos de la máquina {count} vez} other {Revisó los recursos de la máquina {count} veces}}",
+  "edd5625b5c697510": "{count, plural, one {Intentó revisar los recursos de la máquina {count} vez} other {Intentó revisar los recursos de la máquina {count} veces}}",
+  "bcc894d0da54a0f5": "{status, select, inProgress {Revisando los recursos de la máquina} completed {Revisó los recursos de la máquina} failed {No se pudieron revisar los recursos de la máquina} declined {Rechazó revisar los recursos de la máquina} stopped {Dejó de revisar los recursos de la máquina} other {Revisando los recursos de la máquina}}"
 }

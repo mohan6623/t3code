@@ -280,12 +280,18 @@ describe("ResourceTelemetry", () => {
         childCpuTimeMs: 100,
         childWriteBytes: 1_000,
       });
-      const current = nativeSnapshot({
-        sequence: 1,
-        sampledAtUnixMs: startedAt + 2_000,
-        childCpuTimeMs: 200,
-        childWriteBytes: 2_000,
-      });
+      const hostTopProcesses = [
+        { name: "chrome", processCount: 12, cpuPercent: 30, residentBytes: 4_000_000_000 },
+      ];
+      const current = {
+        ...nativeSnapshot({
+          sequence: 1,
+          sampledAtUnixMs: startedAt + 2_000,
+          childCpuTimeMs: 200,
+          childWriteBytes: 2_000,
+        }),
+        hostTopProcesses,
+      };
       const nativeSnapshots =
         yield* PubSub.unbounded<NativeTelemetryClient.NativeTelemetrySnapshot>();
       const layerNative = NativeTelemetryClient.layerTest({
@@ -326,6 +332,7 @@ describe("ResourceTelemetry", () => {
         expect(DateTime.toEpochMillis(Option.getOrThrow(received).readAt)).toBe(
           current.sampledAtUnixMs,
         );
+        expect(Option.getOrThrow(received).hostTopProcesses).toEqual(hostTopProcesses);
       }).pipe(Effect.provide(layerTelemetry));
     }),
   );

@@ -309,6 +309,11 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
             desktop: desktopHealth,
             nativeSnapshot,
           }),
+          // Fork: the sidecar adds these only to live samples.
+          ...Option.match(nativeSnapshot, {
+            onNone: () => ({}),
+            onSome: ({ hostTopProcesses }) => (hostTopProcesses ? { hostTopProcesses } : {}),
+          }),
         };
         yield* Ref.set(state, {
           nativeSnapshot,

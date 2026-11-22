@@ -53,7 +53,7 @@ const unlimitedCgroup = {
 // Each path serves its values in order and repeats the last one.
 const linuxHost = (files: Record<string, ReadonlyArray<string>>) => {
   const reads = new Map<string, number>();
-  return HostResources.layer.pipe(
+  return HostResources.layerAt("/").pipe(
     Layer.provide(
       Layer.mergeAll(
         FileSystem.layerNoop({
@@ -120,6 +120,8 @@ describe("HostResources.layer", () => {
       const snapshot = yield* read;
 
       assert.strictEqual(snapshot.totalMemoryBytes, GiB);
+      assert.isAbove(snapshot.diskTotalBytes ?? 0, 0);
+      assert.isAtMost(snapshot.diskAvailableBytes ?? Infinity, snapshot.diskTotalBytes ?? 0);
       // 600 MiB charged, of which 100 MiB is reclaimable page cache.
       assert.strictEqual(snapshot.availableMemoryBytes, GiB - 500 * MiB);
     }).pipe(

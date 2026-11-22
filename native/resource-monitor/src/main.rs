@@ -22,6 +22,9 @@ const MAX_PROCESS_COMMAND_BYTES: usize = 16 * 1_024;
 const MAX_PROCESS_STATUS_BYTES: usize = 256;
 const HISTORY_CHUNK_SNAPSHOTS: usize = 32;
 const TWO_STAGE_PROCESS_REFRESH: bool = cfg!(any(target_os = "linux", target_os = "macos"));
+// Fork: the Resources popover's "Not T3" row; a host-wide memory pass at most this often.
+const HOST_TOP_REFRESH: Duration = Duration::from_secs(5);
+const HOST_TOP_COUNT: usize = 3;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -179,6 +182,16 @@ impl ProcessSample {
     }
 }
 
+/// Fork: processes outside T3's tree, grouped by name.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostProcessGroup {
+    name: String,
+    process_count: usize,
+    cpu_percent: f32,
+    resident_bytes: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SnapshotEvent {
@@ -195,6 +208,8 @@ struct SnapshotEvent {
     request_id: Option<String>,
     external_processes: Vec<ExternalProcess>,
     processes: Vec<ProcessSample>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host_top_processes: Option<Vec<HostProcessGroup>>,
 }
 
 impl SnapshotEvent {
@@ -280,6 +295,7 @@ impl HistoryRecorder {
             .is_some_and(|previous| previous.sampled_at_unix_ms > snapshot.sampled_at_unix_ms);
         let mut retained = snapshot.clone();
         retained.request_id = None;
+        retained.host_top_processes = None;
         self.retained_entry_count = self
             .retained_entry_count
             .saturating_add(retained.retained_entry_count());
@@ -355,6 +371,7 @@ struct Collector {
     system: System,
     sequence: u64,
     cpu_baseline_refreshed_at: Option<Instant>,
+    host_top: Option<(Instant, Vec<HostProcessGroup>)>,
 }
 
 impl Collector {
@@ -363,6 +380,7 @@ impl Collector {
             system: System::new(),
             sequence: 0,
             cpu_baseline_refreshed_at: None,
+            host_top: None,
         }
     }
 
@@ -435,7 +453,47 @@ impl Collector {
         processes
     }
 
+    fn host_top_processes(&mut self, tracked: &HashSet<u32>) -> Vec<HostProcessGroup> {
+        if let Some((at, groups)) = &self.host_top
+            && at.elapsed() < HOST_TOP_REFRESH
+        {
+            return groups.clone();
+        }
+        // A separate System keeps the discovery CPU baselines intact.
+        let mut memory = System::new();
+        memory.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().with_memory().without_tasks(),
+        );
+        let rows = self
+            .system
+            .processes()
+            .iter()
+            .filter(|(pid, _)| pid.as_u32() != 0 && !tracked.contains(&pid.as_u32()))
+            .map(|(pid, process)| {
+                (
+                    process.name().to_string_lossy().into_owned(),
+                    process.cpu_usage(),
+                    memory.process(*pid).map_or(0, |detail| detail.memory()),
+                )
+            });
+        let groups = top_process_groups(rows, HOST_TOP_COUNT);
+        self.host_top = Some((Instant::now(), groups.clone()));
+        groups
+    }
+
+    #[cfg(test)]
     fn sample(&mut self, config: &CollectorConfig, request_id: Option<String>) -> SnapshotEvent {
+        self.sample_with(config, request_id, false)
+    }
+
+    fn sample_with(
+        &mut self,
+        config: &CollectorConfig,
+        request_id: Option<String>,
+        include_host_top: bool,
+    ) -> SnapshotEvent {
         if let Some(delay) =
             remaining_cpu_measurement_delay(self.cpu_baseline_refreshed_at.take(), Instant::now())
         {
@@ -480,6 +538,7 @@ impl Collector {
         roots.insert(config.root_pid);
         let tracked = select_tracked_pids(&rows, &roots);
         let tracked_process_count = tracked.len();
+        let host_top_processes = include_host_top.then(|| self.host_top_processes(&tracked));
         let process_details = if TWO_STAGE_PROCESS_REFRESH && !tracked.is_empty() {
             let monitor_pid = Pid::from_u32(std::process::id());
             let mut detail_pids = tracked
@@ -581,8 +640,41 @@ impl Collector {
             request_id,
             external_processes,
             processes,
+            host_top_processes,
         }
     }
+}
+
+/// The busiest names by memory and by CPU, merged and ordered by memory.
+fn top_process_groups(
+    rows: impl Iterator<Item = (String, f32, u64)>,
+    count: usize,
+) -> Vec<HostProcessGroup> {
+    let mut by_name: HashMap<String, HostProcessGroup> = HashMap::new();
+    for (name, cpu_percent, resident_bytes) in rows {
+        let group = by_name
+            .entry(name.clone())
+            .or_insert_with(|| HostProcessGroup {
+                name: truncate_utf8(name, MAX_PROCESS_NAME_BYTES),
+                process_count: 0,
+                cpu_percent: 0.0,
+                resident_bytes: 0,
+            });
+        group.process_count += 1;
+        group.cpu_percent += cpu_percent;
+        group.resident_bytes = group.resident_bytes.saturating_add(resident_bytes);
+    }
+    let mut groups = by_name.into_values().collect::<Vec<_>>();
+    groups.sort_by_key(|group| std::cmp::Reverse(group.resident_bytes));
+    let mut top = groups.iter().take(count).cloned().collect::<Vec<_>>();
+    groups.sort_by(|left, right| right.cpu_percent.total_cmp(&left.cpu_percent));
+    for group in groups.into_iter().take(count) {
+        if !top.iter().any(|kept| kept.name == group.name) {
+            top.push(group);
+        }
+    }
+    top.sort_by_key(|group| std::cmp::Reverse(group.resident_bytes));
+    top
 }
 
 // Keep CPU baselines separate. Even a metadata refresh resets Linux process times.
@@ -860,7 +952,7 @@ fn main() -> io::Result<()> {
         if next_sample_at.is_some_and(|deadline| deadline <= Instant::now()) {
             if let Some(current) = config.as_ref() {
                 if let Some(interval) = current.sample_interval {
-                    let event = collector.sample(current, None);
+                    let event = collector.sample_with(current, None, streaming_enabled);
                     history.record(&event);
                     if streaming_enabled {
                         write_event(&mut writer, &event)?;
@@ -953,7 +1045,7 @@ fn main() -> io::Result<()> {
                     }
                     Command::SampleNow { request_id, .. } => {
                         if let Some(current) = config.as_ref() {
-                            let event = collector.sample(current, Some(request_id));
+                            let event = collector.sample_with(current, Some(request_id), true);
                             history.record(&event);
                             write_event(&mut writer, &event)?;
                             next_sample_at = sample_now_deadline(
@@ -1205,6 +1297,34 @@ mod tests {
     }
 
     #[test]
+    fn groups_other_processes_and_keeps_the_busiest_by_memory_and_cpu() {
+        let rows = [
+            ("chrome", 1.0, 400),
+            ("chrome", 2.0, 600),
+            ("postgres", 0.0, 800),
+            ("idle", 0.0, 10),
+            ("tiny", 0.0, 5),
+            ("spinner", 180.0, 20),
+        ]
+        .map(|(name, cpu, memory)| (name.to_string(), cpu, memory));
+        let top = top_process_groups(rows.into_iter(), 2);
+        assert_eq!(
+            top.iter()
+                .map(|group| (
+                    group.name.as_str(),
+                    group.process_count,
+                    group.resident_bytes
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("chrome", 2, 1_000),
+                ("postgres", 1, 800),
+                ("spinner", 1, 20)
+            ],
+        );
+    }
+
+    #[test]
     fn clamps_sample_interval() {
         assert_eq!(clamp_sample_interval(0), None);
         assert_eq!(clamp_sample_interval(1), Some(Duration::from_millis(250)));
@@ -1242,6 +1362,7 @@ mod tests {
             history.record(&SnapshotEvent {
                 version: PROTOCOL_VERSION,
                 event_type: "snapshot",
+                host_top_processes: None,
                 sequence: sequence as u64,
                 sampled_at_unix_ms: sequence as u64 * 1_000,
                 collection_duration_micros: 1,
@@ -1283,6 +1404,7 @@ mod tests {
         let snapshot = SnapshotEvent {
             version: PROTOCOL_VERSION,
             event_type: "snapshot",
+            host_top_processes: None,
             sequence: 1,
             sampled_at_unix_ms: 2_000,
             collection_duration_micros: 1,
@@ -1336,6 +1458,7 @@ mod tests {
                 &SnapshotEvent {
                     version: PROTOCOL_VERSION,
                     event_type: "snapshot",
+                    host_top_processes: None,
                     sequence,
                     sampled_at_unix_ms: sequence * 1_000,
                     collection_duration_micros: 1,
@@ -1376,6 +1499,7 @@ mod tests {
         let snapshot = SnapshotEvent {
             version: PROTOCOL_VERSION,
             event_type: "snapshot",
+            host_top_processes: None,
             sequence: 0,
             sampled_at_unix_ms: 0,
             collection_duration_micros: 1,

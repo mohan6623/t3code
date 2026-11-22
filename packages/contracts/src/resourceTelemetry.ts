@@ -12,8 +12,39 @@ export const HostResourcesSnapshot = Schema.Struct({
   cpuCount: NonNegativeInt,
   availableMemoryBytes: NonNegativeInt,
   totalMemoryBytes: NonNegativeInt,
+  // Fork: the drive holding T3's data. Optional so clients still read older servers.
+  diskAvailableBytes: Schema.optional(NonNegativeInt),
+  diskTotalBytes: Schema.optional(NonNegativeInt),
 });
 export type HostResourcesSnapshot = typeof HostResourcesSnapshot.Type;
+
+// Fork: the host's own CPU / memory / disk use over time, recorded by every server.
+const UsedFraction = Schema.NullOr(
+  Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+);
+const HOST_RESOURCE_HISTORY_MAX_WINDOW_MS = 24 * 60 * 60_000;
+const HOST_RESOURCE_HISTORY_MAX_POINTS = 240;
+
+export const HostResourceHistoryInput = Schema.Struct({
+  windowMs: PositiveInt.check(Schema.isLessThanOrEqualTo(HOST_RESOURCE_HISTORY_MAX_WINDOW_MS)),
+  points: PositiveInt.check(Schema.isLessThanOrEqualTo(HOST_RESOURCE_HISTORY_MAX_POINTS)),
+});
+export type HostResourceHistoryInput = typeof HostResourceHistoryInput.Type;
+
+/** The busiest reading inside one slice of the window; all null when nothing was recorded. */
+export const HostResourceHistoryPoint = Schema.Struct({
+  endsAt: NonNegativeInt,
+  cpu: UsedFraction,
+  memory: UsedFraction,
+  disk: UsedFraction,
+});
+export type HostResourceHistoryPoint = typeof HostResourceHistoryPoint.Type;
+
+export const HostResourceHistory = Schema.Struct({
+  windowMs: PositiveInt,
+  points: Schema.Array(HostResourceHistoryPoint),
+});
+export type HostResourceHistory = typeof HostResourceHistory.Type;
 
 export const ResourceTelemetryIoSemantics = Schema.Literals([
   "storage",
@@ -170,6 +201,15 @@ export const ResourceMonitorHelloEvent = Schema.Struct({
 });
 export type ResourceMonitorHelloEvent = typeof ResourceMonitorHelloEvent.Type;
 
+// Fork: busiest processes outside T3's tree, grouped by name, for the Resources popover.
+export const ResourceMonitorHostProcessGroup = Schema.Struct({
+  name: Schema.String,
+  processCount: PositiveInt,
+  cpuPercent: Schema.Number,
+  residentBytes: NonNegativeInt,
+});
+export type ResourceMonitorHostProcessGroup = typeof ResourceMonitorHostProcessGroup.Type;
+
 export const ResourceMonitorSnapshotEvent = Schema.Struct({
   version: Schema.Literal(RESOURCE_MONITOR_PROTOCOL_VERSION),
   type: Schema.Literal("snapshot"),
@@ -182,6 +222,7 @@ export const ResourceMonitorSnapshotEvent = Schema.Struct({
   requestId: Schema.optionalKey(TrimmedNonEmptyString),
   externalProcesses: Schema.optionalKey(Schema.Array(ResourceMonitorExternalProcess)),
   processes: Schema.Array(ResourceMonitorProcessSample),
+  hostTopProcesses: Schema.optionalKey(Schema.Array(ResourceMonitorHostProcessGroup)),
 });
 export type ResourceMonitorSnapshotEvent = typeof ResourceMonitorSnapshotEvent.Type;
 
@@ -501,6 +542,7 @@ export const ResourceTelemetrySnapshot = Schema.Struct({
   speedLimitPercent: Schema.Option(Schema.Number),
   attribution: ResourceAttributionSnapshot,
   health: ResourceTelemetryHealth,
+  hostTopProcesses: Schema.optionalKey(Schema.Array(ResourceMonitorHostProcessGroup)),
 });
 export type ResourceTelemetrySnapshot = typeof ResourceTelemetrySnapshot.Type;
 

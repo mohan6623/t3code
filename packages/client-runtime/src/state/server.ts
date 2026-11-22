@@ -1592,6 +1592,22 @@ export function createServerEnvironmentAtoms<R, E>(
       execute: (input: EnvironmentRpcInput<typeof WS_METHODS.serverGetHostResources>) =>
         request(WS_METHODS.serverGetHostResources, input).pipe(Effect.timeout("5 seconds")),
     }),
+    // Fork: the Resources popover polls every 5 s only while it is open.
+    hostResourcesLive: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:host-resources-live",
+      tag: WS_METHODS.serverGetHostResources,
+      staleTimeMs: 5_000,
+      refreshIntervalMs: 5_000,
+      idleTtlMs: 0,
+    }),
+    // Fork: also the Resources button's once-a-minute reading, so it stays on while closed.
+    hostResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:host-resource-history",
+      tag: WS_METHODS.serverGetHostResourceHistory,
+      staleTimeMs: 60_000,
+      refreshIntervalMs: 60_000,
+      idleTtlMs: 0,
+    }),
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,

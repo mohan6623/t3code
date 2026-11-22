@@ -1,3 +1,5 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect has no free-space query.
+import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import type { HostResourcesSnapshot } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -9,6 +11,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+
+import { ServerConfig } from "../config.ts";
 
 export class HostResources extends Context.Service<
   HostResources,
@@ -70,7 +74,7 @@ function cgroupNumber(text: string, pattern: RegExp): number | null {
   return value === undefined ? null : Number(value);
 }
 
-const make = Effect.fn("makeHostResources")(function* () {
+const make = Effect.fn("makeHostResources")(function* (diskPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcess.Platform;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -172,12 +176,21 @@ const make = Effect.fn("makeHostResources")(function* () {
         memoryMax - (memoryCurrent - reclaimable),
       );
     }
+    // Fork: bavail, not bfree, so space reserved for root does not read as free.
+    const stats = yield* Effect.promise(() => NodeFSP.statfs(diskPath).catch(() => null));
+    const disk = stats
+      ? {
+          diskTotalBytes: stats.blocks * stats.bsize,
+          diskAvailableBytes: stats.bavail * stats.bsize,
+        }
+      : {};
     return {
       sampledAt: DateTime.toEpochMillis(yield* DateTime.now),
       cpuUtilization,
       cpuCount,
       availableMemoryBytes: Math.min(totalMemoryBytes, Math.max(0, availableMemoryBytes)),
       totalMemoryBytes,
+      ...disk,
     };
   });
 
@@ -189,4 +202,12 @@ const make = Effect.fn("makeHostResources")(function* () {
   return HostResources.of({ read: Cache.get(cache, "host") });
 });
 
-export const layer = Layer.effect(HostResources, make());
+/** Fork: `diskPath` picks the drive whose space is reported; tests point it anywhere. */
+export const layerAt = (diskPath: string) => Layer.effect(HostResources, make(diskPath));
+
+export const layer = Layer.unwrap(
+  Effect.gen(function* () {
+    const { stateDir } = yield* ServerConfig;
+    return layerAt(stateDir);
+  }),
+);

@@ -18,6 +18,7 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 
 export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyResolveError>()(
@@ -145,10 +146,12 @@ export const layerFromProjectStore: Layer.Layer<
   | ProviderInstanceRegistry.ProviderInstanceRegistry
   | WorkspaceRepositories.WorkspaceRepositories
   | ServerSettings.ServerSettingsService
+  | WorkspaceFolders.WorkspaceFolders
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
     const projects = yield* ProjectStore.ProjectStoreV2;
+    const workspaceFolders = yield* WorkspaceFolders.WorkspaceFolders;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
     // The same ceiling the orchestrator enforces, fixed for the server's life.
@@ -188,12 +191,26 @@ export const layerFromProjectStore: Layer.Layer<
             ),
           ));
         const repositories = yield* workspaceRepositories.list(cwd);
+        // The turn can still run in its own cwd, as a single-folder thread does.
+        const workspace = yield* workspaceFolders
+          .forThread({
+            projectId: input.thread.projectId,
+            worktreePath: input.thread.worktreePath,
+          })
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("Could not resolve the thread's tracked folders.", cause).pipe(
+                Effect.as(undefined),
+              ),
+            ),
+          );
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
           ...(repositories.length === 0 ? {} : { repositories }),
           ...(maxRuntimeMode === undefined ? {} : { maxRuntimeMode }),
+          ...(workspace === undefined || workspace.folders.length === 0 ? {} : { workspace }),
         });
       }),
     });

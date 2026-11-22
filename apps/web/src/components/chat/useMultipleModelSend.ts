@@ -58,6 +58,7 @@ interface MultipleModelSendInput {
   readonly startFromOrigin: boolean;
   /** Fork: the name typed for the new threads, used as their title. */
   readonly draftThreadName: DraftThreadName;
+  readonly worktreeRepositories: ReadonlyArray<{ readonly path: string }> | undefined;
   readonly resetLocalDispatch: ReturnType<typeof useLocalDispatchState>["resetLocalDispatch"];
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
 }
@@ -79,6 +80,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     runtimeMode,
     startFromOrigin,
     draftThreadName,
+    worktreeRepositories,
     resetLocalDispatch,
     setThreadError,
   } = input;
@@ -147,9 +149,11 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
         { text: messageText, attachments: attachmentsSnapshot },
         m,
       );
-      promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
+      if (currentRouteThreadKeyRef.current === routeThreadKey) {
+        promptRef.current = "";
+        composerRef.current?.resetCursorState();
+      }
       draftThreadName.clear();
       clearedDraft = true;
       const clearedDraftSnapshot = useComposerDraftStore
@@ -214,6 +218,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       baseBranch: branch,
                       requireWorktree: true,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(worktreeRepositories ? { repositories: worktreeRepositories } : {}),
                     },
                     runSetupScript: true,
                   },

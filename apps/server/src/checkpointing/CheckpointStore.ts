@@ -17,12 +17,28 @@ export interface CaptureCheckpointInput {
   readonly missingOnly?: boolean;
   /** The checkpoint this one follows, so a turn that switched branches starts where it landed. */
   readonly previousCheckpointRef?: CheckpointRef;
+  /** Folders below `cwd` (relative, `/`-separated) that have their own checkpoints. */
+  readonly excludePaths?: ReadonlyArray<string>;
+}
+
+export interface CaptureHeadCheckpointInput {
+  readonly cwd: string;
+  readonly checkpointRef: CheckpointRef;
+  /** A commit `resolveCleanHead` returned for this folder. */
+  readonly head: string;
+  /**
+   * When the folder was seen clean, in epoch seconds, if that was earlier than now. Commits made
+   * after a checkpoint count as the turn's own work, so a late snapshot must not postdate them.
+   */
+  readonly seenAt?: number;
 }
 
 export interface RestoreCheckpointInput {
   readonly cwd: string;
   readonly checkpointRef: CheckpointRef;
   readonly fallbackToHead?: boolean;
+  /** Folders below `cwd` the restore leaves as they are, as in a capture. */
+  readonly excludePaths?: ReadonlyArray<string>;
 }
 
 export interface DiffCheckpointsInput {
@@ -36,6 +52,8 @@ export interface DiffCheckpointsInput {
   readonly maxOutputBytes?: number;
   /** Limits the diff to these exact paths. An empty list yields an empty diff. */
   readonly filePaths?: ReadonlyArray<string>;
+  /** Folders below `cwd` left out of the diff, as in a capture. */
+  readonly excludePaths?: ReadonlyArray<string>;
 }
 
 export interface ListAuthoredPathsInput {
@@ -63,6 +81,17 @@ export class CheckpointStore extends Context.Service<
 
     readonly captureCheckpoint: (
       input: CaptureCheckpointInput,
+    ) => Effect.Effect<void, CheckpointStoreError>;
+
+    /**
+     * HEAD's commit when the folder matches it exactly: nothing staged, modified or untracked.
+     * Null otherwise. One status, where a capture stages the whole worktree.
+     */
+    readonly resolveCleanHead: (cwd: string) => Effect.Effect<string | null, CheckpointStoreError>;
+
+    /** Snapshots a folder that was clean at `head` from that commit, without reading its files. */
+    readonly captureHeadCheckpoint: (
+      input: CaptureHeadCheckpointInput,
     ) => Effect.Effect<void, CheckpointStoreError>;
 
     readonly hasCheckpointRef: (
@@ -124,21 +153,36 @@ export const make = Effect.gen(function* () {
 
   // A plain repository, or a cwd that is no repository and holds none, stays a single target,
   // so its operations behave the way they always have.
-  const resolveTargets = Effect.fn("CheckpointStore.resolveTargets")(function* (cwd: string) {
-    const repositories = yield* workspaceRepositories.list(cwd);
+  // Fork: `excluded` folders have checkpoints of their own, so repositories inside them are skipped.
+  const resolveTargets = Effect.fn("CheckpointStore.resolveTargets")(function* (
+    cwd: string,
+    excluded: ReadonlyArray<string> = [],
+  ) {
+    const repositories = (yield* workspaceRepositories.list(cwd)).filter(
+      (repository) =>
+        isRootWorkspaceRepository(repository) ||
+        !excluded.some(
+          (folder) =>
+            repository.relativePath === folder || repository.relativePath.startsWith(`${folder}/`),
+        ),
+    );
     if (repositories.length === 0) {
-      return [{ cwd, pathPrefix: null, excludePaths: [] }] satisfies Array<CheckpointTarget>;
+      return [{ cwd, pathPrefix: null, excludePaths: excluded }] satisfies Array<CheckpointTarget>;
     }
     const nested = repositories
       .filter((repository) => !isRootWorkspaceRepository(repository))
       .map((repository) => repository.relativePath);
     return repositories.map((repository): CheckpointTarget =>
       isRootWorkspaceRepository(repository)
-        ? { cwd, pathPrefix: null, excludePaths: nested }
+        ? { cwd, pathPrefix: null, excludePaths: [...nested, ...excluded] }
         : {
             cwd: path.join(cwd, ...repository.relativePath.split("/")),
             pathPrefix: repository.relativePath,
-            excludePaths: [],
+            excludePaths: excluded.flatMap((folder) =>
+              folder.startsWith(`${repository.relativePath}/`)
+                ? [folder.slice(repository.relativePath.length + 1)]
+                : [],
+            ),
           },
     );
   });
@@ -165,7 +209,7 @@ export const make = Effect.gen(function* () {
   const captureCheckpoint: CheckpointStore["Service"]["captureCheckpoint"] = Effect.fn(
     "captureCheckpoint",
   )(function* (input) {
-    yield* forEachTarget(yield* resolveTargets(input.cwd), (target) =>
+    yield* forEachTarget(yield* resolveTargets(input.cwd, input.excludePaths), (target) =>
       Effect.gen(function* () {
         if (input.missingOnly && (yield* hasRefIn(target, input.checkpointRef))) return;
         const checkpoints = yield* resolveCheckpoints(target.cwd);
@@ -181,11 +225,26 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const resolveCleanHead: CheckpointStore["Service"]["resolveCleanHead"] = Effect.fn(
+    "CheckpointStore.resolveCleanHead",
+  )(function* (cwd) {
+    const checkpoints = yield* resolveCheckpoints(cwd);
+    return yield* checkpoints.resolveCleanHead(cwd);
+  });
+
+  const captureHeadCheckpoint: CheckpointStore["Service"]["captureHeadCheckpoint"] = Effect.fn(
+    "CheckpointStore.captureHeadCheckpoint",
+  )(function* (input) {
+    const checkpoints = yield* resolveCheckpoints(input.cwd);
+    return yield* checkpoints.captureHeadCheckpoint(input);
+  });
+
   const hasCheckpointRef: CheckpointStore["Service"]["hasCheckpointRef"] = Effect.fn(
     "hasCheckpointRef",
   )(function* (input) {
-    const found = yield* forEachTarget(yield* resolveTargets(input.cwd), (target) =>
-      hasRefIn(target, input.checkpointRef),
+    const found = yield* forEachTarget(
+      yield* resolveTargets(input.cwd, input.excludePaths),
+      (target) => hasRefIn(target, input.checkpointRef),
     );
     return found.every(Boolean);
   });
@@ -193,7 +252,7 @@ export const make = Effect.gen(function* () {
   const restoreCheckpoint: CheckpointStore["Service"]["restoreCheckpoint"] = Effect.fn(
     "restoreCheckpoint",
   )(function* (input) {
-    let targets = yield* resolveTargets(input.cwd);
+    let targets = yield* resolveTargets(input.cwd, input.excludePaths);
     // Refuse up front rather than restore some repositories and then find one without the ref.
     if (targets.length > 1 && input.fallbackToHead !== true) {
       const found = yield* forEachTarget(targets, (target) =>
@@ -213,7 +272,11 @@ export const make = Effect.gen(function* () {
     const restored = yield* Effect.forEach(targets, (target, index) =>
       resolveCheckpoints(target.cwd).pipe(
         Effect.flatMap((checkpoints) =>
-          checkpoints.restoreCheckpoint({ ...input, cwd: target.cwd }),
+          checkpoints.restoreCheckpoint({
+            ...input,
+            cwd: target.cwd,
+            excludePaths: target.excludePaths,
+          }),
         ),
         Effect.tapError(() =>
           index === 0
@@ -231,7 +294,7 @@ export const make = Effect.gen(function* () {
   const diffCheckpoints: CheckpointStore["Service"]["diffCheckpoints"] = Effect.fn(
     "diffCheckpoints",
   )(function* (input) {
-    const targets = yield* resolveTargets(input.cwd);
+    const targets = yield* resolveTargets(input.cwd, input.excludePaths);
     const diffs = yield* forEachTarget(targets, (target) =>
       Effect.gen(function* () {
         const checkpoints = yield* resolveCheckpoints(target.cwd);
@@ -265,6 +328,7 @@ export const make = Effect.gen(function* () {
         const diff = yield* checkpoints.diffCheckpoints({
           ...input,
           cwd: target.cwd,
+          excludePaths: target.excludePaths,
           ...(input.filePaths
             ? {
                 filePaths: input.filePaths.flatMap((filePath) =>
@@ -356,6 +420,8 @@ export const make = Effect.gen(function* () {
   return CheckpointStore.of({
     isCheckpointable,
     captureCheckpoint,
+    resolveCleanHead,
+    captureHeadCheckpoint,
     hasCheckpointRef,
     restoreCheckpoint,
     diffCheckpoints,

@@ -14,7 +14,7 @@ import {
   BotIcon,
   BoxIcon,
   ChevronDownIcon,
-  CpuIcon,
+  GaugeIcon,
   MonitorIcon,
   SearchIcon,
   ServerIcon,
@@ -44,6 +44,7 @@ import {
 import {
   RESOURCE_RANGES,
   WARN_AT,
+  busiestMetric,
   formatBytes,
   hottestMetric,
   investigatePrompt,
@@ -914,54 +915,47 @@ function ResourcesPanel({
   );
 }
 
-/** The header button: this machine's three bars, plus a dot when any machine needs a look. */
+/** The header button: this machine's busiest reading in words, plus how many other machines need a look. */
 export const ResourcesButton = memo(function ResourcesButton({
   environmentId,
 }: {
   environmentId: EnvironmentId;
 }) {
   const gt = useGT();
+  const labels = useMetricLabels();
   const [open, setOpen] = useState(false);
   const { environments } = useEnvironments();
   const readings = useAtomValue(recentFleetReadingsAtom(fleetEnvironmentIdsKey(environments)));
   const machines = fleetMachines(environments, readings);
-  const current = machines.find((machine) => machine.environmentId === environmentId);
-  const attention = machines.filter(needsAttention).length;
+  const usage = machines.find((machine) => machine.environmentId === environmentId)?.usage ?? null;
+  const busiest = usage ? busiestMetric(usage) : null;
+  const others = machines.filter(
+    (machine) => machine.environmentId !== environmentId && needsAttention(machine),
+  ).length;
   const label =
-    attention > 0
+    others > 0
       ? gt(
-          "{count, plural, one {Resources: {count} machine needs attention} other {Resources: {count} machines need attention}}",
-          { count: attention },
+          "{count, plural, one {Resources: {count} other machine needs attention} other {Resources: {count} other machines need attention}}",
+          { count: others },
         )
       : gt("Resources");
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        render={
-          <Button variant="ghost" size="sm" aria-label={label} className="relative shrink-0" />
-        }
+        render={<Button variant="ghost" size="sm" aria-label={label} className="shrink-0" />}
       >
-        <CpuIcon aria-hidden className="size-4" />
-        {current?.usage ? (
-          <span aria-hidden className="flex w-5 flex-col gap-0.5">
-            {METRICS.map((metric) => (
-              <span key={metric} className="block h-0.5 overflow-hidden rounded-full bg-muted">
-                <span
-                  className={cn(
-                    "block h-full rounded-full",
-                    LEVEL_FILL[levelOf(current.usage?.[metric])],
-                  )}
-                  style={{ width: `${percent(current.usage?.[metric]) ?? 0}%` }}
-                />
-              </span>
-            ))}
+        <GaugeIcon aria-hidden className="size-4 text-muted-foreground" />
+        {usage && busiest ? (
+          <span className="tabular-nums">
+            <span className="text-muted-foreground">{labels[busiest]}</span>{" "}
+            <span className={LEVEL_TEXT[levelOf(usage[busiest])]}>{percent(usage[busiest])}%</span>
           </span>
         ) : null}
-        {attention > 0 ? (
-          <span
-            aria-hidden
-            className="absolute -end-0.5 -top-0.5 size-2 rounded-full bg-destructive ring-2 ring-background"
-          />
+        {others > 0 ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-1.5 text-2xs font-semibold text-destructive">
+            <span aria-hidden className="size-1.5 rounded-full bg-current" />
+            {gt("{count} busy", { count: others })}
+          </span>
         ) : null}
       </PopoverTrigger>
       <PopoverPopup side="bottom" align="end" width="lg" padding="compact">

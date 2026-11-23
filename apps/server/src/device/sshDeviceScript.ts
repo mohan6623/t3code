@@ -196,6 +196,18 @@ async function install(name, version, entry) {
   if (!ios && !android) throw Error(platforms.map(p => p.reason).join(' '));
   fs.mkdirSync(state, { recursive: true, mode: 0o700 });
   const hubEntry = await install('expo-device-hub', hubVersion, 'dist/server/cli.mjs');
+  // Fork: the hub's default 1220-byte H.264 fragments exceed Tailscale's 1280-byte MTU over IPv6, so
+  // every keyframe was dropped and the stream froze and reloaded. A hub running the old code restarts.
+  const publisher = path.join(path.dirname(hubEntry), '..', '..', 'vendor', 'serve-emu', 'dist', 'webrtc-publisher.js');
+  const packetizer = 'H264RtpPacketizer("StartSequence", this.rtpConfig)';
+  let rtpPatched = false;
+  try {
+    const source = fs.readFileSync(publisher, 'utf8');
+    if (source.includes(packetizer)) {
+      fs.writeFileSync(publisher, source.replace(packetizer, 'H264RtpPacketizer("StartSequence", this.rtpConfig, 1100)'));
+      rtpPatched = true;
+    }
+  } catch {}
   // Only a Mac can list Apple simulators. Recording the filter replaces hubs started without it.
   const hubPlatform = process.platform === 'darwin' ? undefined : 'android';
   const cameraArgs = android ? ['front', 'back'].flatMap(facing => {
@@ -210,7 +222,7 @@ async function install(name, version, entry) {
   // socket still serves as the viewer's fallback. A Mac hub also streams iOS, so it keeps defaults.
   const streamArgs = hubPlatform === 'android' ? ['--transport', 'webrtc', '--video-bitrate', '4000000', '--video-fps', '30'] : [];
   let hub = read(hubFile);
-  if (!hub || hub.owner !== owner || hub.entryPath !== hubEntry || hub.platform !== hubPlatform || hub.emulatorExtraArgs !== emulatorExtraArgs || (hub.streamArgs ?? '') !== streamArgs.join(' ') || !await healthy(hub.port, '/readyz')) {
+  if (!hub || rtpPatched || hub.owner !== owner || hub.entryPath !== hubEntry || hub.platform !== hubPlatform || hub.emulatorExtraArgs !== emulatorExtraArgs || (hub.streamArgs ?? '') !== streamArgs.join(' ') || !await healthy(hub.port, '/readyz')) {
     stopHub(hub);
     for (let attempt = 0; attempt < 5; attempt++) {
       const hubPort = await port();

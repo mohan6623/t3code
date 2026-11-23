@@ -1,6 +1,7 @@
 import { ORCHESTRATION_PROTOCOL_HEADER } from "@t3tools/contracts";
 
-export const browserApiCorsAllowedMethods = ["GET", "POST", "OPTIONS"] as const;
+// Fork: PATCH for the device hub's stream settings (stream quality menu).
+export const browserApiCorsAllowedMethods = ["GET", "POST", "PATCH", "OPTIONS"] as const;
 export const browserApiCorsAllowedHeaders = [
   "authorization",
   "b3",

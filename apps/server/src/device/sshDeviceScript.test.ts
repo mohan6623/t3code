@@ -268,6 +268,17 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(calls)}, args.join(" ") + "\\n");
 http.createServer((_, res) => res.end("ok")).listen(Number(args[args.indexOf("--port") + 1]), "127.0.0.1");`,
         );
+        const publisher = NodePath.join(
+          install,
+          "node_modules/expo-device-hub/vendor/serve-emu/dist/webrtc-publisher.js",
+        );
+        await NodeFSP.mkdir(NodePath.dirname(publisher), { recursive: true });
+        await NodeFSP.writeFile(
+          publisher,
+          'const p = new this.params.ndc.H264RtpPacketizer("StartSequence", this.rtpConfig);',
+        );
+        const sdk = NodePath.join(home, "sdk");
+        await completeSdk(sdk);
         await NodeFSP.mkdir(NodePath.join(home, "bin"));
         await NodeFSP.writeFile(NodePath.join(home, "bin/adb"), "#!/bin/sh\nexit 0\n", {
           mode: 0o755,
@@ -289,7 +300,11 @@ http.createServer((_, res) => res.end("ok")).listen(Number(args[args.indexOf("--
         const start = async () => {
           const result = NodeChildProcess.spawnSync(process.execPath, [], {
             input: remoteDeviceScript("owner", "start"),
-            env: { HOME: home, PATH: `${NodePath.join(home, "bin")}:/usr/bin:/bin` },
+            env: {
+              HOME: home,
+              PATH: `${NodePath.join(home, "bin")}:/usr/bin:/bin`,
+              ...(platform === "darwin" ? {} : { ANDROID_HOME: sdk }),
+            },
             encoding: "utf8",
           });
           expect(result.stderr).toBe("");
@@ -308,6 +323,8 @@ http.createServer((_, res) => res.end("ok")).listen(Number(args[args.indexOf("--
         const spawned = (await NodeFSP.readFile(calls, "utf8")).trim().split("\n");
         expect(spawned).toHaveLength(1);
         expect(spawned[0]!.endsWith(streamArgs)).toBe(true);
+        // Fork: H.264 fragments small enough for Tailscale's 1280-byte MTU over IPv6.
+        expect(await NodeFSP.readFile(publisher, "utf8")).toContain("this.rtpConfig, 1100)");
         expect((await start()).pid).toBe(first.pid);
         expect((await NodeFSP.readFile(calls, "utf8")).trim().split("\n")).toHaveLength(1);
       } finally {

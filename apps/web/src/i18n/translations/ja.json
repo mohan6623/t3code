@@ -12453,7 +12453,8 @@
   "885b8d342459728e": "グラフ",
   "fe4a98a767f41280": "一致するマシンはありません。",
   "821ce4b4909a9de4": "各マシンが直近 24 時間を記録します。T3 を実行しているマシンのみ表示されます。",
-  "f98325c9b6a734b4": "{count, plural, one {リソース: {count} 台のマシンに注意が必要です} other {リソース: {count} 台のマシンに注意が必要です}}",
+  "e2cda068dfeaa4c2": "{count, plural, one {リソース: 他の {count} 台のマシンに注意が必要です} other {リソース: 他の {count} 台のマシンに注意が必要です}}",
+  "d0a5dbb08c9d7232": "{count} 台が高負荷",
   "d2efc59dda1bb760": "{count, plural, one {マシンのリソースを {count} 回確認しました} other {マシンのリソースを {count} 回確認しました}}",
   "edd5625b5c697510": "{count, plural, one {マシンのリソースの確認を {count} 回試みました} other {マシンのリソースの確認を {count} 回試みました}}",
   "bcc894d0da54a0f5": "{status, select, inProgress {マシンのリソースを確認中} completed {マシンのリソースを確認しました} failed {マシンのリソースを確認できませんでした} declined {マシンのリソースの確認を拒否しました} stopped {マシンのリソースの確認を停止しました} other {マシンのリソースを確認中}}"

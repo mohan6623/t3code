@@ -43,12 +43,18 @@ export function worstOf(usage: HostUsage): number | null {
   return values.length > 0 ? Math.max(...values) : null;
 }
 
-/** The metric to name in the "Ask agent" action: disk when it is the worst, else general. */
-export function hottestMetric(usage: HostUsage): ResourceMetric | null {
+/** The metric with the highest reading; disk wins a tie, since a full disk hangs a machine. */
+export function busiestMetric(usage: HostUsage): ResourceMetric | null {
   const worst = worstOf(usage);
-  if (worst === null || worst < WARN_AT) return null;
+  if (worst === null) return null;
   if (usage.disk === worst) return "disk";
   return usage.memory === worst ? "memory" : "cpu";
+}
+
+/** The metric to name in the "Ask agent" action, once a reading reaches the warning line. */
+export function hottestMetric(usage: HostUsage): ResourceMetric | null {
+  const worst = worstOf(usage);
+  return worst === null || worst < WARN_AT ? null : busiestMetric(usage);
 }
 
 export function percent(fraction: number | null | undefined): number | null {

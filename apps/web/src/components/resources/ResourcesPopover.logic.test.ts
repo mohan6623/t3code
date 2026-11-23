@@ -4,6 +4,7 @@ import type { ResourceTelemetryProcess } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import {
+  busiestMetric,
   hottestMetric,
   investigatePrompt,
   machineBreakdown,
@@ -67,6 +68,9 @@ describe("investigatePrompt", () => {
       "ask me before stopping any process",
     );
     expect(hottestMetric({ cpu: 0.3, memory: 0.5, disk: 0.6 })).toBeNull();
+    expect(busiestMetric({ cpu: 0.3, memory: 0.5, disk: 0.6 })).toBe("disk");
+    expect(busiestMetric({ cpu: 0.7, memory: 0.5, disk: null })).toBe("cpu");
+    expect(busiestMetric({ cpu: null, memory: null, disk: null })).toBeNull();
   });
 });
 

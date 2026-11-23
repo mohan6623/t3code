@@ -168,6 +168,10 @@ describe("browser API CORS", () => {
       expect(allowedHeaders.has(ORCHESTRATION_PROTOCOL_HEADER)).toBe(true);
       expect(allowedHeaders.has("authorization")).toBe(true);
       expect(allowedHeaders.has("dpop")).toBe(true);
+      // Fork: the device stream quality menu changes the hub's settings with PATCH.
+      expect(response.headers.get("access-control-allow-methods")?.split(/,\s*/)).toContain(
+        "PATCH",
+      );
     } finally {
       await dispose();
     }

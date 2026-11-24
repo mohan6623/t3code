@@ -54,9 +54,27 @@ function parseHostname(url: string): string | null {
   }
 }
 
+/**
+ * Fork: a saved SSH alias behind another preferred route (say T3 Connect) opens as the bare
+ * alias. Editors read the same SSH config, so the link need not carry its user name
+ * (instabox keeps a login token there).
+ */
+function firstSshTarget(
+  routes: ReadonlyArray<ConnectionRoute>,
+): { readonly alias: string; readonly username: string | null } | null {
+  for (const [index, route] of routes.entries()) {
+    const profile = Option.getOrNull(route.profile);
+    const alias = profile?._tag === "SshConnectionProfile" ? profile.target.alias.trim() : "";
+    if (profile?._tag !== "SshConnectionProfile" || alias.length === 0) continue;
+    return index === 0 ? profile.target : { alias, username: null };
+  }
+  return null;
+}
+
 export function resolveRemoteOpenState(input: {
   readonly target: ConnectionTarget | null;
-  readonly sshTarget: { readonly alias: string; readonly username: string | null } | null;
+  /** The environment's saved routes, preferred route first. */
+  readonly routes: ReadonlyArray<ConnectionRoute>;
   readonly remoteOpenTargets: ReadonlyArray<RemoteOpenTarget> | undefined;
   readonly isDesktopRenderer: boolean;
   readonly hostEnvironmentId: string | null;
@@ -78,13 +96,13 @@ export function resolveRemoteOpenState(input: {
     return LOCAL_EXEC;
   }
 
-  if (input.sshTarget !== null && input.sshTarget.alias.length > 0) {
-    const { alias } = input.sshTarget;
+  const sshTarget = firstSshTarget(input.routes);
+  if (sshTarget !== null) {
+    const { alias } = sshTarget;
     const userSeparator = alias.lastIndexOf("@");
     const host = userSeparator === -1 ? alias : alias.slice(userSeparator + 1);
     const username =
-      input.sshTarget.username?.trim() ||
-      (userSeparator === -1 ? null : alias.slice(0, userSeparator));
+      sshTarget.username?.trim() || (userSeparator === -1 ? null : alias.slice(0, userSeparator));
     return {
       mode: "remote-links",
       host: {
@@ -99,23 +117,6 @@ export function resolveRemoteOpenState(input: {
     return { mode: "remote-links", host: advertised };
   }
   return REMOTE_UNAVAILABLE;
-}
-
-/**
- * Fork: an SSH alias this client saved for the environment, even when the active route is
- * T3 Connect, whose advertised `<hostname>.local` only works on the same network. Editors
- * run on this machine and read the same SSH config, so the bare alias reaches the same
- * login without copying its user name into the link (instabox keeps a login token there).
- */
-export function savedSshAlias(
-  routes: ReadonlyArray<ConnectionRoute>,
-): { readonly alias: string; readonly username: null } | null {
-  for (const route of routes) {
-    const profile = Option.getOrNull(route.profile);
-    const alias = profile?._tag === "SshConnectionProfile" ? profile.target.alias.trim() : "";
-    if (alias.length > 0) return { alias, username: null };
-  }
-  return null;
 }
 
 function remoteOpenStatesEqual(previous: RemoteOpenState, next: RemoteOpenState): boolean {
@@ -136,14 +137,10 @@ const remoteOpenResolutionAtom = Atom.family((environmentId: EnvironmentId) =>
     if (entry === null) {
       return UNRESOLVED_REMOTE_OPEN;
     }
-    const profile = Option.getOrNull(entry.profile);
     const next: RemoteOpenResolution = {
       state: resolveRemoteOpenState({
         target: entry.target,
-        sshTarget:
-          profile !== null && profile._tag === "SshConnectionProfile"
-            ? profile.target
-            : savedSshAlias(connectionRoutes(entry)),
+        routes: connectionRoutes(entry),
         remoteOpenTargets: presentation?.serverConfig?.remoteOpenTargets,
         isDesktopRenderer: window.desktopBridge !== undefined,
         hostEnvironmentId: get(hostEnvironmentIdAtom),

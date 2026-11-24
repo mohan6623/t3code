@@ -10,6 +10,7 @@ export function FileMarkdownPreview(props: {
   readonly text: string;
   readonly threadRef: ScopedThreadRef;
   readonly workspaceMutationId: string | null;
+  readonly className?: string;
   readonly onTaskListChange?:
     | ((input: { readonly markerOffset: number; readonly checked: boolean }) => void)
     | undefined;
@@ -20,7 +21,7 @@ export function FileMarkdownPreview(props: {
   );
   const imageBaseDir =
     lastSeparator >= 0
-      ? resolvePathLinkTarget(props.relativePath.slice(0, lastSeparator), props.cwd)
+      ? resolvePathLinkTarget(props.relativePath.slice(0, lastSeparator + 1), props.cwd)
       : props.cwd;
 
   return (
@@ -31,7 +32,7 @@ export function FileMarkdownPreview(props: {
       threadRef={props.threadRef}
       workspaceMutationId={props.workspaceMutationId}
       // Fork: tight inset so the text starts near the toolbar instead of floating in padding.
-      className="mx-auto max-w-4xl px-3 pt-2 pb-5"
+      className={props.className ?? "mx-auto max-w-4xl px-3 pt-2 pb-5"}
       onTaskListChange={props.onTaskListChange}
     />
   );

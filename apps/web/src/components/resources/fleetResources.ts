@@ -44,7 +44,7 @@ const readingsFamily = (source: "live" | "recent") =>
 
 /** Polls every 5 s; mount only while the popover is open. */
 export const liveFleetReadingsAtom = readingsFamily("live");
-/** The last two minutes' means, refreshed once a minute, for the button's bars and dot. */
+/** The busier of the last two minutes, refreshed once a minute, for the header button. */
 export const recentFleetReadingsAtom = readingsFamily("recent");
 
 const SHOWN_PHASES = new Set(["connected", "connecting", "reconnecting", "offline", "error"]);

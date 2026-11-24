@@ -114,6 +114,30 @@ describe("HostResources.layer", () => {
     ),
   );
 
+  it.effect("measures CPU since the previous read, not a fresh 200 ms window", () =>
+    Effect.gen(function* () {
+      setup();
+      assert.strictEqual((yield* read).cpuUtilization, 0.75);
+      yield* TestClock.adjust("10 seconds");
+
+      // 1 s of the one-CPU quota used across the 10 s since the last read.
+      assert.closeTo((yield* read).cpuUtilization ?? Number.NaN, 0.1, 1e-9);
+    }).pipe(
+      Effect.provide(
+        linuxHost({
+          ...unlimitedCgroup,
+          [`${cgroup}/cpu.max`]: ["100000 100000\n"],
+          [`${cgroup}/cpu.stat`]: [
+            "usage_usec 5000000\n",
+            "usage_usec 5150000\n",
+            "usage_usec 6150000\n",
+            "usage_usec 6150000\n",
+          ],
+        }),
+      ),
+    ),
+  );
+
   it.effect("reports memory against the server cgroup's memory.max", () =>
     Effect.gen(function* () {
       setup();

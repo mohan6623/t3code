@@ -10,6 +10,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { ServerConfig } from "../config.ts";
@@ -74,12 +75,20 @@ function cgroupNumber(text: string, pattern: RegExp): number | null {
   return value === undefined ? null : Number(value);
 }
 
+const CPU_BASELINE_MAX_AGE_MS = 60_000;
+
 const make = Effect.fn("makeHostResources")(function* (diskPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcess.Platform;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   const readFile = (path: string) => fs.readFileString(path).pipe(Effect.orElseSucceed(() => ""));
+
+  const lastCpu = yield* Ref.make<{
+    at: number;
+    cpu: ReturnType<typeof readCpu>;
+    usage: number | null;
+  } | null>(null);
 
   const sample = Effect.fn("HostResources.sample")(function* () {
     // cgroup v2 only; limits of the server's own cgroup, which is `/` inside a container.
@@ -111,13 +120,26 @@ const make = Effect.fn("makeHostResources")(function* (diskPath: string) {
         ? Effect.map(readFile("/proc/stat"), (stat) => pinnedCpu(stat, allowedCpus) ?? readCpu())
         : Effect.sync(readCpu);
 
-    const previousCpu = yield* sampleCpu();
-    const previousUsage = yield* readCpuUsage();
-    const startedAt = yield* Clock.currentTimeMillis;
-    yield* Effect.sleep("200 millis");
+    // Fork: measure since the previous read (5-15 s apart), as a 200 ms window
+    // catches one burst and reads it as 99%. A missing or stale baseline samples 200 ms.
+    let previous = yield* Ref.get(lastCpu);
+    if (
+      previous === null ||
+      (yield* Clock.currentTimeMillis) - previous.at > CPU_BASELINE_MAX_AGE_MS
+    ) {
+      previous = {
+        at: yield* Clock.currentTimeMillis,
+        cpu: yield* sampleCpu(),
+        usage: yield* readCpuUsage(),
+      };
+      yield* Effect.sleep("200 millis");
+    }
+    const { cpu: previousCpu, usage: previousUsage, at: startedAt } = previous;
     const cpu = yield* sampleCpu();
     const usage = yield* readCpuUsage();
-    const elapsedMicros = ((yield* Clock.currentTimeMillis) - startedAt) * 1000;
+    const sampledAt = yield* Clock.currentTimeMillis;
+    yield* Ref.set(lastCpu, { at: sampledAt, cpu, usage });
+    const elapsedMicros = (sampledAt - startedAt) * 1000;
     const totalDelta = cpu.total - previousCpu.total;
     const idleDelta = cpu.idle - previousCpu.idle;
     let cpuCount = cpu.count;

@@ -806,11 +806,6 @@ function OpenCurrentMachineCard(props: {
   );
 }
 
-function OtherMachine(props: { machine: FleetMachine; rowStyle: RowStyle; onDone: () => void }) {
-  const [open, setOpen] = useState(false);
-  return <MachineCard {...props} current={false} open={open} onOpenChange={setOpen} />;
-}
-
 function ResourcesPanel({
   environmentId,
   onDone,
@@ -830,13 +825,15 @@ function ResourcesPanel({
   const [rowStyle, setRowStyle] = useLocalStorage(ROW_STYLE_STORAGE_KEY, "graphs", RowStyle);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
+  // One other machine open at a time keeps the list short enough to fit.
+  const [openOther, setOpenOther] = useState<EnvironmentId | null>(null);
   const current = machines.find((machine) => machine.environmentId === environmentId) ?? null;
   const filter = query.trim().toLowerCase();
   const others = orderOtherMachines(machines, environmentId).filter(
     (machine) => filter === "" || machine.label.toLowerCase().includes(filter),
   );
   return (
-    <div className="flex max-h-(--available-height) flex-col gap-2 overflow-y-auto">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-0.5">
         <span className="flex-1 text-sm font-semibold text-foreground">{gt("Resources")}</span>
         <span className="text-2xs text-muted-foreground">{gt("Live · every 5 s")}</span>
@@ -894,9 +891,12 @@ function ResourcesPanel({
             </ToggleGroup>
           </div>
           {others.map((machine) => (
-            <OtherMachine
+            <MachineCard
               key={machine.environmentId}
               machine={machine}
+              current={false}
+              open={openOther === machine.environmentId}
+              onOpenChange={(open) => setOpenOther(open ? machine.environmentId : null)}
               rowStyle={rowStyle}
               onDone={onDone}
             />
@@ -925,7 +925,10 @@ export const ResourcesButton = memo(function ResourcesButton({
   const labels = useMetricLabels();
   const [open, setOpen] = useState(false);
   const { environments } = useEnvironments();
-  const readings = useAtomValue(recentFleetReadingsAtom(fleetEnvironmentIdsKey(environments)));
+  // While open, the button reads the popover's live numbers so the two never disagree.
+  const readings = useAtomValue(
+    (open ? liveFleetReadingsAtom : recentFleetReadingsAtom)(fleetEnvironmentIdsKey(environments)),
+  );
   const machines = fleetMachines(environments, readings);
   const usage = machines.find((machine) => machine.environmentId === environmentId)?.usage ?? null;
   const busiest = usage ? busiestMetric(usage) : null;
@@ -958,7 +961,7 @@ export const ResourcesButton = memo(function ResourcesButton({
           </span>
         ) : null}
       </PopoverTrigger>
-      <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
+      <PopoverPopup side="bottom" align="end" width="lg" padding="compact" scrollbar="hidden">
         {open ? (
           <ResourcesPanel environmentId={environmentId} onDone={() => setOpen(false)} />
         ) : null}

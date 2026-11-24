@@ -176,8 +176,15 @@ const make = Effect.fn("makeHostResources")(function* (diskPath: string) {
         memoryMax - (memoryCurrent - reclaimable),
       );
     }
-    // Fork: bavail, not bfree, so space reserved for root does not read as free.
-    const stats = yield* Effect.promise(() => NodeFSP.statfs(diskPath).catch(() => null));
+    // Fork: bavail, not bfree, so space reserved for root does not read as free. The state
+    // dir can sit on a roomy mount while `/` fills up, so report whichever is fuller.
+    const [stats] = (yield* Effect.promise(() =>
+      Promise.all(
+        [...new Set([diskPath, "/"])].map((path) => NodeFSP.statfs(path).catch(() => null)),
+      ),
+    ))
+      .flatMap((stats) => (stats && stats.blocks > 0 ? [stats] : []))
+      .toSorted((a, b) => a.bavail / a.blocks - b.bavail / b.blocks);
     const disk = stats
       ? {
           diskTotalBytes: stats.blocks * stats.bsize,

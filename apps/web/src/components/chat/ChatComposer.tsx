@@ -8,9 +8,10 @@ import type { ComposerAttachmentInsertion } from "../composerAttachmentInsertion
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { BackgroundThreadContext, HiddenThreadContext } from "./backgroundThread";
 import {
+  draftSupportedRuntimeModes,
+  resolveCompatibleRuntimeMode,
   resolveRuntimeModeOptions,
   runtimeModeConfig,
-  runtimeModeOptions as runtimeModes,
   runtimeModeDenial,
 } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -305,7 +306,10 @@ import { usePanelAnimationSettings } from "../../panelAnimations";
 import { readEnvironmentScope, readPreparedConnection } from "../../state/session";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 import { useComposerRestingTransition } from "./useComposerRestingTransition";
-import { ComposerCommandMenuLayer } from "./ComposerCommandMenuLayer";
+import {
+  ComposerCommandMenuLayer,
+  DeferredComposerCommandMenuLayer,
+} from "./ComposerCommandMenuLayer";
 import { useRestingComposerControlsLayout } from "./useRestingComposerControlsLayout";
 import { useProviderWorkspaceSnapshotRefresh } from "./useProviderWorkspaceSnapshotRefresh";
 import { useComposerProviderModel } from "./useComposerProviderModel";
@@ -1047,14 +1051,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Called before the derivation below: a hook between it and its uses stops React Compiler
   // from caching the mode options, and the footer then re-renders on every keystroke.
   const managedPolicy = useManagedPolicy(environmentId);
-  const supportedRuntimeModes = selectedProviderEntry?.snapshot.supportedRuntimeModes;
-  const compatibleRuntimeModes =
-    supportedRuntimeModes && supportedRuntimeModes.length > 0
-      ? runtimeModes.filter((mode) => supportedRuntimeModes.includes(mode))
-      : runtimeModes;
-  const compatibleRuntimeMode = compatibleRuntimeModes.includes(runtimeMode)
-    ? runtimeMode
-    : (compatibleRuntimeModes[0] ?? runtimeMode);
+  const { modes: compatibleRuntimeModes, mode: compatibleRuntimeMode } =
+    resolveCompatibleRuntimeMode(
+      runtimeMode,
+      draftSupportedRuntimeModes(
+        selectedProviderEntry?.snapshot.supportedRuntimeModes,
+        multipleModelSelections,
+        providerStatuses,
+      ),
+    );
   // Modes above an administrator's ceiling stay listed, disabled with the reason.
   const compatibleRuntimeModeOptions = resolveRuntimeModeOptions(
     compatibleRuntimeModes,
@@ -2823,6 +2828,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsComposerFocused(true);
     scheduleComposerFocus();
   };
+  // Popovers and menus stack above app modals, so one left open would cover Settings or Usage.
+  if (hiddenThread && isComposerModelPickerOpen) {
+    setIsComposerModelPickerOpen(false);
+  }
   const collapsedComposerImagePreviews =
     standaloneComposerImages.length > 0 ? (
       <ComposerRestingImagePreviews
@@ -2853,7 +2862,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       '[data-testid="composer-editor"]',
     );
     if (editor) editor.scrollTop = editor.scrollHeight;
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Text typed while resting can add a line, so the last one scrolls back into view.
+    // Text typed while resting can add a line, so `prompt` scrolls it back into view.
   }, [composerMainSurfaceRef, controlsInStrip, isComposerResting, prompt]);
   // Fork: collapse on scroll, which upstream removed in its composer redesign.
   const canTrackComposerScrollGesture =
@@ -2981,9 +2990,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     <ComposerControlsBar
       environmentId={environmentId}
       workspaceCwd={gitCwd}
-      routeKind={routeKind}
+      routeKind={typeof composerDraftTarget === "string" ? "draft" : routeKind}
       routeThreadRef={routeThreadRef}
-      draftId={draftId}
+      draftId={typeof composerDraftTarget === "string" ? composerDraftTarget : draftId}
       selectedProvider={selectedProvider}
       selectedInstanceId={selectedInstanceId}
       selectedModel={selectedModel}
@@ -4229,21 +4238,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     : composerMenuEmptyState
                   : ""}
               </div>
-              {composerSuggestionsVisible && (
-                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
-                  <ComposerCommandMenu
-                    listId={composerSuggestionListId}
-                    items={composerMenuItems}
-                    resolvedTheme={resolvedTheme}
-                    isLoading={isComposerMenuLoading}
-                    triggerKind={composerTriggerKind}
-                    emptyStateText={composerMenuEmptyState}
-                    activeItemId={activeComposerMenuItem?.id ?? null}
-                    onHighlightedItemChange={onComposerMenuItemHighlightedStable}
-                    onSelect={onSelectComposerItemStable}
-                  />
-                </ComposerCommandMenuLayer>
-              )}
+              <DeferredComposerCommandMenuLayer
+                open={composerSuggestionsVisible}
+                anchor={composerMenuAnchor}
+              >
+                <ComposerCommandMenu
+                  listId={composerSuggestionListId}
+                  items={composerMenuItems}
+                  resolvedTheme={resolvedTheme}
+                  isLoading={isComposerMenuLoading}
+                  triggerKind={composerTriggerKind}
+                  emptyStateText={composerMenuEmptyState}
+                  activeItemId={activeComposerMenuItem?.id ?? null}
+                  onHighlightedItemChange={onComposerMenuItemHighlightedStable}
+                  onSelect={onSelectComposerItemStable}
+                />
+              </DeferredComposerCommandMenuLayer>
 
               {!isComposerCollapsedMobile &&
                 activeEditingQueuedAttachments !== null &&

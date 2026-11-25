@@ -1,0 +1,568 @@
+diff --git a/react-native.js b/react-native.js
+index 785118a..9237eb3 100644
+--- a/react-native.js
++++ b/react-native.js
+@@ -1344,7 +1344,8 @@ function checkAtBottom(ctx, allowedEdge, allowGateCreatedInCurrentCheck) {
+     return;
+   }
+   if (contentSize > 0 && queuedInitialLayout) {
+-    const isContentLess = contentSize < scrollLength;
++    // T3 patch: a top inset (e.g. a translucent header) shrinks the room content has to fit in.
++    const isContentLess = contentSize + getContentInsetTop(ctx) < scrollLength;
+     const isAtEnd = isContentLess || distanceFromEnd <= EDGE_POSITION_EPSILON;
+     const deferEndExit = !isAtEnd && state.measuringContainersInLayout && (maintainingScrollAtEnd === "pending-instant" || maintainingScrollAtEnd === "pending-animated") && !state.endFollowInterrupted && peek$(ctx, "isAtEnd");
+     if (!deferEndExit) set$(ctx, "isAtEnd", isAtEnd);
+diff --git a/react-native.mjs b/react-native.mjs
+index 8aae009..985c5f8 100644
+--- a/react-native.mjs
++++ b/react-native.mjs
+@@ -1323,7 +1323,8 @@ function checkAtBottom(ctx, allowedEdge, allowGateCreatedInCurrentCheck) {
+     return;
+   }
+   if (contentSize > 0 && queuedInitialLayout) {
+-    const isContentLess = contentSize < scrollLength;
++    // T3 patch: a top inset (e.g. a translucent header) shrinks the room content has to fit in.
++    const isContentLess = contentSize + getContentInsetTop(ctx) < scrollLength;
+     const isAtEnd = isContentLess || distanceFromEnd <= EDGE_POSITION_EPSILON;
+     const deferEndExit = !isAtEnd && state.measuringContainersInLayout && (maintainingScrollAtEnd === "pending-instant" || maintainingScrollAtEnd === "pending-animated") && !state.endFollowInterrupted && peek$(ctx, "isAtEnd");
+     if (!deferEndExit) set$(ctx, "isAtEnd", isAtEnd);
+diff --git a/react.js b/react.js
+index ca0217a..afc3313 100644
+--- a/react.js
++++ b/react.js
+@@ -6415,7 +6415,8 @@ function useOnLayoutSync({
+   onLayoutProp,
+   onLayoutChange,
+   webLayoutResync,
+-  webExternalScroll = false
++  webExternalScroll = false,
++  measureNowRef
+ }, deps) {
+   const callbacks = useLatestRef({ onLayoutChange, onLayoutProp, webLayoutResync });
+   const onExternalLayout = React3.useCallback(
+@@ -6448,7 +6449,7 @@ function useOnLayoutSync({
+       emit(toLayout(rect), true);
+       prevRect = rect;
+     }
+-    return createResizeObserver(element, (entry) => {
++    const disconnectResizeObserver = createResizeObserver(element, (entry) => {
+       var _a4, _b2, _c;
+       const target = entry.target instanceof HTMLElement ? entry.target : void 0;
+       const borderBoxSize = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize;
+@@ -6466,7 +6467,30 @@ function useOnLayoutSync({
+         emit(toLayout(rectObserved), false);
+       }
+     });
+-  }, [callbacks, measureInLayoutEffect, webExternalScroll, ...deps || []]);
++    if (!measureNowRef) return disconnectResizeObserver;
++    // T3 patch: measure on demand through the observer's own baseline, so a
++    // forced read and a later observer delivery never disagree about the size.
++    const measureNow = () => {
++      const rect = element.getBoundingClientRect();
++      if (rect.height === 0 && rect.width === 0) return;
++      const previousRect = prevRect != null ? prevRect : getContainerLayoutBaseline(element);
++      if (previousRect !== void 0 && rect.width === previousRect.width && rect.height === previousRect.height) return;
++      prevRect = rect;
++      emit(toLayout(rect), true);
++      // The browser only reports sizes that differ from its last delivery. Re-observe so a
++      // return to that size is still reported against the baseline this read just moved.
++      if (typeof ResizeObserver !== "undefined" && callbackMap.has(element)) {
++        const observer = getGlobalResizeObserver();
++        observer.unobserve(element);
++        observer.observe(element, { box: "border-box" });
++      }
++    };
++    measureNowRef.current = measureNow;
++    return () => {
++      if (measureNowRef.current === measureNow) measureNowRef.current = void 0;
++      disconnectResizeObserver();
++    };
++  }, [callbacks, measureInLayoutEffect, measureNowRef, webExternalScroll, ...deps || []]);
+   return webExternalScroll ? { onLayout: onExternalLayout } : {};
+ }
+ function toLayout(rect) {
+@@ -6925,6 +6949,42 @@ function getWheelGesture(previous, delta, time, momentum) {
+ }
+ 
+ // src/components/webScrollUtils.ts
++// Fork: a size correction written to scrollTop while the browser is still scrolling (a wheel
++// notch's smooth animation, keyboard or touch momentum) aborts that scroll, so the notch stops
++// short. Corrections during a scroll shift the content with a negative margin instead and fold
++// into scrollTop when the scroll ends. Offsets read here include that pending shift.
++var webScrollDeviations = /* @__PURE__ */ new WeakMap();
++function getWebScrollDeviation(el) {
++  const entry = el ? webScrollDeviations.get(el) : void 0;
++  return entry ? entry.offset : 0;
++}
++function markWebScrollActive(el) {
++  if (!el) return;
++  const entry = webScrollDeviations.get(el);
++  if (entry) entry.active = true;
++  else webScrollDeviations.set(el, { active: true, content: null, offset: 0 });
++}
++function isWebScrollActive(el) {
++  const entry = el ? webScrollDeviations.get(el) : void 0;
++  return !!(entry == null ? void 0 : entry.active);
++}
++function deferWebScrollAdjust(el, content, delta) {
++  const entry = webScrollDeviations.get(el);
++  if (entry.content && entry.content !== content) entry.content.style.marginTop = "";
++  entry.content = content;
++  entry.offset += delta;
++  content.style.marginTop = Math.abs(entry.offset) > 0.01 ? `${-entry.offset}px` : "";
++}
++function flushWebScrollDeviation(el, ended) {
++  const entry = el ? webScrollDeviations.get(el) : void 0;
++  if (!entry) return;
++  if (ended) entry.active = false;
++  const offset = entry.offset;
++  if (offset === 0) return;
++  entry.offset = 0;
++  if (entry.content) entry.content.style.marginTop = "";
++  el.scrollTop += offset;
++}
+ function isWindowTarget(target) {
+   return typeof window !== "undefined" && target === window;
+ }
+@@ -7133,7 +7193,7 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+     const scrollElement = scrollRef.current;
+     const contentSize = getScrollContentSize(scrollElement, contentRef.current, externalTarget);
+     const layoutMeasurement = getLayoutMeasurement(scrollElement, externalTarget, horizontal);
+-    return getMaxOffset(contentSize, layoutMeasurement, horizontal);
++    return getMaxOffset(contentSize, layoutMeasurement, horizontal) + (externalTarget === void 0 && !horizontal ? getWebScrollDeviation(scrollElement) : 0);
+   }, [externalTarget, horizontal]);
+   const getExternalListPosition = React3.useCallback(
+     () => getElementScrollPosition(
+@@ -7151,7 +7211,7 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+       const listPos = getExternalListPosition();
+       return horizontal ? scroll.x - listPos.left : scroll.y - listPos.top;
+     }
+-    return (_a4 = horizontal ? element == null ? void 0 : element.scrollLeft : element == null ? void 0 : element.scrollTop) != null ? _a4 : 0;
++    return ((_a4 = horizontal ? element == null ? void 0 : element.scrollLeft : element == null ? void 0 : element.scrollTop) != null ? _a4 : 0) + (horizontal ? 0 : getWebScrollDeviation(element));
+   }, [externalTarget, getExternalListPosition, horizontal, isExternalScroll]);
+   const clampScrollOffset2 = React3.useCallback(
+     (offset) => {
+@@ -7175,6 +7235,7 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+       if (!target || typeof target.scrollTo !== "function") {
+         return;
+       }
++      flushWebScrollDeviation(scrollRef.current);
+       const behavior = animated ? "smooth" : "instant";
+       const options = { behavior };
+       if (isExternalScroll) {
+@@ -7228,6 +7289,7 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+         if (!target || typeof target.scrollBy !== "function") {
+           return;
+         }
++        flushWebScrollDeviation(scrollRef.current);
+         target.scrollBy({ behavior: "auto", left: x, top: y });
+       },
+       scrollTo: (options) => {
+@@ -7284,6 +7346,7 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+   const scrollEventCoalescer = useRafCoalescer(emitScroll);
+   const scrollEndFallbackRef = React3.useRef(void 0);
+   const emitScrollEnd = React3.useCallback(() => {
++    if (externalTarget === void 0) flushWebScrollDeviation(scrollRef.current, true);
+     const timeout = scrollEndFallbackRef.current;
+     if (timeout !== void 0) {
+       clearTimeout(timeout);
+@@ -7291,9 +7354,10 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+     }
+     scrollEventCoalescer.flush();
+     onInternalScrollEnd == null ? void 0 : onInternalScrollEnd();
+-  }, [onInternalScrollEnd, scrollEventCoalescer]);
++  }, [externalTarget, onInternalScrollEnd, scrollEventCoalescer]);
+   const handleScroll = React3.useCallback(
+     (_event) => {
++      if (externalTarget === void 0 && !horizontal) markWebScrollActive(scrollRef.current);
+       if (!onScroll2) {
+         return;
+       }
+@@ -7321,8 +7385,10 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+     [
+       ctx,
+       emitScrollEnd,
++      externalTarget,
+       getCurrentScrollOffset,
+       getMaxScrollOffset,
++      horizontal,
+       onInternalScrollEnd,
+       onScroll2,
+       scrollEventCoalescer
+@@ -7485,7 +7551,10 @@ var ListComponentScrollView = React3.forwardRef(function ListComponentScrollView
+     const setWheelPassive = (passive) => {
+       if (passive === wheelPassive) return;
+       if (wheelPassive !== void 0) target.removeEventListener("wheel", onWheel);
+-      target.addEventListener("wheel", onWheel, { passive });
++      // Fork: always passive. A blocking wheel listener makes every wheel notch wait for the main
++      // thread, so a reversed scroll lands late while an agent streams. onWheel already handles
++      // non-cancelable events: it stops its own animation and lets the browser apply the wheel.
++      target.addEventListener("wheel", onWheel, { passive: true });
+       wheelPassive = passive;
+     };
+     target.addEventListener("wheel", captureWheel, { capture: true, passive: true });
+@@ -7698,7 +7767,7 @@ function ScrollAdjust() {
+         const axis = getScrollAdjustAxis(horizontal);
+         const { contentNode, scrollElement: el } = target;
+         const scroller = ctx.state.refScroller.current;
+-        const parentScroll = horizontal ? el.scrollLeft : el.scrollTop;
++        const parentScroll = horizontal ? el.scrollLeft : el.scrollTop + getWebScrollDeviation(el);
+         const isExternal = ctx.state.props.hasExternalScroll;
+         const currentScroll = (_b = isExternal ? (_a3 = scroller == null ? void 0 : scroller.getCurrentScrollOffset) == null ? void 0 : _a3.call(scroller) : void 0) != null ? _b : parentScroll;
+         const isOutsideList = ((_c = scroller == null ? void 0 : scroller.isScrollInRange) == null ? void 0 : _c.call(scroller)) === false;
+@@ -7710,12 +7779,20 @@ function ScrollAdjust() {
+         const shouldScroll = !isOutsideList && Math.abs(scrollDelta) > 0.01;
+         const scrollBy = () => {
+           var _a4, _b2, _c2, _d2;
+-          scrollAdjustBy(el, axis.x * scrollDelta, axis.y * scrollDelta);
+-          const after = (_b2 = isExternal ? (_a4 = scroller == null ? void 0 : scroller.getCurrentScrollOffset) == null ? void 0 : _a4.call(scroller) : void 0) != null ? _b2 : horizontal ? el.scrollLeft : el.scrollTop;
++          if (deferDuringScroll) {
++            deferWebScrollAdjust(el, contentNode, scrollDelta);
++          } else {
++            if (!isExternal && !horizontal) flushWebScrollDeviation(el);
++            scrollAdjustBy(el, axis.x * scrollDelta, axis.y * scrollDelta);
++          }
++          const after = (_b2 = isExternal ? (_a4 = scroller == null ? void 0 : scroller.getCurrentScrollOffset) == null ? void 0 : _a4.call(scroller) : void 0) != null ? _b2 : horizontal ? el.scrollLeft : el.scrollTop + getWebScrollDeviation(el);
+           (_d2 = (_c2 = ctx.state.scrollAdjustHandler).recordWebAdjust) == null ? void 0 : _d2.call(_c2, intendedScroll, after);
+         };
+         contentNodeRef.current = contentNode;
+-        if (shouldScroll && contentNode) {
++        const deferDuringScroll = shouldScroll && !!contentNode && !isExternal && !horizontal && !ctx.state.scrollingTo && isWebScrollActive(el);
++        if (deferDuringScroll) {
++          scrollBy();
++        } else if (shouldScroll && contentNode) {
+           const totalSize = isExternal ? el[axis.contentSizeKey] : contentNode[axis.contentSizeKey];
+           const viewportSize = el[axis.viewportSizeKey];
+           const nextScroll = parentScroll + scrollDelta;
+@@ -7842,10 +7919,10 @@ function useStableRenderComponent(renderComponent, mapProps) {
+     [mapPropsRef, renderComponentRef]
+   );
+ }
+-var LayoutView = ({ onLayoutChange, refView, children, ...rest }) => {
++var LayoutView = ({ onLayoutChange, refView, measureRef, children, ...rest }) => {
+   const localRef = React3.useRef(null);
+   const ref = refView != null ? refView : localRef;
+-  useOnLayoutSync({ onLayoutChange, ref });
++  useOnLayoutSync({ onLayoutChange, ref, measureNowRef: measureRef });
+   return /* @__PURE__ */ React3__namespace.createElement("div", { ...rest, ref }, children);
+ };
+ var subscribeScreenReader = () => () => {
+@@ -7922,6 +7999,16 @@ var ListComponent = typedMemo(function ListComponent2({
+   );
+   const ScrollComponent = renderScrollComponent ? CustomScrollComponent : ListComponentScrollView;
+   const SnapOrScroll = snapToIndices ? SnapWrapper : ScrollComponent;
++  // T3 patch: header and footer sizes otherwise arrive from a resize observer
++  // after layout, so a scroll to the end right after a commit that changed them
++  // (a thread switch) computed its target from the previous sizes.
++  const measureHeaderRef = React3.useRef(void 0);
++  const measureFooterRef = React3.useRef(void 0);
++  ctx.state.measureHeaderAndFooter = () => {
++    var _a3, _b;
++    (_a3 = measureHeaderRef.current) == null ? void 0 : _a3.call(measureHeaderRef);
++    (_b = measureFooterRef.current) == null ? void 0 : _b.call(measureFooterRef);
++  };
+   const updateFooterSize = React3.useCallback(
+     (size, afterSizeUpdate) => {
+       var _a4;
+@@ -7976,7 +8063,7 @@ var ListComponent = typedMemo(function ListComponent2({
+     },
+     [horizontal, onLayoutFooter, updateFooterSize]
+   );
+-  const footer = ListFooterComponent && /* @__PURE__ */ React3__namespace.createElement(LayoutView, { onLayoutChange: onLayoutFooterInternal, style: ListFooterComponentStyle }, getComponent(ListFooterComponent));
++  const footer = ListFooterComponent && /* @__PURE__ */ React3__namespace.createElement(LayoutView, { measureRef: measureFooterRef, onLayoutChange: onLayoutFooterInternal, style: ListFooterComponentStyle }, getComponent(ListFooterComponent));
+   const renderRows = canRender && !ListEmptyComponent;
+   const extentFooter = void 0;
+   return /* @__PURE__ */ React3__namespace.createElement(
+@@ -8000,7 +8087,7 @@ var ListComponent = typedMemo(function ListComponent2({
+       style: autoOtherAxisStyle ? [autoOtherAxisStyle, style] : style
+     },
+     Platform.OS !== "web",
+-    ListHeaderComponent && /* @__PURE__ */ React3__namespace.createElement(LayoutView, { onLayoutChange: onLayoutHeader, style: ListHeaderComponentStyle }, getComponent(ListHeaderComponent)),
++    ListHeaderComponent && /* @__PURE__ */ React3__namespace.createElement(LayoutView, { measureRef: measureHeaderRef, onLayoutChange: onLayoutHeader, style: ListHeaderComponentStyle }, getComponent(ListHeaderComponent)),
+     ListEmptyComponent && getComponent(ListEmptyComponent),
+     shouldRenderAlignItemsAtEndSpacer && /* @__PURE__ */ React3__namespace.createElement(AlignItemsAtEndSpacer, { horizontal }),
+     (renderRows || extentFooter) && /* @__PURE__ */ React3__namespace.createElement(
+@@ -8909,7 +8996,12 @@ function createImperativeHandle(ctx, scheduleImperativeScrollCommit) {
+         runScrollRequest(
+           pendingScroll.token,
+           state.pendingScrollResolve,
+-          () => state.props.data.length === 0 ? "unreachable" : scrollToEnd(ctx, pendingScroll.options),
++          () => {
++            var _a3;
++            if (state.props.data.length === 0) return "unreachable";
++            (_a3 = state.measureHeaderAndFooter) == null ? void 0 : _a3.call(state);
++            return scrollToEnd(ctx, pendingScroll.options);
++          },
+           () => isScrollToIndexReady(state.props.data.length - 1, true)
+         );
+       }
+diff --git a/react.mjs b/react.mjs
+index 801cd3d..fa5cb7c 100644
+--- a/react.mjs
++++ b/react.mjs
+@@ -6394,7 +6394,8 @@ function useOnLayoutSync({
+   onLayoutProp,
+   onLayoutChange,
+   webLayoutResync,
+-  webExternalScroll = false
++  webExternalScroll = false,
++  measureNowRef
+ }, deps) {
+   const callbacks = useLatestRef({ onLayoutChange, onLayoutProp, webLayoutResync });
+   const onExternalLayout = useCallback(
+@@ -6427,7 +6428,7 @@ function useOnLayoutSync({
+       emit(toLayout(rect), true);
+       prevRect = rect;
+     }
+-    return createResizeObserver(element, (entry) => {
++    const disconnectResizeObserver = createResizeObserver(element, (entry) => {
+       var _a4, _b2, _c;
+       const target = entry.target instanceof HTMLElement ? entry.target : void 0;
+       const borderBoxSize = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize;
+@@ -6445,7 +6446,30 @@ function useOnLayoutSync({
+         emit(toLayout(rectObserved), false);
+       }
+     });
+-  }, [callbacks, measureInLayoutEffect, webExternalScroll, ...deps || []]);
++    if (!measureNowRef) return disconnectResizeObserver;
++    // T3 patch: measure on demand through the observer's own baseline, so a
++    // forced read and a later observer delivery never disagree about the size.
++    const measureNow = () => {
++      const rect = element.getBoundingClientRect();
++      if (rect.height === 0 && rect.width === 0) return;
++      const previousRect = prevRect != null ? prevRect : getContainerLayoutBaseline(element);
++      if (previousRect !== void 0 && rect.width === previousRect.width && rect.height === previousRect.height) return;
++      prevRect = rect;
++      emit(toLayout(rect), true);
++      // The browser only reports sizes that differ from its last delivery. Re-observe so a
++      // return to that size is still reported against the baseline this read just moved.
++      if (typeof ResizeObserver !== "undefined" && callbackMap.has(element)) {
++        const observer = getGlobalResizeObserver();
++        observer.unobserve(element);
++        observer.observe(element, { box: "border-box" });
++      }
++    };
++    measureNowRef.current = measureNow;
++    return () => {
++      if (measureNowRef.current === measureNow) measureNowRef.current = void 0;
++      disconnectResizeObserver();
++    };
++  }, [callbacks, measureInLayoutEffect, measureNowRef, webExternalScroll, ...deps || []]);
+   return webExternalScroll ? { onLayout: onExternalLayout } : {};
+ }
+ function toLayout(rect) {
+@@ -6904,6 +6928,42 @@ function getWheelGesture(previous, delta, time, momentum) {
+ }
+ 
+ // src/components/webScrollUtils.ts
++// Fork: a size correction written to scrollTop while the browser is still scrolling (a wheel
++// notch's smooth animation, keyboard or touch momentum) aborts that scroll, so the notch stops
++// short. Corrections during a scroll shift the content with a negative margin instead and fold
++// into scrollTop when the scroll ends. Offsets read here include that pending shift.
++var webScrollDeviations = /* @__PURE__ */ new WeakMap();
++function getWebScrollDeviation(el) {
++  const entry = el ? webScrollDeviations.get(el) : void 0;
++  return entry ? entry.offset : 0;
++}
++function markWebScrollActive(el) {
++  if (!el) return;
++  const entry = webScrollDeviations.get(el);
++  if (entry) entry.active = true;
++  else webScrollDeviations.set(el, { active: true, content: null, offset: 0 });
++}
++function isWebScrollActive(el) {
++  const entry = el ? webScrollDeviations.get(el) : void 0;
++  return !!(entry == null ? void 0 : entry.active);
++}
++function deferWebScrollAdjust(el, content, delta) {
++  const entry = webScrollDeviations.get(el);
++  if (entry.content && entry.content !== content) entry.content.style.marginTop = "";
++  entry.content = content;
++  entry.offset += delta;
++  content.style.marginTop = Math.abs(entry.offset) > 0.01 ? `${-entry.offset}px` : "";
++}
++function flushWebScrollDeviation(el, ended) {
++  const entry = el ? webScrollDeviations.get(el) : void 0;
++  if (!entry) return;
++  if (ended) entry.active = false;
++  const offset = entry.offset;
++  if (offset === 0) return;
++  entry.offset = 0;
++  if (entry.content) entry.content.style.marginTop = "";
++  el.scrollTop += offset;
++}
+ function isWindowTarget(target) {
+   return typeof window !== "undefined" && target === window;
+ }
+@@ -7112,7 +7172,7 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+     const scrollElement = scrollRef.current;
+     const contentSize = getScrollContentSize(scrollElement, contentRef.current, externalTarget);
+     const layoutMeasurement = getLayoutMeasurement(scrollElement, externalTarget, horizontal);
+-    return getMaxOffset(contentSize, layoutMeasurement, horizontal);
++    return getMaxOffset(contentSize, layoutMeasurement, horizontal) + (externalTarget === void 0 && !horizontal ? getWebScrollDeviation(scrollElement) : 0);
+   }, [externalTarget, horizontal]);
+   const getExternalListPosition = useCallback(
+     () => getElementScrollPosition(
+@@ -7130,7 +7190,7 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+       const listPos = getExternalListPosition();
+       return horizontal ? scroll.x - listPos.left : scroll.y - listPos.top;
+     }
+-    return (_a4 = horizontal ? element == null ? void 0 : element.scrollLeft : element == null ? void 0 : element.scrollTop) != null ? _a4 : 0;
++    return ((_a4 = horizontal ? element == null ? void 0 : element.scrollLeft : element == null ? void 0 : element.scrollTop) != null ? _a4 : 0) + (horizontal ? 0 : getWebScrollDeviation(element));
+   }, [externalTarget, getExternalListPosition, horizontal, isExternalScroll]);
+   const clampScrollOffset2 = useCallback(
+     (offset) => {
+@@ -7154,6 +7214,7 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+       if (!target || typeof target.scrollTo !== "function") {
+         return;
+       }
++      flushWebScrollDeviation(scrollRef.current);
+       const behavior = animated ? "smooth" : "instant";
+       const options = { behavior };
+       if (isExternalScroll) {
+@@ -7207,6 +7268,7 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+         if (!target || typeof target.scrollBy !== "function") {
+           return;
+         }
++        flushWebScrollDeviation(scrollRef.current);
+         target.scrollBy({ behavior: "auto", left: x, top: y });
+       },
+       scrollTo: (options) => {
+@@ -7263,6 +7325,7 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+   const scrollEventCoalescer = useRafCoalescer(emitScroll);
+   const scrollEndFallbackRef = useRef(void 0);
+   const emitScrollEnd = useCallback(() => {
++    if (externalTarget === void 0) flushWebScrollDeviation(scrollRef.current, true);
+     const timeout = scrollEndFallbackRef.current;
+     if (timeout !== void 0) {
+       clearTimeout(timeout);
+@@ -7270,9 +7333,10 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+     }
+     scrollEventCoalescer.flush();
+     onInternalScrollEnd == null ? void 0 : onInternalScrollEnd();
+-  }, [onInternalScrollEnd, scrollEventCoalescer]);
++  }, [externalTarget, onInternalScrollEnd, scrollEventCoalescer]);
+   const handleScroll = useCallback(
+     (_event) => {
++      if (externalTarget === void 0 && !horizontal) markWebScrollActive(scrollRef.current);
+       if (!onScroll2) {
+         return;
+       }
+@@ -7300,8 +7364,10 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+     [
+       ctx,
+       emitScrollEnd,
++      externalTarget,
+       getCurrentScrollOffset,
+       getMaxScrollOffset,
++      horizontal,
+       onInternalScrollEnd,
+       onScroll2,
+       scrollEventCoalescer
+@@ -7464,7 +7530,10 @@ var ListComponentScrollView = forwardRef(function ListComponentScrollView2({
+     const setWheelPassive = (passive) => {
+       if (passive === wheelPassive) return;
+       if (wheelPassive !== void 0) target.removeEventListener("wheel", onWheel);
+-      target.addEventListener("wheel", onWheel, { passive });
++      // Fork: always passive. A blocking wheel listener makes every wheel notch wait for the main
++      // thread, so a reversed scroll lands late while an agent streams. onWheel already handles
++      // non-cancelable events: it stops its own animation and lets the browser apply the wheel.
++      target.addEventListener("wheel", onWheel, { passive: true });
+       wheelPassive = passive;
+     };
+     target.addEventListener("wheel", captureWheel, { capture: true, passive: true });
+@@ -7677,7 +7746,7 @@ function ScrollAdjust() {
+         const axis = getScrollAdjustAxis(horizontal);
+         const { contentNode, scrollElement: el } = target;
+         const scroller = ctx.state.refScroller.current;
+-        const parentScroll = horizontal ? el.scrollLeft : el.scrollTop;
++        const parentScroll = horizontal ? el.scrollLeft : el.scrollTop + getWebScrollDeviation(el);
+         const isExternal = ctx.state.props.hasExternalScroll;
+         const currentScroll = (_b = isExternal ? (_a3 = scroller == null ? void 0 : scroller.getCurrentScrollOffset) == null ? void 0 : _a3.call(scroller) : void 0) != null ? _b : parentScroll;
+         const isOutsideList = ((_c = scroller == null ? void 0 : scroller.isScrollInRange) == null ? void 0 : _c.call(scroller)) === false;
+@@ -7689,12 +7758,20 @@ function ScrollAdjust() {
+         const shouldScroll = !isOutsideList && Math.abs(scrollDelta) > 0.01;
+         const scrollBy = () => {
+           var _a4, _b2, _c2, _d2;
+-          scrollAdjustBy(el, axis.x * scrollDelta, axis.y * scrollDelta);
+-          const after = (_b2 = isExternal ? (_a4 = scroller == null ? void 0 : scroller.getCurrentScrollOffset) == null ? void 0 : _a4.call(scroller) : void 0) != null ? _b2 : horizontal ? el.scrollLeft : el.scrollTop;
++          if (deferDuringScroll) {
++            deferWebScrollAdjust(el, contentNode, scrollDelta);
++          } else {
++            if (!isExternal && !horizontal) flushWebScrollDeviation(el);
++            scrollAdjustBy(el, axis.x * scrollDelta, axis.y * scrollDelta);
++          }
++          const after = (_b2 = isExternal ? (_a4 = scroller == null ? void 0 : scroller.getCurrentScrollOffset) == null ? void 0 : _a4.call(scroller) : void 0) != null ? _b2 : horizontal ? el.scrollLeft : el.scrollTop + getWebScrollDeviation(el);
+           (_d2 = (_c2 = ctx.state.scrollAdjustHandler).recordWebAdjust) == null ? void 0 : _d2.call(_c2, intendedScroll, after);
+         };
+         contentNodeRef.current = contentNode;
+-        if (shouldScroll && contentNode) {
++        const deferDuringScroll = shouldScroll && !!contentNode && !isExternal && !horizontal && !ctx.state.scrollingTo && isWebScrollActive(el);
++        if (deferDuringScroll) {
++          scrollBy();
++        } else if (shouldScroll && contentNode) {
+           const totalSize = isExternal ? el[axis.contentSizeKey] : contentNode[axis.contentSizeKey];
+           const viewportSize = el[axis.viewportSizeKey];
+           const nextScroll = parentScroll + scrollDelta;
+@@ -7821,10 +7898,10 @@ function useStableRenderComponent(renderComponent, mapProps) {
+     [mapPropsRef, renderComponentRef]
+   );
+ }
+-var LayoutView = ({ onLayoutChange, refView, children, ...rest }) => {
++var LayoutView = ({ onLayoutChange, refView, measureRef, children, ...rest }) => {
+   const localRef = useRef(null);
+   const ref = refView != null ? refView : localRef;
+-  useOnLayoutSync({ onLayoutChange, ref });
++  useOnLayoutSync({ onLayoutChange, ref, measureNowRef: measureRef });
+   return /* @__PURE__ */ React3.createElement("div", { ...rest, ref }, children);
+ };
+ var subscribeScreenReader = () => () => {
+@@ -7901,6 +7978,16 @@ var ListComponent = typedMemo(function ListComponent2({
+   );
+   const ScrollComponent = renderScrollComponent ? CustomScrollComponent : ListComponentScrollView;
+   const SnapOrScroll = snapToIndices ? SnapWrapper : ScrollComponent;
++  // T3 patch: header and footer sizes otherwise arrive from a resize observer
++  // after layout, so a scroll to the end right after a commit that changed them
++  // (a thread switch) computed its target from the previous sizes.
++  const measureHeaderRef = useRef(void 0);
++  const measureFooterRef = useRef(void 0);
++  ctx.state.measureHeaderAndFooter = () => {
++    var _a3, _b;
++    (_a3 = measureHeaderRef.current) == null ? void 0 : _a3.call(measureHeaderRef);
++    (_b = measureFooterRef.current) == null ? void 0 : _b.call(measureFooterRef);
++  };
+   const updateFooterSize = useCallback(
+     (size, afterSizeUpdate) => {
+       var _a4;
+@@ -7955,7 +8042,7 @@ var ListComponent = typedMemo(function ListComponent2({
+     },
+     [horizontal, onLayoutFooter, updateFooterSize]
+   );
+-  const footer = ListFooterComponent && /* @__PURE__ */ React3.createElement(LayoutView, { onLayoutChange: onLayoutFooterInternal, style: ListFooterComponentStyle }, getComponent(ListFooterComponent));
++  const footer = ListFooterComponent && /* @__PURE__ */ React3.createElement(LayoutView, { measureRef: measureFooterRef, onLayoutChange: onLayoutFooterInternal, style: ListFooterComponentStyle }, getComponent(ListFooterComponent));
+   const renderRows = canRender && !ListEmptyComponent;
+   const extentFooter = void 0;
+   return /* @__PURE__ */ React3.createElement(
+@@ -7979,7 +8066,7 @@ var ListComponent = typedMemo(function ListComponent2({
+       style: autoOtherAxisStyle ? [autoOtherAxisStyle, style] : style
+     },
+     Platform.OS !== "web",
+-    ListHeaderComponent && /* @__PURE__ */ React3.createElement(LayoutView, { onLayoutChange: onLayoutHeader, style: ListHeaderComponentStyle }, getComponent(ListHeaderComponent)),
++    ListHeaderComponent && /* @__PURE__ */ React3.createElement(LayoutView, { measureRef: measureHeaderRef, onLayoutChange: onLayoutHeader, style: ListHeaderComponentStyle }, getComponent(ListHeaderComponent)),
+     ListEmptyComponent && getComponent(ListEmptyComponent),
+     shouldRenderAlignItemsAtEndSpacer && /* @__PURE__ */ React3.createElement(AlignItemsAtEndSpacer, { horizontal }),
+     (renderRows || extentFooter) && /* @__PURE__ */ React3.createElement(
+@@ -8888,7 +8975,12 @@ function createImperativeHandle(ctx, scheduleImperativeScrollCommit) {
+         runScrollRequest(
+           pendingScroll.token,
+           state.pendingScrollResolve,
+-          () => state.props.data.length === 0 ? "unreachable" : scrollToEnd(ctx, pendingScroll.options),
++          () => {
++            var _a3;
++            if (state.props.data.length === 0) return "unreachable";
++            (_a3 = state.measureHeaderAndFooter) == null ? void 0 : _a3.call(state);
++            return scrollToEnd(ctx, pendingScroll.options);
++          },
+           () => isScrollToIndexReady(state.props.data.length - 1, true)
+         );
+       }

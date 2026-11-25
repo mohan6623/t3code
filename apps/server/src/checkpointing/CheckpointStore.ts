@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import type { CheckpointStoreError } from "./Errors.ts";
-import type { VcsCheckpointOps } from "../vcs/VcsDriver.ts";
+import type { VcsCheckpointOps, VcsCheckpointRange } from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import { parseTurnDiffFilesFromNumstat, prefixNumstatPaths, prefixPatchPaths } from "./Diffs.ts";
@@ -20,6 +20,8 @@ export interface CaptureCheckpointInput {
   /** Folders below `cwd` (relative, `/`-separated) that have their own checkpoints. */
   readonly excludePaths?: ReadonlyArray<string>;
 }
+
+export type CheckpointRange = VcsCheckpointRange;
 
 export interface CaptureHeadCheckpointInput {
   readonly cwd: string;
@@ -54,12 +56,16 @@ export interface DiffCheckpointsInput {
   readonly filePaths?: ReadonlyArray<string>;
   /** Folders below `cwd` left out of the diff, as in a capture. */
   readonly excludePaths?: ReadonlyArray<string>;
+  /** The refs' range as their capture returned it; the refs are then not read. */
+  readonly range?: VcsCheckpointRange;
 }
 
 export interface ListAuthoredPathsInput {
   readonly cwd: string;
   readonly fromCheckpointRef: CheckpointRef;
   readonly toCheckpointRef: CheckpointRef;
+  /** The refs' range as their capture returned it; the refs are then not read. */
+  readonly range?: VcsCheckpointRange;
 }
 
 export interface DeleteCheckpointRefsInput {
@@ -79,9 +85,10 @@ export class CheckpointStore extends Context.Service<
     /** Check whether cwd is inside a Git worktree or is a multi-repo workspace folder. */
     readonly isCheckpointable: (cwd: string) => Effect.Effect<boolean, CheckpointStoreError>;
 
+    /** The range from `previousCheckpointRef`, or null when there is none to compare with. */
     readonly captureCheckpoint: (
       input: CaptureCheckpointInput,
-    ) => Effect.Effect<void, CheckpointStoreError>;
+    ) => Effect.Effect<VcsCheckpointRange | null, CheckpointStoreError>;
 
     /**
      * HEAD's commit when the folder matches it exactly: nothing staged, modified or untracked.
@@ -209,11 +216,12 @@ export const make = Effect.gen(function* () {
   const captureCheckpoint: CheckpointStore["Service"]["captureCheckpoint"] = Effect.fn(
     "captureCheckpoint",
   )(function* (input) {
-    yield* forEachTarget(yield* resolveTargets(input.cwd, input.excludePaths), (target) =>
+    const targets = yield* resolveTargets(input.cwd, input.excludePaths);
+    const ranges = yield* forEachTarget(targets, (target) =>
       Effect.gen(function* () {
-        if (input.missingOnly && (yield* hasRefIn(target, input.checkpointRef))) return;
+        if (input.missingOnly && (yield* hasRefIn(target, input.checkpointRef))) return null;
         const checkpoints = yield* resolveCheckpoints(target.cwd);
-        yield* checkpoints.captureCheckpoint({
+        return yield* checkpoints.captureCheckpoint({
           cwd: target.cwd,
           checkpointRef: input.checkpointRef,
           ...(target.excludePaths.length > 0 ? { excludePaths: target.excludePaths } : {}),
@@ -223,6 +231,8 @@ export const make = Effect.gen(function* () {
         });
       }),
     );
+    // One range describes one repository, so a multi-repo capture reports none.
+    return targets.length === 1 && targets[0]!.pathPrefix === null ? (ranges[0] ?? null) : null;
   });
 
   const resolveCleanHead: CheckpointStore["Service"]["resolveCleanHead"] = Effect.fn(
@@ -295,12 +305,13 @@ export const make = Effect.gen(function* () {
     "diffCheckpoints",
   )(function* (input) {
     const targets = yield* resolveTargets(input.cwd, input.excludePaths);
+    const { range: _range, ...perRepositoryInput } = input;
     const diffs = yield* forEachTarget(targets, (target) =>
       Effect.gen(function* () {
         const checkpoints = yield* resolveCheckpoints(target.cwd);
         if (target.pathPrefix === null) {
           return yield* checkpoints.diffCheckpoints({
-            ...input,
+            ...(targets.length === 1 ? input : perRepositoryInput),
             cwd: target.cwd,
             ...(input.filePaths && target.excludePaths.length > 0
               ? {
@@ -326,7 +337,7 @@ export const make = Effect.gen(function* () {
         // Requested paths are relative to the workspace folder.
         const repositoryPrefix = `${target.pathPrefix}/`;
         const diff = yield* checkpoints.diffCheckpoints({
-          ...input,
+          ...perRepositoryInput,
           cwd: target.cwd,
           excludePaths: target.excludePaths,
           ...(input.filePaths
@@ -355,6 +366,7 @@ export const make = Effect.gen(function* () {
       const checkpoints = yield* resolveCheckpoints(input.cwd);
       return yield* checkpoints.listAuthoredPaths(input);
     }
+    const { range: _range, ...perRepositoryInput } = input;
     const perRepository = yield* forEachTarget(targets, (target) =>
       Effect.gen(function* () {
         const checkpoints = yield* resolveCheckpoints(target.cwd);
@@ -371,7 +383,7 @@ export const make = Effect.gen(function* () {
         if (!comparable) return { target, paths: new Set<string>() };
         return {
           target,
-          paths: yield* checkpoints.listAuthoredPaths({ ...input, cwd: target.cwd }),
+          paths: yield* checkpoints.listAuthoredPaths({ ...perRepositoryInput, cwd: target.cwd }),
         };
       }),
     );
@@ -385,7 +397,7 @@ export const make = Effect.gen(function* () {
         const numstat = yield* resolveCheckpoints(target.cwd).pipe(
           Effect.flatMap((checkpoints) =>
             checkpoints.diffCheckpoints({
-              ...input,
+              ...perRepositoryInput,
               cwd: target.cwd,
               ignoreWhitespace: false,
               format: "numstat",

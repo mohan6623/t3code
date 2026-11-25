@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import "~/index.css";
 
 import { render } from "../../../test/render";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./menu";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./sidebar";
 
 function CollapseFromInside() {
@@ -213,6 +214,51 @@ describe("Sidebar", () => {
       ).toBe(0);
     },
   );
+});
+
+function PeekHarness() {
+  return (
+    <SidebarProvider defaultOpen={false}>
+      <Sidebar collapsible="offcanvas">
+        <Menu>
+          <MenuTrigger>Sidebar menu</MenuTrigger>
+          <MenuPopup>
+            <MenuItem>Sidebar item</MenuItem>
+          </MenuPopup>
+        </Menu>
+      </Sidebar>
+      <main className="fixed inset-y-0 right-0 w-1/2">
+        Chat
+        <div role="menu" aria-label="Chat menu" />
+      </main>
+    </SidebarProvider>
+  );
+}
+
+describe("Sidebar peek", () => {
+  it.each([
+    ["a menu elsewhere on the page", false],
+    ["a missed mouseleave", true],
+  ])("ends when the pointer moves over the chat despite %s", async (_, missLeave) => {
+    await page.viewport(1280, 800);
+    await using screen = await render(<PeekHarness />, { router: false /* no routes involved */ });
+    const sidebar = screen.container.querySelector<HTMLElement>('[data-slot="sidebar"]')!;
+    await userEvent.hover(screen.container.querySelector('[data-slot="sidebar-peek-edge"]')!);
+    await expect.element(sidebar).toHaveAttribute("data-peek", "true");
+    await userEvent.hover(screen.getByRole("button", { name: "Sidebar menu" }));
+
+    // React derives mouseleave from mouseout/mouseover, so hiding them from it drops the leave.
+    const hideBoundaryEvents = (event: Event) => event.stopPropagation();
+    if (missLeave) {
+      window.addEventListener("mouseout", hideBoundaryEvents, true);
+      window.addEventListener("mouseover", hideBoundaryEvents, true);
+    }
+    await userEvent.hover(screen.getByText("Chat"));
+    window.removeEventListener("mouseout", hideBoundaryEvents, true);
+    window.removeEventListener("mouseover", hideBoundaryEvents, true);
+
+    await expect.element(sidebar).not.toHaveAttribute("data-peek");
+  });
 });
 
 it("restores collapsed and expanded desktop state after remounting", async () => {

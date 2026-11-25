@@ -36,7 +36,14 @@ const SIDEBAR_PEEK_OPEN_DELAY_MS = 150;
 const SIDEBAR_PEEK_CLOSE_DELAY_MS = 300;
 // A menu opened from the peeking sidebar renders outside it, so the pointer
 // leaves the sidebar to use it. Keep the sidebar out while one is open.
-const SIDEBAR_PEEK_HOLD_SELECTOR = '[role="menu"], [data-slot="sidebar-container"]:hover';
+// Fork: only the sidebar's own menus, or a popup under the pointer, hold it;
+// any menu anywhere on the page used to keep the peek open indefinitely.
+const SIDEBAR_PEEK_HOLD_SELECTOR = [
+  '[data-slot="sidebar-container"]:hover',
+  '[data-slot="sidebar-container"] [aria-haspopup="menu"][aria-expanded="true"]',
+  '[data-slot$="-popup"]:hover',
+  "[data-context-menu]",
+].join(", ");
 const SIDEBAR_COLLAPSE_DRAG_RATIO = 0.75;
 const SIDEBAR_TITLEBAR_CONTROL_SIZE = "max-sm:[--workspace-titlebar-control-size:--spacing(8)]";
 
@@ -275,6 +282,20 @@ function SidebarProvider({
   };
 
   const peeking = !isMobile && !open && peekState;
+  // Fork: React can miss the sidebar's mouseleave (a portaled popup removed under the
+  // pointer, or Electron drag regions), so the pointer reaching anything else also ends it.
+  const endPeekOnPointerOutside = React.useEffectEvent((event: PointerEvent) => {
+    if (peekTimerRef.current !== null) return;
+    if (event.target instanceof Element && event.target.closest('[data-slot="sidebar-container"]'))
+      return;
+    schedulePeek(false);
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens to the document only while peeking
+  React.useEffect(() => {
+    if (!peeking) return;
+    document.addEventListener("pointerover", endPeekOnPointerOutside);
+    return () => document.removeEventListener("pointerover", endPeekOnPointerOutside);
+  }, [peeking]);
 
   const state = resolveSidebarState({ isMobile, open, openMobile });
 

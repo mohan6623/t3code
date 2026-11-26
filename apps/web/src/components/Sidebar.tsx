@@ -265,7 +265,13 @@ import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuCheckboxItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipPopup,
+  TooltipProvider,
+  TooltipScrollDismissArea,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import {
   composerDraftHasUserContent,
   DraftId,
@@ -3288,6 +3294,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     collisionAvoidance={{ side: "flip", align: "shift" }}
                     className="w-[min(18rem,var(--available-width))] overflow-hidden"
                     finalFocus={(closeType) => closeType === "keyboard"}
+                    render={<TooltipScrollDismissArea holdPositionOnExit />}
                   >
                     <ComboboxSearchInput
                       aria-label={gt("Search projects")}

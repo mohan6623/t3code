@@ -14,11 +14,21 @@ import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { resolveRuntimeModeOption, runtimeModeConfig } from "./runtimeModeConfig";
 import { useComposerMenuState } from "./useComposerMenuState";
+import {
+  RuntimeModeLimitsTargetContext,
+  useProviderRuntimeModeLimits,
+} from "../../state/runtimeModeLimits";
 
 export type RuntimeModeOption = {
   mode: RuntimeMode;
   disabledReason?: string;
 } & (typeof runtimeModeConfig)[RuntimeMode];
+// Mounted only while a mode picker is open, so this asks the server again each time one opens.
+function RuntimeModeLimitsRefresh() {
+  useProviderRuntimeModeLimits(use(RuntimeModeLimitsTargetContext), "picker");
+  return null;
+}
+
 // Fork: the fork keeps its pre-3841 composer and dock; upstream's composer redesign (nightly 3841) changed this file.
 // Keep the fork side here when syncing (see .github/workflows/fork-upstream-sync.yml).
 export const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
@@ -59,6 +69,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
             <SelectValue data-composer-control-label>{runtimeModeOption.label}</SelectValue>
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
+            <RuntimeModeLimitsRefresh />
             {props.runtimeModeOptions.map((option) => {
               const OptionIcon = option.icon;
               return (

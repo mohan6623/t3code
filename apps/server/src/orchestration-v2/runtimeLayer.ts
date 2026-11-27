@@ -317,6 +317,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerThreadManagementProvided,
       layerCommandReceiptStoreProvided,
       layerEventSink,
+      ProjectionStore.layer,
       IdAllocator.layer,
       WorkspaceWorktrees.layer,
       WorkspaceRepositories.layer,

@@ -246,7 +246,10 @@ describe("Claude sign-in terminal", () => {
     await screen.click("Open link");
     expect(setup.openExternal).toHaveBeenCalledWith(signInUrl);
     await screen.click("Copy link");
-    expect(setup.writeClipboard).toHaveBeenCalledWith(signInUrl, "Provider sign-in link");
+    expect(setup.writeClipboard).toHaveBeenCalledWith(
+      signInUrl,
+      expect.objectContaining({ target: "provider sign-in link" }),
+    );
   });
 
   it("pastes the clipboard into the terminal", async () => {

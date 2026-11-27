@@ -78,7 +78,6 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import { Separator } from "./ui/separator";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { useComposerMenuProps } from "./chat/composerEventScope";
@@ -90,6 +89,7 @@ import {
 import { cn } from "~/lib/utils";
 
 import { observeResize } from "~/lib/observeResize";
+import { SharedTooltipTrigger } from "./ui/shared-tooltip";
 
 const isClipboardApiUnavailableError = Schema.is(ClipboardApiUnavailableError);
 const isClipboardWriteError = Schema.is(ClipboardWriteError);
@@ -256,50 +256,48 @@ const RunContextSelector = memo(function RunContextSelector({
     }
   };
   const workspaceIcon = (
-    <Tooltip>
-      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-        <WorkspaceIcon
-          className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-        />
-      </TooltipTrigger>
-      <TooltipPopup>
-        {isPanel
+    <SharedTooltipTrigger
+      render={<span className="inline-flex shrink-0" />}
+      label={
+        isPanel
           ? forceNewWorktree
             ? gt("Each model starts in its own worktree.")
             : (workspacePath ?? workspaceLabel)
-          : workspaceLabel}
-      </TooltipPopup>
-    </Tooltip>
+          : workspaceLabel
+      }
+    >
+      <WorkspaceIcon
+        className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+      />
+    </SharedTooltipTrigger>
   );
-  const environmentLabel = autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on";
+  const environmentLabel = autoEnvironmentLabel ?? activeEnvironment?.label ?? gt("Run on");
   // Fork: in the composer strip the machine icon alone stands for the run
   // context; the folder or worktree shows in its tooltip and its menu.
   const icon = !showEnvironmentIndicator ? (
     workspaceIcon
   ) : (
-    <Tooltip>
-      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-        {autoEnvironmentLabel ? (
-          <ScaleIcon
-            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-            aria-hidden="true"
-          />
-        ) : (
-          <EnvironmentMachineIcon
-            kind={activeEnvironment?.machine ?? "server"}
-            // Wide machine glyphs need a little more box to match the square row icons.
-            className={
-              isPanel
-                ? cn(THREAD_DETAILS_PANEL_ICON_CLASS, "-mx-px size-4.5")
-                : "size-3 shrink-0 mx-0!"
-            }
-          />
-        )}
-      </TooltipTrigger>
-      <TooltipPopup>
-        {isPanel ? environmentLabel : `${environmentLabel} · ${workspaceLabel}`}
-      </TooltipPopup>
-    </Tooltip>
+    <SharedTooltipTrigger
+      render={<span className="inline-flex shrink-0" />}
+      label={isPanel ? environmentLabel : `${environmentLabel} · ${workspaceLabel}`}
+    >
+      {autoEnvironmentLabel ? (
+        <ScaleIcon
+          className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+          aria-hidden="true"
+        />
+      ) : (
+        <EnvironmentMachineIcon
+          kind={activeEnvironment?.machine ?? "server"}
+          // Wide machine glyphs need a little more box to match the square row icons.
+          className={
+            isPanel
+              ? cn(THREAD_DETAILS_PANEL_ICON_CLASS, "-mx-px size-4.5")
+              : "size-3 shrink-0 mx-0!"
+          }
+        />
+      )}
+    </SharedTooltipTrigger>
   );
   const triggerContent = (
     <>

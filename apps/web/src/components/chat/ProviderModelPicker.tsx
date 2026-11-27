@@ -10,7 +10,6 @@ import { T, useGT } from "gt-react";
 import { memo, useContext, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPickerContent";
@@ -24,6 +23,7 @@ import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
 /** Holds the page still behind the open picker; its lifetime is the popup element's. */
 function lockBackgroundScroll(popup: HTMLElement | null) {
@@ -285,23 +285,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               )}
             />
           ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 overflow-hidden truncate",
-                    // Long names such as "Fusion (Claude Opus 5.5 Medium + SWE-2 High)" would push the composer.
-                    props.isComposerOwned && "max-w-56",
-                  )}
-                  data-chat-provider-model-picker-label="true"
-                />
-              }
-            >
-              {props.triggerLabel ?? multipleLabel ?? triggerTitle}
-            </TooltipTrigger>
-            <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
-          </Tooltip>
+          <SharedTooltipTrigger
+            render={
+              <span
+                className={cn(
+                  "min-w-0 flex-1 overflow-hidden truncate",
+                  // Long names such as "Fusion (Claude Opus 5.5 Medium + SWE-2 High)" would push the composer.
+                  props.isComposerOwned && "max-w-56",
+                )}
+                data-chat-provider-model-picker-label="true"
+              />
+            }
+            label={triggerTooltipContent}
+          >
+            {props.triggerLabel ?? multipleLabel ?? triggerTitle}
+          </SharedTooltipTrigger>
           {selectedModel?.isUnavailable && !selectedEntries && props.triggerLabel === undefined ? (
             <Badge variant="outline" size="sm">
               <T context="badge on a model that cannot be selected">Unavailable</T>

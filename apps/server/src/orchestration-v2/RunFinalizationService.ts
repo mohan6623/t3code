@@ -234,7 +234,7 @@ export const layerObserver = Layer.effect(
                 }));
           yield* Effect.all(
             [
-              workspaceEntries.refresh(cwd),
+              workspaceEntries.refresh(cwd, "passive"),
               Effect.forEach(
                 statusTargets,
                 (target) => refreshStatus({ ...target, threadId, runId }),

@@ -416,6 +416,7 @@ import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
 import { ChatFilesDock, FilesDockToggle } from "./chat/ChatFilesDock";
+import type { RightPanelTabsHandle } from "./RightPanelTabs";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem, extensionStatusBannerItem } from "./chat/ThreadActivityBanners";
 import { ThreadNow } from "./chat/ThreadNow";
@@ -607,6 +608,7 @@ export default function ChatView(props: ChatViewProps) {
   const queuedRunEdit = useQueuedRunEdit({
     environmentId,
     routeThreadRef,
+    currentRouteThreadKeyRef,
     threadDraftTarget: baseComposerDraftTarget,
     activeThreadId: serverThread !== null || draftThread !== null ? threadId : null,
     serverProjection,
@@ -2371,6 +2373,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [canMaximizeRightPanel, routeThreadRef]);
   const {
     closeSurface: closeRightPanelSurface,
+    closeSelectedSurfaces: closeSelectedRightPanelSurfaces,
     closeOtherSurfaces: closeOtherRightPanelSurfacesStable,
     closeSurfacesToRight: closeRightPanelSurfacesToRightStable,
     closeAllSurfaces: closeAllRightPanelSurfacesStable,
@@ -2757,7 +2760,7 @@ export default function ChatView(props: ChatViewProps) {
     createBrowserSurface,
     createBrowserSurfaceStable,
     duplicateBrowserSurfaceStable,
-    moveRightPanelSurfaceStable,
+    moveRightPanelSurfacesStable,
     onOpenToolDiffStable,
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
@@ -2789,7 +2792,6 @@ export default function ChatView(props: ChatViewProps) {
     gitCwd,
     activeProjectCwd,
     onDiffPanelOpen,
-    closeRightPanelSurface,
   });
   const pullRequestSurfaceAvailable = supportsPullRequests && pullRequestPanelTarget !== null;
   const {
@@ -3152,6 +3154,12 @@ export default function ChatView(props: ChatViewProps) {
     }
   });
 
+  const rightPanelTabsRef = useRef<RightPanelTabsHandle>(null);
+  const closeActiveRightPanelSurfaceStable = useStableCallback(() => {
+    if (rightPanelTabsRef.current?.closeSelectedTabs()) return;
+    if (activeRightPanelSurface) closeRightPanelSurface(activeRightPanelSurface);
+  });
+
   useChatShortcuts({
     enabled: activeThreadId !== null && !backgroundThread,
     embedded,
@@ -3173,6 +3181,22 @@ export default function ChatView(props: ChatViewProps) {
       "rightPanel.toggleComposer": ({ event }) => {
         if (!rightPanelMaximized) return false;
         if (!event.repeat) toggleMaximizedComposerStable();
+      },
+      "rightPanel.close": ({ event }) => {
+        // Fork: inside the left files dock, the shortcut closes the dock's tab.
+        if (
+          activeThreadRef &&
+          document.activeElement?.closest('[data-workspace-area="files-dock"]')
+        ) {
+          const dockRef = filesDockRef(activeThreadRef);
+          const store = useRightPanelStore.getState();
+          const dockSurface = selectActiveRightPanelSurface(store.byThreadKey, dockRef);
+          if (!dockSurface) return false;
+          if (!event.repeat) store.closeSurface(dockRef, dockSurface.id);
+          return;
+        }
+        if (!activeRightPanelSurface) return false;
+        if (!event.repeat) closeActiveRightPanelSurfaceStable();
       },
       "thread.copyReference": ({ event }) => {
         if (!event.repeat) copyActiveThreadReference();
@@ -3209,10 +3233,6 @@ export default function ChatView(props: ChatViewProps) {
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
       return script ? () => void runProjectScriptStable(script) : undefined;
     },
-  });
-
-  const closeActiveRightPanelSurfaceStable = useStableCallback(() => {
-    if (activeRightPanelSurface) closeRightPanelSurface(activeRightPanelSurface);
   });
 
   // A focused desktop browser page forwards these chords as menu actions.
@@ -4515,9 +4535,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
                     : {})}
                   onComposerFocusRequest={scheduleComposerFocusStable}
-                  {...(isServerThread && hasGitSurfaces
-                    ? { onOpenChanges: openChangesFromThreadPanelStable }
-                    : {})}
+                  {...(hasGitSurfaces ? { onOpenChanges: openChangesFromThreadPanelStable } : {})}
                   onRunProjectScript={runProjectScriptStable}
                   onAddProjectScript={saveProjectScriptStable}
                   onUpdateProjectScript={updateProjectScriptStable}
@@ -4568,6 +4586,7 @@ export default function ChatView(props: ChatViewProps) {
       ) : null}
       {rightPanelPresent && activeThreadRef && !embedded ? (
         <ChatRightPanel
+          ref={rightPanelTabsRef}
           sheet={shouldUsePlanSidebarSheet}
           workspaceLayoutElement={workspaceLayoutElement}
           widthStorageKey={`t3code:preview-panel-width:${activeThreadKey}`}
@@ -4596,6 +4615,7 @@ export default function ChatView(props: ChatViewProps) {
             ) : null
           }
           surfaces={renderedRightPanelSurfaces}
+          selectionScope={activeThreadKey}
           environmentId={activeThreadRef.environmentId}
           activeSurfaceId={renderedRightPanelSurface?.id ?? null}
           pendingSurfaceIds={pendingFileSurfaceIds}
@@ -4605,6 +4625,7 @@ export default function ChatView(props: ChatViewProps) {
           terminalLabelsById={activeTerminalLabelsById}
           onActivate={activateRightPanelSurfaceStable}
           onCloseSurface={closeRightPanelSurfaceStable}
+          onCloseSelectedSurfaces={closeSelectedRightPanelSurfaces}
           onOpenInMainView={openSurfaceInMainView}
           onRenameDevice={(surfaceId, title) => {
             if (activeThreadRef)
@@ -4613,7 +4634,7 @@ export default function ChatView(props: ChatViewProps) {
           onCloseOtherSurfaces={closeOtherRightPanelSurfacesStable}
           onCloseSurfacesToRight={closeRightPanelSurfacesToRightStable}
           onCloseAllSurfaces={closeAllRightPanelSurfacesStable}
-          onMoveSurface={moveRightPanelSurfaceStable}
+          onMoveSurfaces={moveRightPanelSurfacesStable}
           onCopyFilePath={copyRightPanelFilePathStable}
           onAddBrowser={() => createBrowserSurface()}
           onAddBrowserInProfile={createBrowserSurfaceStable}
@@ -4627,7 +4648,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
-          diffAvailable={isServerThread && diffAvailable}
+          diffAvailable={diffAvailable}
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={linkedItemsSurfaceAvailable}

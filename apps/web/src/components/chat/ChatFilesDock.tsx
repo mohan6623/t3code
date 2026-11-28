@@ -2,6 +2,7 @@
 // "File explorer side" setting is Left. It is the right panel's tab strip and
 // shell, bound to the thread's files dock key in the right panel store.
 import type { ResolvedKeybindingsConfig, ScopedThreadRef } from "@t3tools/contracts";
+import { useGT } from "gt-react";
 import { PanelLeftIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -81,10 +82,16 @@ export function ChatFilesDock(props: ChatFilesDockProps) {
       terminalLabelsById={NO_TERMINAL_LABELS}
       onActivate={(surface) => store().activateSurface(dockRef, surface.id)}
       onCloseSurface={(surface) => store().closeSurface(dockRef, surface.id)}
+      onCloseSelectedSurfaces={(surfaces) =>
+        store().closeSurfaces(
+          dockRef,
+          surfaces.map((surface) => surface.id),
+        )
+      }
       onCloseOtherSurfaces={(surface) => store().closeOtherSurfaces(dockRef, surface.id)}
       onCloseSurfacesToRight={(surface) => store().closeSurfacesToRight(dockRef, surface.id)}
       onCloseAllSurfaces={() => store().closeAllSurfaces(dockRef)}
-      onMoveSurface={(surfaceId, toIndex) => store().moveSurface(dockRef, surfaceId, toIndex)}
+      onMoveSurfaces={(surfaceIds, targetId) => store().moveSurfaces(dockRef, surfaceIds, targetId)}
       onCopyFilePath={props.onCopyFilePath}
       onAddFiles={() => store().open(props.threadRef, "files")}
       onAddBrowser={unavailable}
@@ -131,7 +138,10 @@ export function FilesDockToggle(props: {
   const open = useRightPanelStore(
     (state) => selectThreadRightPanelState(state.byThreadKey, filesDockRef(props.threadRef)).isOpen,
   );
-  const label = props.filesAvailable ? "Toggle file explorer" : "File explorer is unavailable";
+  const gt = useGT();
+  const label = props.filesAvailable
+    ? gt("Toggle file explorer")
+    : gt("File explorer is unavailable");
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="mr-1 flex shrink-0 sm:mr-2" />}>
@@ -139,7 +149,7 @@ export function FilesDockToggle(props: {
           className="shrink-0 [-webkit-app-region:no-drag]"
           pressed={open}
           onPressedChange={() => toggleFilesDock(props.threadRef, props.filesAvailable)}
-          aria-label="Toggle file explorer"
+          aria-label={gt("Toggle file explorer")}
           data-files-dock-toggle
           variant="ghost"
           size="sm"
